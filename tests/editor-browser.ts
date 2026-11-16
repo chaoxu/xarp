@@ -229,10 +229,17 @@ try {
   await page.waitForFunction(() => { const handle=document.querySelector('.moveable-se'); if (!handle) return false; const r=handle.getBoundingClientRect(); return handle.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)); });
   const oldWidth=await page.$eval('#shape',el=>el.getAttribute('width'));
   const handle=await page.$eval('.moveable-se',el=>{const r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
+  await page.evaluate(() => {
+    (window as any).__resizeTrace = [];
+    for (const type of ['mousedown', 'mousemove', 'mouseup']) document.addEventListener(type, event => {
+      const target = event.target as Element;
+      const trace = (window as any).__resizeTrace;
+      if (trace.length < 32) trace.push({ type, x:event.clientX, y:event.clientY, buttons:event.buttons, target:target.tagName+'.'+target.getAttribute('class'), width:document.getElementById('shape')?.getAttribute('width') });
+    }, true);
+  });
   await page.mouse.move(handle.x,handle.y);await page.mouse.down();
   await page.evaluate(() => new Promise(requestAnimationFrame));
-  // Give the control a rendered frame for each pointer sample, as a physical
-  // drag does. Virtual macOS displays can coalesce an entire CDP burst.
+  // Let each pointer sample reach a rendered frame before releasing the mouse.
   for (let step = 1; step <= 8; step++) {
     await page.mouse.move(handle.x + 40 * step / 8, handle.y + 25 * step / 8);
     await page.evaluate(() => new Promise(requestAnimationFrame));
@@ -343,7 +350,7 @@ try {
   console.log(JSON.stringify({ checks: checks.length, passed: checks, pageErrors: errors }));
 } catch (error) {
   await page.screenshot({ path: join(output, "failure.png") }).catch(() => {});
-  console.error(JSON.stringify({ status: await text("#te-status").catch(() => null), pageErrors: errors, state:await page.evaluate(()=>({active:document.activeElement?.outerHTML?.slice(0,300),editables:[...document.querySelectorAll('[contenteditable]')].map(el=>el.outerHTML.slice(0,200)),coords:document.getElementById('te-coords')?.textContent})).catch(()=>null) }));
+  console.error(JSON.stringify({ status: await text("#te-status").catch(() => null), pageErrors: errors, state:await page.evaluate(()=>({active:document.activeElement?.outerHTML?.slice(0,300),editables:[...document.querySelectorAll('[contenteditable]')].map(el=>el.outerHTML.slice(0,200)),coords:document.getElementById('te-coords')?.textContent,resizeTrace:(window as any).__resizeTrace})).catch(()=>null) }));
   throw error;
 } finally {
   await browser.close();
