@@ -23,13 +23,16 @@ export async function resolveProject(options: BuildOptions) {
   const cwd = await realpath(resolve(options.cwd ?? process.cwd()));
   const input = await containedFile(cwd, options.input);
   requireValue((await lstat(input)).isFile() && /\.md$/i.test(input), 'The input must be a Markdown file');
-  const output = resolve(cwd, options.output ?? 'dist');
+  let output = resolve(cwd, options.output ?? 'dist');
   requireValue(output !== cwd && !isWithin(output, input), 'Output must not contain the input or replace the project directory');
   requireValue(isWithin(cwd, output), 'The output directory must be inside the project');
   // Check existing ancestors before making directories through them.
   let ancestor = dirname(output);
   while (!await pathExists(ancestor)) ancestor = dirname(ancestor);
-  requireValue(isWithin(cwd, await realpath(ancestor)), 'Output symlink is outside the project');
+  const canonicalAncestor = await realpath(ancestor);
+  requireValue(isWithin(cwd, canonicalAncestor), 'Output symlink is outside the project');
+  output = resolve(canonicalAncestor, relative(ancestor, output));
+  requireValue(output !== cwd && !isWithin(output, input), 'Output must not contain the input or replace the project directory');
   requireValue(await outputIsOwned(output), 'Output is not an empty directory or an existing Xarp build');
   const sourceFile = relative(cwd, input).split('\\').join('/');
   const viewId = basename(input, '.md').replace(/[^a-zA-Z0-9_-]/g, '-') || 'deck';
@@ -96,7 +99,7 @@ async function stageProjectAssets(options: BuildOptions, project: Awaited<Return
     requireValue(typeof entry === 'string' && entry.length > 0, 'Invalid asset path');
     const source = await containedFile(project.cwd, entry);
     const target = options.assets === undefined ? 'assets' : relative(project.cwd, resolve(project.cwd, entry)).split('\\').join('/');
-    requireValue(target !== '' && !target.startsWith('_xarp/') && target !== '_xarp' && !target.startsWith('.') && target !== 'index.html', `Reserved asset path: ${entry}`);
+    requireValue(target !== '' && !target.startsWith('_xarp/') && target !== '_xarp' && !target.startsWith('.') && target !== 'index.html' && target !== 'input.md', `Reserved asset path: ${entry}`);
     requireValue(!isWithin(source, project.output) && !isWithin(project.output, source), 'Assets must not include the output directory');
     requireValue(!targets.has(target), `Duplicate asset path: ${entry}`);
     targets.add(target);

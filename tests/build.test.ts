@@ -84,6 +84,8 @@ test('assets keep public paths and reject escaping symlinks', async () => {
   await expect(build(config)).rejects.toThrow('outside the project');
   expect(await readFile(explicit.htmlPath, 'utf8')).toContain('First');
   await expect(build({ ...config, assets: ['dist'] })).rejects.toThrow('output directory');
+  await writeFile(join(config.cwd, 'input.md'), 'Asset must not become temporary renderer input');
+  await expect(build({ ...config, assets: ['input.md'] })).rejects.toThrow('Reserved asset path');
 });
 
 test('unowned output and source-containing output are preserved', async () => {
@@ -94,6 +96,16 @@ test('unowned output and source-containing output are preserved', async () => {
   expect(await readFile(join(config.cwd, 'dist/important'), 'utf8')).toBe('keep');
   await expect(build({ ...config, output: '.' })).rejects.toThrow('must not contain');
   await expect(build({ ...config, output: '../elsewhere' })).rejects.toThrow('inside the project');
+});
+
+test('an internal symlink cannot hide an output directory containing the source', async () => {
+  const config = await project();
+  await mkdir(join(config.cwd, 'owned'));
+  await writeFile(join(config.cwd, 'owned/slides.md'), '# Keep this source');
+  await writeFile(join(config.cwd, 'owned/.xarp-build.json'), JSON.stringify({ generator: '@chaoxu/xarp' }));
+  await symlink(config.cwd, join(config.cwd, 'alias'));
+  await expect(build({ ...config, input: 'owned/slides.md', output: 'alias/owned' })).rejects.toThrow('must not contain');
+  expect(await readFile(join(config.cwd, 'owned/slides.md'), 'utf8')).toBe('# Keep this source');
 });
 
 test('conflicting plugin names and asset destinations fail', async () => {

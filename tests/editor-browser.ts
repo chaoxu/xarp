@@ -225,9 +225,13 @@ try {
   await page.click("#shape", { offset: { x: 130, y: 45 } });
   await page.waitForSelector('.moveable-se', {visible:true});
   await page.waitForFunction(()=>{const handle=document.querySelector('.moveable-se')?.getBoundingClientRect(),shape=document.getElementById('shape')?.getBoundingClientRect();return handle&&shape&&Math.abs(handle.left+handle.width/2-shape.right)<4&&Math.abs(handle.top+handle.height/2-shape.bottom)<4;});
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.waitForFunction(() => { const handle=document.querySelector('.moveable-se'); if (!handle) return false; const r=handle.getBoundingClientRect(); return handle.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)); });
   const oldWidth=await page.$eval('#shape',el=>el.getAttribute('width'));
   const handle=await page.$eval('.moveable-se',el=>{const r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
-  await page.mouse.move(handle.x,handle.y);await page.mouse.down();await page.mouse.move(handle.x+40,handle.y+25,{steps:8});await page.mouse.up();
+  await page.mouse.move(handle.x,handle.y);await page.mouse.down();
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.mouse.move(handle.x+40,handle.y+25,{steps:8});await page.mouse.up();
   const resizedWidth=await page.$eval('#shape',el=>el.getAttribute('width'));
   assert.notEqual(resizedWidth,oldWidth);
   await undo();assert.equal(await page.$eval('#shape',el=>el.getAttribute('width')),oldWidth);
