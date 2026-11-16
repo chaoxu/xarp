@@ -90,7 +90,7 @@ await page.setViewport({ width: 1280, height: 720 });
 const text = (selector: string) => page.$eval(selector, element => element.textContent);
 const disabled = (id: string) => page.$eval(id, element => (element as HTMLButtonElement).disabled);
 const editText = async (selector: string, value: string) => {
-  await page.click(selector, { count: 2 });
+  await page.locator(selector).click({ count: 2 });
   await page.waitForFunction(sel => document.querySelector(sel)?.getAttribute("contenteditable") === "true", {}, selector);
   await page.$eval(selector, element => { const selection = window.getSelection()!; const range = document.createRange(); range.selectNodeContents(element); selection.removeAllRanges(); selection.addRange(range); });
   await page.keyboard.type(value);
