@@ -81,7 +81,7 @@ await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve));
 const address=server.address();
 assert(address && typeof address !== 'string');
 const port=address.port;
-const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: process.env.HEADLESS !== "0", args: ["--no-sandbox"] });
+const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: process.env.HEADLESS !== "0", args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"], dumpio: process.env.CI === 'true' });
 const page = await browser.newPage();
 const errors: string[] = [], checks: string[] = [];
 page.on("pageerror", error => errors.push(String(error)));

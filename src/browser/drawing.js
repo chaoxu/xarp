@@ -266,9 +266,11 @@
       finishStroke();
     });
   }
-  for (const name of ["click", "dblclick", "contextmenu"]) surface.addEventListener(name, event => {
+  // Touch events must not reach the presentation's swipe handlers or browser
+  // history gestures while pointer events are drawing the stroke.
+  for (const name of ["click", "dblclick", "contextmenu", "touchstart", "touchmove", "touchend"]) surface.addEventListener(name, event => {
     if (active) { event.preventDefault(); event.stopPropagation(); }
-  });
+  }, { passive: false });
 
   window.addEventListener("xarp-mode-request", event => {
     if (event.detail?.mode === "edit") setActive(false);

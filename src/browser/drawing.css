@@ -49,6 +49,7 @@
 .xarp-drawing-layer * { pointer-events: none; }
 .xarp-drawing-surface { touch-action: none; }
 body.xarp-drawing-active .xarp-drawing-surface { pointer-events: all; cursor: crosshair; }
+:root:has(body.xarp-drawing-active) { overscroll-behavior: none; }
 
 .xarp-drawing-layer[hidden],
 .xarp-drawing-toolbar[hidden],
