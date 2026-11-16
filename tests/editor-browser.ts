@@ -83,6 +83,24 @@ assert(address && typeof address !== 'string');
 const port=address.port;
 const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: process.env.HEADLESS !== "0", args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"], dumpio: process.env.CI === 'true' });
 const page = await browser.newPage();
+await page.evaluateOnNewDocument(() => {
+  let constructor;
+  (window as any).__moveableTrace = [];
+  Object.defineProperty(window, 'Moveable', {
+    configurable: true,
+    get: () => constructor,
+    set(value) {
+      constructor = new Proxy(value, { construct(target, args) {
+        const instance = Reflect.construct(target, args);
+        (window as any).__testMoveable = instance;
+        for (const type of ['dragStart', 'dragEnd', 'resizeStart', 'resize', 'resizeEnd']) instance.on(type, event => {
+          (window as any).__moveableTrace.push({ type, id:event.target?.id, connected:event.target?.isConnected, current:event.target === document.getElementById('shape'), width:event.width, dist:event.dist, delta:event.delta });
+        });
+        return instance;
+      } });
+    },
+  });
+});
 const errors: string[] = [], checks: string[] = [];
 page.on("pageerror", error => errors.push(String(error)));
 page.on("dialog", dialog => void dialog.accept());
@@ -350,7 +368,7 @@ try {
   console.log(JSON.stringify({ checks: checks.length, passed: checks, pageErrors: errors }));
 } catch (error) {
   await page.screenshot({ path: join(output, "failure.png") }).catch(() => {});
-  console.error(JSON.stringify({ status: await text("#te-status").catch(() => null), pageErrors: errors, state:await page.evaluate(()=>({active:document.activeElement?.outerHTML?.slice(0,300),editables:[...document.querySelectorAll('[contenteditable]')].map(el=>el.outerHTML.slice(0,200)),coords:document.getElementById('te-coords')?.textContent,resizeTrace:(window as any).__resizeTrace})).catch(()=>null) }));
+  console.error(JSON.stringify({ status: await text("#te-status").catch(() => null), pageErrors: errors, state:await page.evaluate(()=>({active:document.activeElement?.outerHTML?.slice(0,300),editables:[...document.querySelectorAll('[contenteditable]')].map(el=>el.outerHTML.slice(0,200)),coords:document.getElementById('te-coords')?.textContent,resizeTrace:(window as any).__resizeTrace,moveableTrace:(window as any).__moveableTrace,moveableDragging:(window as any).__testMoveable?.isDragging(),moveableTarget:(window as any).__testMoveable?.target?.outerHTML?.slice(0,300)})).catch(()=>null) }));
   throw error;
 } finally {
   await browser.close();
