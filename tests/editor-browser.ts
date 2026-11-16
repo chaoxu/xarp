@@ -231,7 +231,13 @@ try {
   const handle=await page.$eval('.moveable-se',el=>{const r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
   await page.mouse.move(handle.x,handle.y);await page.mouse.down();
   await page.evaluate(() => new Promise(requestAnimationFrame));
-  await page.mouse.move(handle.x+40,handle.y+25,{steps:8});await page.mouse.up();
+  // Give the control a rendered frame for each pointer sample, as a physical
+  // drag does. Virtual macOS displays can coalesce an entire CDP burst.
+  for (let step = 1; step <= 8; step++) {
+    await page.mouse.move(handle.x + 40 * step / 8, handle.y + 25 * step / 8);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+  }
+  await page.mouse.up();
   await page.waitForFunction(width => document.getElementById('shape')?.getAttribute('width') !== width, {}, oldWidth);
   const resizedWidth=await page.$eval('#shape',el=>el.getAttribute('width'));
   assert.notEqual(resizedWidth,oldWidth);
