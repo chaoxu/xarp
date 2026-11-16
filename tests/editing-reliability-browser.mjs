@@ -158,21 +158,28 @@ try {
 
   await withDeck('# Alpha\n\n---\n\n# Beta\n\n<p id="p2">Original</p>\n', async ({ page, source, preview }) => {
     const color = () => page.$eval('#p2', element => getComputedStyle(element).color);
+    // Marp skips rendering inactive slides. Inspect their DOM, then check color when visible.
+    const inlineColor = () => page.$eval('#p2', element => element.closest('section').style.color);
     const red = '# Alpha\n\n<!-- color: rgb(200, 0, 0) -->';
     const blue = '# Alpha\n\n<!-- color: rgb(0, 0, 200) -->';
-    await saveMarkdown(page, red);
-    assert.equal(await color(), 'rgb(200, 0, 0)');
+    const receipt = await saveMarkdown(page, red);
+    assert.deepEqual(receipt.changedSlides, ['slide-2']);
+    assert.equal(receipt.deckStyleChanged, false);
+    assert.equal(await inlineColor(), 'rgb(200, 0, 0)');
     await page.click('#te-undo');
     assert.match(await status(page), /Unsaved/);
     await page.click('#te-redo');
     assert.equal(await disabled(page, '#te-save'), true);
     await go(page, 2);
+    assert.equal(await color(), 'rgb(200, 0, 0)');
     await editText(page, '#p2', 'Pending text');
     await go(page, 1); await saveMarkdown(page, blue);
     assert.equal(await text(page, '#p2'), 'Pending text');
-    assert.equal(await color(), 'rgb(200, 0, 0)');
+    assert.equal(await inlineColor(), 'rgb(200, 0, 0)');
     assert.match(await status(page), /Unsaved slides: 2/);
-    await go(page, 2); await page.click('#te-undo');
+    await go(page, 2);
+    assert.equal(await color(), 'rgb(200, 0, 0)');
+    await page.click('#te-undo');
     assert.equal(await text(page, '#p2'), 'Original');
     assert.equal(await color(), 'rgb(0, 0, 200)');
     assert.equal(await disabled(page, '#te-save'), true);
