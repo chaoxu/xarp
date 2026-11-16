@@ -232,6 +232,7 @@ try {
   await page.mouse.move(handle.x,handle.y);await page.mouse.down();
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await page.mouse.move(handle.x+40,handle.y+25,{steps:8});await page.mouse.up();
+  await page.waitForFunction(width => document.getElementById('shape')?.getAttribute('width') !== width, {}, oldWidth);
   const resizedWidth=await page.$eval('#shape',el=>el.getAttribute('width'));
   assert.notEqual(resizedWidth,oldWidth);
   await undo();assert.equal(await page.$eval('#shape',el=>el.getAttribute('width')),oldWidth);
