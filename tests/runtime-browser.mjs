@@ -16,6 +16,7 @@ await mkdir(output, { recursive: true });
 await cp(join(root, 'examples/basic'), join(temporary, 'project'), { recursive: true, filter: path => !path.includes('/dist') && !path.includes('/.xarp-') });
 const config = { cwd: join(temporary, 'project'), input: 'slides.md', sections: [{ label: 'Make', count: 2 }, { label: 'Present', count: 2 }] };
 const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--no-sandbox'] });
+console.log(`Runtime browser: ${await browser.version()}`);
 let staticDirectory;
 const server = createServer(async (incoming, outgoing) => {
   try { await sendResponse(await staticResponse(await nodeRequest(incoming), staticDirectory), outgoing); }
@@ -38,7 +39,7 @@ try {
       else void request.continue();
     });
     page.on('response', response => { if (response.status() >= 400 && !response.url().includes('/__xarp/') && !response.url().endsWith('/favicon.ico')) failedAssets.push(response.url()); });
-    await page.setViewport({ width: 1280, height: 720 });
+    await page.setViewport({ width: 1280, height: 720, hasTouch: true });
     await page.goto(base, { waitUntil: 'networkidle0' });
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.$$eval('section.pf-slide', elements => elements.length), 4);
@@ -57,16 +58,23 @@ try {
       await page.keyboard.press('d');
       await page.waitForSelector('body.xarp-drawing-active');
       assert.equal(await page.evaluate(() => document.body.classList.contains('xarp-edit-active')), false);
+      await page.evaluate(() => {
+        window.__pointerEvents = [];
+        for (const name of ['pointerdown', 'pointerup', 'pointercancel']) document.querySelector('.xarp-drawing-surface').addEventListener(name, event => window.__pointerEvents.push({ type: name, pointerType: event.pointerType, isPrimary: event.isPrimary, button: event.button }));
+      });
       await page.mouse.move(100, 300); await page.mouse.down(); await page.mouse.move(300, 350, { steps: 8 }); await page.mouse.up();
       await page.waitForSelector('.xarp-drawing-layer g > path');
       const cdp = await page.createCDPSession();
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 120, y: 400, button: 'left', clickCount: 1, pointerType: 'pen' });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 320, y: 430, button: 'left', buttons: 1, pointerType: 'pen' });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 320, y: 430, button: 'left', clickCount: 1, pointerType: 'pen' });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.$$eval('.xarp-drawing-layer g > path', paths => paths.length), 2, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 460 }] });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 340, y: 490 }] });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await page.waitForFunction(() => document.querySelectorAll('.xarp-drawing-layer g > path').length === 3);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.$$eval('.xarp-drawing-layer g > path', paths => paths.length), 3, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
       await cdp.detach();
       if (edit) {
         await page.keyboard.press('e');
@@ -120,6 +128,9 @@ try {
   assert.deepEqual(errors, []);
   await page.close();
   console.log('PASS runtime: portable offline assets, plugin combinations and ordering, mouse/pen/touch, section links, plain-source save, live rebuild, retained drafts and undo');
+} catch (error) {
+  for (const [index, page] of (await browser.pages()).entries()) await page.screenshot({ path: join(output, `runtime-failure-${index}.png`) }).catch(() => {});
+  throw error;
 } finally {
   await browser.close();
   await preview?.close();
