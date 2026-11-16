@@ -713,6 +713,9 @@
     selectedEl = el;
     ensureMoveable();
     if (moveable) {
+      // SVG attributes are canonical. A stale SVG layout measurement must not
+      // trigger Moveable's CSS-size correction and undo the requested resize.
+      moveable.checkResizableError = !el || !isSvgChild(el);
       moveable.target = el;
       if (startEvent && el && !editingText) {
         moveable.waitToChangeTarget().then(() => {

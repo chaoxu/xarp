@@ -15,7 +15,7 @@ const output = join(root, 'output/browser');
 await mkdir(output, { recursive: true });
 await cp(join(root, 'examples/basic'), join(temporary, 'project'), { recursive: true, filter: path => !path.includes('/dist') && !path.includes('/.xarp-') });
 const config = { cwd: join(temporary, 'project'), input: 'slides.md', sections: [{ label: 'Make', count: 2 }, { label: 'Present', count: 2 }] };
-const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'], dumpio: process.env.CI === 'true' });
+const browser = await puppeteer.launch({ executablePath: process.env.XARP_TEST_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
 console.log(`Runtime browser: ${await browser.version()}`);
 let staticDirectory;
 const server = createServer(async (incoming, outgoing) => {
