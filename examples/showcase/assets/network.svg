@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 720" role="img" aria-label="A graph with a highlighted route between connected vertices">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="720" viewBox="0 0 620 720" role="img" aria-label="A graph with a highlighted route between connected vertices">
   <rect width="620" height="720" fill="#f8fafc"/>
   <g fill="none" stroke="#cad5e2" stroke-width="2">
     <path d="M80 130L300 80L530 190L490 430L330 620L100 530L80 130M80 130L490 430M300 80L100 530M530 190L100 530M300 80L330 620M80 130L330 620"/>

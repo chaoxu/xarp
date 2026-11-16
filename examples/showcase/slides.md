@@ -110,15 +110,17 @@ await build({
 <!-- slide: background -->
 <!-- _class: pf-slide background -->
 
-![bg right:45%](assets/network.svg)
+<!-- _backgroundImage: url("assets/network.svg") -->
+<!-- _backgroundPosition: right center -->
+<!-- _backgroundSize: 45% 100% -->
 
 # Use an image background
 
-The background is an SVG asset. The words remain editable slide content.
+<p id="demo-background-text" data-xarp-edit="text">The background is an SVG asset. The words remain editable slide content.</p>
 
-<p class="hint">Try <kbd>E</kbd> and double-click this text.</p>
+<p class="hint">Press <kbd>E</kbd>, then double-click the sentence above.</p>
 
-<!-- Marp creates separate background and content layers here. This is also a hands-on example of editing on a background slide. The graph is an original illustration of a route, with no performance or data claim. -->
+<!-- The Marp background directive keeps the graph behind a full-width content layer, so the section bar and editing surface remain usable. The graph is an original illustration of a route, with no performance or data claim. -->
 
 ---
 

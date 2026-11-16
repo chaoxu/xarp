@@ -101,6 +101,12 @@ section.pf-slide .curve-controls { padding-bottom: 35px; }
 section.pf-slide .curve-controls label { display: block; font-size: 26px; }
 section.pf-slide .curve-controls output { display: block; font-size: 64px; font-variant-numeric: tabular-nums; margin: 10px 0; }
 section.pf-slide input[type=range] { width: 100%; accent-color: var(--pf-slide-info); cursor: pointer; }
+section.pf-slide input[type=range] {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  touch-action: none;
+}
 section.pf-slide input[type=range]:focus-visible { outline: 3px solid var(--pf-slide-info); outline-offset: 6px; }
 section.pf-slide .start-command { font-size: 38px; max-width: 670px; margin-top: 30px; }
 section.pf-slide .links { display: flex; gap: 40px; margin-top: 40px; }
