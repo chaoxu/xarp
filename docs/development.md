@@ -2,7 +2,7 @@
 
 Use Node.js 24 or 26 and install from `package-lock.json` with `npm ci`. Run `npm run build` before tests. The build compiles TypeScript and bundles browser dependencies with esbuild.
 
-`npm test` checks source mapping, guarded edits, save receipts, concurrency, path containment, themes, sections, assets, and plugin ordering. `npm run test:browser` exercises Chrome against disposable decks and a task-owned browser. `npm run test:package` installs the tarball into a separate project using production dependencies, then builds and saves through the installed CLI.
+`npm test` checks source mapping, guarded edits, save receipts, concurrency, path containment, themes, sections, assets, and plugin ordering. `npm run test:browser` launches headless Chrome against temporary decks. `npm run test:package` installs the tarball into a separate project using production dependencies, then builds through the installed CLI and saves through the installed library.
 
 Browser checks cover visual edits, undo after saving, Markdown fallback, stale source, drawing history, navigation, resize, pointer input, plugin combinations, offline assets, and preview updates. Programmatic pen and touch events test the browser event path. Physical tablets, Safari, and Firefox need separate verification.
 
@@ -10,7 +10,7 @@ Before a release, inspect `npm pack --dry-run`, the repository history, license 
 
 ## Dependency audit
 
-The initial extraction retains Marp CLI 4.5.1 and Marp Core 4.4.0 while preserving rendering and editing behavior. `npm audit --omit=dev` reports upstream advisories in this dependency tree, including KaTeX and Puppeteer's browser-download dependencies. Xarp's HTML build does not download a browser or expose those download functions, but the dependency audit is not clean.
+Xarp pins Marp CLI 4.5.1 and Marp Core 4.4.0. `npm audit --omit=dev` reports upstream advisories in this dependency tree, including KaTeX and Puppeteer's browser-download dependencies. Xarp's HTML build does not download a browser or expose those download functions, but the dependency audit is not clean.
 
 Upgrade the maintained Marp release when its dependency tree resolves these advisories and rerun the parser, browser, and clean-package checks. Do not force npm's suggested downgrade to an obsolete Marp CLI. Treat authored HTML and JavaScript configuration as trusted code regardless of audit results.
 

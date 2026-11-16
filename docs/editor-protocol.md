@@ -1,6 +1,6 @@
 # Editor protocol
 
-The editing plugin calls same-origin routes under `/__xarp/`. Xarp's local service binds to loopback and serves a single configured deck. A remote integration must supply its own authentication and write policy.
+The editing plugin calls same-origin routes under `/__xarp/`. Xarp's local service binds to loopback and serves a single configured deck. A hosted adapter must supply its own authentication and write policy.
 
 ## Status and source
 
@@ -39,7 +39,7 @@ Send `POST /__xarp/save` with `Content-Type: application/json` and a matching `O
 
 Supply either `markdown` or the browser's `edits` array. The local service validates the source revision. It accepts `buildRevision` for protocol compatibility but does not use it as a local write precondition. Generated slide IDs are meaningful only for the supplied source revision.
 
-Requests are limited to 128 KiB. Malformed, stale, wrong-deck, wrong-source, invalid-slide, cross-origin, and overlapping saves are rejected before source replacement. A slide update cannot add boundaries or change IDs.
+Requests are limited to 128 KiB. Malformed, stale, wrong-deck, wrong-source, invalid-slide, cross-origin, and overlapping saves are rejected before source replacement. A slide update cannot add or remove boundaries or change IDs.
 
 | Receipt | Meaning |
 | --- | --- |
@@ -49,7 +49,7 @@ Requests are limited to 128 KiB. Malformed, stale, wrong-deck, wrong-source, inv
 
 A successful response includes `ok`, identity fields, the new `sourceRevision`, `buildRevision`, `slideId`, `markdown`, and rendered `html`. Rebuild failure returns HTTP 500 with the saved source revision and an error. The browser retains its pending state and exposes Copy Edits during recovery.
 
-## Remote adapters
+## Hosted adapters
 
 The browser also understands `mode: "hosted"`, `publicationPending`, and publication receipts. A hosted adapter must verify build identity and its own authentication before accepting writes. Publication retry uses `POST /__xarp/retry` and requires matching source and build identities in the response. Xarp's local service does not implement that route or publish output.
 

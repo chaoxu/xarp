@@ -65,7 +65,7 @@ Run `npx xarp dev`. Press **E** to edit or **D** to draw. The controls stay hidd
 
 Editing and drawing can be enabled separately or together. Undo remains available after saving. Drawing keeps ink per slide for the current page session. Reloading discards ink.
 
-Source loading and saving require `dev`. Static exports support visual changes and Copy Edits. When an edit cannot be mapped safely to source, use Slide Markdown. External source changes never overwrite pending browser edits automatically.
+Source loading and saving require `dev`. A static export is the output directory served without `dev`. It supports visual changes and Copy Edits. When an edit cannot be mapped safely to source, use Slide Markdown. External source changes never overwrite pending browser edits automatically.
 
 ## Configure the build
 
@@ -85,7 +85,7 @@ Section counts must sum to the number of selected slides. Named selection uses m
 
 An explicit `theme` overrides the source theme. Xarp bundles `chao-ui` and supports Marp's `default`, `gaia`, and `uncover` themes. A custom CSS theme needs an `@theme` declaration and can import `chao-ui`. Add `class: pf-slide` in the deck when a custom theme uses chao-ui's slide classes.
 
-Explicit `assets` replace the adjacent-directory default and preserve project-relative paths. Keep asset references relative to the output root. Output must be empty or already owned by Xarp. Source files, unrelated output directories, and symlinks outside the project are protected from replacement.
+Explicit `assets` replace the adjacent-directory default and preserve project-relative paths. Keep asset references relative to the output root. Output must be empty or already owned by Xarp, and cannot contain the source. Symlinks that leave the project are rejected.
 
 ## Use from JavaScript
 
@@ -111,7 +111,7 @@ Library paths are relative to `cwd`, which defaults to the process's working dir
 
 ## Scope
 
-The initial release supports HTML. Marp supplies slide navigation, fragments, fullscreen, and presenter view. Xarp's source editor supports explicit thematic breaks between slides and disables saving when `headingDivider` or a rendering mismatch prevents reliable mapping.
+The initial release supports HTML. Marp supplies slide navigation, fragments, fullscreen, and presenter view. Xarp's source editor supports explicit thematic breaks between slides and disables saving when `headingDivider` or a rendering mismatch prevents reliable mapping. With `slides` or `sections` configured, the build fails instead.
 
 Use trusted Markdown, assets, plugins, and configuration files. HTML is enabled, configuration files execute JavaScript, and the local editor can write the configured source. The preview binds to loopback and requires same-origin JSON saves. It is a local authoring tool, with no remote authentication service.
 
@@ -128,6 +128,6 @@ npm run test:package
 npm run example
 ```
 
-Browser tests use a task-owned Chrome process. Set `XARP_TEST_CHROME` to its executable path on Linux. The [basic example](examples/basic/slides.md) exercises sections, editing, drawing, mathematics, and Chinese text. [Development notes](docs/development.md) describe release checks and theme updates.
+Browser tests launch their own headless Chrome. Set `XARP_TEST_CHROME` to its executable path on Linux. The [basic example](examples/basic/slides.md) exercises sections, editing, drawing, mathematics, and Chinese text. [Development notes](docs/development.md) describe release checks and theme updates.
 
 Xarp's original code is MIT licensed. See [third-party notices](THIRD_PARTY_NOTICES.md) for bundled code and fonts.

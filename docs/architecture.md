@@ -4,7 +4,7 @@ Xarp is a single package with a build function, a loopback preview server, and o
 
 `build()` reads a Markdown source, maps its slides through Marp, selects the requested order, and invokes Marp CLI with the same engine factory. It copies assets, adds section navigation and plugin metadata, then replaces the previous Xarp output directory. A failed build leaves the previous output intact.
 
-The core uses Marp's public Markdown-it extension hook to record source positions after block parsing. This shares the renderer's handling of code, HTML, and math. Rendered slide counts provide an additional check. Source editing is disabled for `headingDivider`, which inserts boundaries after the mapping hook.
+The core uses Marp's public Markdown-it extension hook to record source positions after block parsing. This shares the renderer's handling of code, HTML, and math. Rendered slide counts provide an additional check. Source editing is disabled for `headingDivider`, which inserts boundaries after the mapping hook. Builds with `slides` or `sections` fail when mapping is unavailable.
 
 ## Plugins
 
@@ -29,7 +29,7 @@ The descriptor convention is provisional. Custom descriptors supply browser asse
 
 ## Saving
 
-The editor validates the deck, slide, source revision, payload, and resulting boundaries. It rechecks source bytes immediately before atomic replacement, writes Markdown, then rebuilds. Saves are serialized. A failed rebuild after writing returns `saved: true, rebuilt: false` so the browser can distinguish saved source from stale output.
+The editor validates the deck, slide, source revision, payload, and resulting boundaries. It rechecks source bytes immediately before atomic replacement, writes Markdown, then rebuilds. The service accepts one save at a time and rejects an overlapping request. A failed rebuild after writing returns `saved: true, rebuilt: false` so the browser can distinguish saved source from stale output.
 
 The browser keeps history and unsaved changes per slide. A successful save patches that slide's rendering while retaining undo. Preview notifications reload a clean page and preserve active editing, pending changes, and ink. Changes to configuration, themes, or assets require restarting `dev`.
 

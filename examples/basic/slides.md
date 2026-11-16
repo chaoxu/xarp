@@ -6,7 +6,7 @@ lang: en
 
 <!-- slide: welcome -->
 
-# Ideas take shape
+# Xarp example
 
 Write in Markdown, adjust the slide, and draw as you present.
 
@@ -14,7 +14,7 @@ Write in Markdown, adjust the slide, and draw as you present.
 
 <!-- slide: editing -->
 
-# Adjust the page
+# Adjust the slide
 
 <div class="pf-slide-grid">
 <div class="pf-slide-panel" data-xarp-edit="box">
@@ -31,15 +31,11 @@ Write in Markdown, adjust the slide, and draw as you present.
 
 <!-- slide: mathematics -->
 
-# Mathematics and language
+# Mathematics and Chinese text
 
 For nonnegative $a$ and $b$, $\sqrt{ab} \leq (a+b)/2$.
 
-<p lang="zh-CN" class="pf-zh-sc">公式和中文可以出现在同页。</p>
-
-```text
-source → HTML → presentation
-```
+<p lang="zh-CN" class="pf-zh-sc">公式和中文可以同页出现。</p>
 
 ---
 
@@ -49,4 +45,4 @@ source → HTML → presentation
 
 ![width:650px](assets/connection.svg)
 
-Annotations stay with each slide during the current page session.
+Ink stays with each slide during the current page session.
