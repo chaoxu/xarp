@@ -2,6 +2,8 @@
 
 Xarp turns Marp Markdown into HTML presentations with optional visual editing and drawing. Markdown stays the source. The output directory includes the theme, fonts, browser scripts, and local assets.
 
+The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathematics, Chinese text, presenter controls, and an interactive plugin. Run [its source](examples/showcase/) locally to try saving changes to Markdown.
+
 ## Start a deck
 
 Install Node.js 24 or 26, then install the release package in your project:

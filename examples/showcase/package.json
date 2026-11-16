@@ -1,0 +1,13 @@
+{
+  "name": "xarp-showcase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "xarp dev",
+    "dev:quick": "xarp dev --config xarp.quick.config.mjs --port 4176"
+  },
+  "devDependencies": {
+    "@chaoxu/xarp": "https://github.com/chaoxu/xarp/releases/download/v0.1.1/chaoxu-xarp-0.1.1.tgz"
+  }
+}
