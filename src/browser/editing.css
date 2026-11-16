@@ -94,6 +94,14 @@ body.xarp-edit-active .xarp-editor-toolbar {
 .xarp-editor-status.is-error { color: #fca5a5; }
 .xarp-editor-status.is-saved { color: #86efac; }
 
+.xarp-editor-toolbar [hidden] { display: none; }
+.xarp-editor-notice {
+  flex: 0 0 100%;
+  color: #fde68a;
+  white-space: normal;
+  line-height: 1.4;
+}
+
 /* Hover & wireframe bounding-box overlay */
 .xarp-editor-overlay {
   position: fixed;

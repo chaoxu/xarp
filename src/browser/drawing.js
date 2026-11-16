@@ -1,3 +1,5 @@
+import { contentSection } from '../slide-dom.js';
+
 (() => {
   if (window.__xarpDrawingInitialized) return;
   window.__xarpDrawingInitialized = true;
@@ -89,7 +91,7 @@
     const selected = slides.findIndex(slide => slide.classList.contains("bespoke-marp-active"));
     const fromHash = Number.parseInt(location.hash.slice(1), 10) - 1;
     const index = selected >= 0 ? selected : Number.isInteger(fromHash) && fromHash >= 0 && fromHash < slides.length ? fromHash : 0;
-    const section = slides[index]?.querySelector(":scope > foreignObject > section");
+    const section = slides[index] && contentSection(slides[index]);
     if (!section) return null;
     return { section, key: index };
   }

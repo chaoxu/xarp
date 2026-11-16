@@ -68,6 +68,29 @@ test('named selection and section progress use the selected order', async () => 
   await expect(build({ ...config, sections: [{ label: 'Wrong', count: 1 }] })).rejects.toThrow('sum');
 });
 
+test('background layers do not duplicate section navigation or shift slide indexes', async () => {
+  const config = await project('![bg](assets/bg.svg)\n\n# First\n\n---\n\n# Second\n');
+  await mkdir(join(config.cwd, 'assets'));
+  await writeFile(join(config.cwd, 'assets/bg.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="white"/></svg>');
+  const result = await build({ ...config, sections: [{ label: 'First', count: 1 }, { label: 'Second', count: 1 }] });
+  const $ = load(await readFile(result.htmlPath, 'utf8'));
+  expect($('svg[data-marpit-svg]')).toHaveLength(2);
+  expect($('section')).toHaveLength(4);
+  expect($('[data-xarp-navigation]')).toHaveLength(2);
+  expect($('[aria-current=step]').map((_, node) => $(node).attr('href')).get()).toEqual(['#1', '#2']);
+  expect($('section[data-marpit-advanced-background=background] nav')).toHaveLength(0);
+});
+
+test('headers and footers keep editing and section navigation available', async () => {
+  const config = await project('---\nheader: Header\nfooter: Footer\n---\n\n# First\n\n---\n\n# Second\n');
+  const result = await build({ ...config, plugins: [editing()], sections: [{ label: 'All', count: 2 }] });
+  const $ = load(await readFile(result.htmlPath, 'utf8'));
+  expect(result.metadata.editable).toBe(true);
+  expect($('[data-xarp-navigation]')).toHaveLength(2);
+  expect($('section header')).toHaveLength(2);
+  expect($('section footer')).toHaveLength(2);
+});
+
 test('assets keep public paths and reject escaping symlinks', async () => {
   const config = await project();
   await mkdir(join(config.cwd, 'assets'));

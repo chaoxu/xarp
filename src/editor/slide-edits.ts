@@ -102,8 +102,12 @@ function textEditScope(segments: string[], edit: SlideTextEdit): { segIndex: num
     for (let i = 0; i < seg.length; i++) if (seg[i] === "\n") offsets.push(i + 1);
     const tokens = parser.parse(seg, {});
     tokens.forEach((token, i) => {
-      if (token.tag !== edit.tag || token.nesting !== 1 || !token.map || tokens[i + 1]?.type !== "inline") return;
-      candidates.push({ segIndex: s, start: offsets[token.map[0]]!, end: offsets[token.map[1]] ?? seg.length, content: tokens[i + 1]!.content, html: false });
+      if (token.tag !== edit.tag || token.nesting !== 1 || token.hidden) return;
+      // Markdown list items wrap their inline text in a paragraph token, even
+      // when tight-list rendering hides the paragraph's HTML tags.
+      const inline = token.tag === 'li' && tokens[i + 1]?.type === 'paragraph_open' ? tokens[i + 2] : tokens[i + 1];
+      if (inline?.type !== 'inline' || !inline.map) return;
+      candidates.push({ segIndex: s, start: offsets[inline.map[0]]!, end: offsets[inline.map[1]] ?? seg.length, content: inline.content, html: false });
     });
   }
   candidates.sort((a, b) => a.segIndex - b.segIndex || a.start - b.start);
@@ -169,7 +173,11 @@ function applyBoxAttrsToSegments(segments: string[], edit: SlideTextEdit): boole
     const seg = segments[chosen.segIndex]!;
     requireValue(!/\$|\\\(|\\\[/.test(chosen.match[1]!), "Move math headings through Slide Markdown to preserve their math rendering");
     const opening = updateOpeningTagAttrs(`<${tag}>`, { style: edit.style });
-    segments[chosen.segIndex] = seg.slice(0, chosen.match.index!) + `${opening}${parser.renderInline(chosen.match[1]!)}</${tag}>` + seg.slice(chosen.match.index! + chosen.match[0].length);
+    const suffix = seg.slice(chosen.match.index! + chosen.match[0].length);
+    // An HTML block needs a blank line before following Markdown resumes.
+    const newline = seg.includes('\r\n') ? '\r\n' : '\n';
+    const separator = suffix && !suffix.startsWith(newline + newline) ? newline : '';
+    segments[chosen.segIndex] = seg.slice(0, chosen.match.index!) + `${opening}${parser.renderInline(chosen.match[1]!)}</${tag}>` + separator + suffix;
     return true;
   }
   return false;

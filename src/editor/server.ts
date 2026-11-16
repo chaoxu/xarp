@@ -6,7 +6,8 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, resolveProject } from '../build.js';
 import { containedFile, isWithin } from '../files.js';
-import { parseSource, requireValue, selectSlides, updateSlideInSource } from '../source.js';
+import { hash, parseSource, requireValue, selectSlides, updateSlideInSource } from '../source.js';
+import { renderingChanges } from './rendering.js';
 import type { BuildOptions, BuildResult } from '../types.js';
 import type { SlideTextEdit } from './slide-edits.js';
 
@@ -94,7 +95,6 @@ export async function createEditorApi(options: EditorApiOptions) {
       if (body.sourceRevision !== document.revision) return failure('Slide source changed. Copy edits and reload before saving.', 409, savedIdentity);
       requireValue(typeof body.slideId === 'string' && slides.some(slide => slide.id === body.slideId), 'The slide is not in this deck');
       const { updatedSource, slideBody } = updateSlideInSource(raw, body.slideId, body);
-      const next = parseSource(updatedSource);
       const temporary = join(dirname(sourcePath), `.${basename(sourcePath)}.xarp-${randomUUID()}.tmp`);
       try {
         await writeFile(temporary, updatedSource, { flag: 'wx', mode: (await stat(sourcePath)).mode & 0o777 });
@@ -102,10 +102,16 @@ export async function createEditorApi(options: EditorApiOptions) {
         if (await readFile(sourcePath, 'utf8') !== raw) return failure('Source changed during save. Copy edits and reload.', 409, savedIdentity);
         await rename(temporary, sourcePath);
       } finally { await rm(temporary, { force: true }); }
-      const receipt = { ...savedIdentity, sourceRevision: next.revision, saved: true, markdown: slideBody };
+      const receipt = { ...savedIdentity, sourceRevision: hash(updatedSource), saved: true, markdown: slideBody };
       try {
+        const previousHtml = await readFile(options.result().htmlPath, 'utf8').catch(error => {
+          if (error.code === 'ENOENT') return '';
+          throw error;
+        });
         const result = await options.rebuild();
-        return json({ ok: true, ...receipt, rebuilt: true, buildRevision: result.metadata.buildRevision, html: await readFile(result.htmlPath, 'utf8') });
+        const html = await readFile(result.htmlPath, 'utf8');
+        return json({ ok: true, ...receipt, rebuilt: true, buildRevision: result.metadata.buildRevision, html,
+          ...renderingChanges(previousHtml, html, result.metadata.slides, body.slideId) });
       } catch (error) {
         return json({ ok: false, ...receipt, rebuilt: false, error: `Source saved, but rebuilding failed: ${(error as Error).message}` }, 500);
       }
@@ -173,14 +179,25 @@ export interface DevOptions extends BuildOptions { port?: number; watch?: boolea
 export async function dev(options: DevOptions) {
   let result = await build(options);
   const project = await resolveProject(options);
-  let version = 1, saving = false, building = false, stopped = false;
+  let version = 1, saving = false, building = false, stopped = false, pendingChanges = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const rebuild = async () => { result = await build(options); version++; return result; };
+  let activeBuild: Promise<BuildResult> | undefined;
+  let watchTask: Promise<void> | undefined;
+  const rebuild = async () => {
+    activeBuild = build(options);
+    try { result = await activeBuild; version++; return result; }
+    finally { activeBuild = undefined; }
+  };
   const api = options.plugins?.some(plugin => plugin.name === 'editing') ? await createEditorApi({
     config: options, result: () => result, version: () => version, rebuild,
-    setSaving(value) { saving = value; if (value && timer) { clearTimeout(timer); timer = undefined; } },
+    setSaving(value) {
+      saving = value;
+      if (value && timer) { clearTimeout(timer); timer = undefined; }
+      if (!value && pendingChanges) schedule();
+    },
   }) : undefined;
-  const server = createServer(async (incoming, outgoing) => {
+  const requests = new Set<Promise<void>>();
+  const handle = async (incoming: IncomingMessage, outgoing: ServerResponse) => {
     try {
       const request = await nodeRequest(incoming);
       const hostname = new URL(request.url).hostname;
@@ -198,18 +215,32 @@ export async function dev(options: DevOptions) {
       if (!outgoing.headersSent) outgoing.writeHead(500, { 'Content-Type': 'text/plain' });
       outgoing.end((error as Error).message);
     }
+  };
+  const server = createServer((incoming, outgoing) => {
+    const request = handle(incoming, outgoing);
+    requests.add(request);
+    void request.finally(() => requests.delete(request));
   });
   requireValue(options.port === undefined || Number.isInteger(options.port) && options.port >= 0 && options.port <= 65535, 'Invalid port');
   await new Promise<void>((accept, reject) => { server.once('error', reject); server.listen(options.port ?? 4175, '127.0.0.1', () => { server.removeListener('error', reject); accept(); }); });
   const schedule = () => {
-    if (saving || stopped) return;
+    if (stopped) return;
+    pendingChanges = true;
     if (timer) clearTimeout(timer);
-    timer = setTimeout(async () => {
+    timer = undefined;
+    if (saving || building) return;
+    timer = setTimeout(() => {
       timer = undefined;
-      if (building) return schedule();
+      if (stopped) return;
+      pendingChanges = false;
       building = true;
-      try { await rebuild(); } catch (error) { console.error(`Xarp rebuild: ${(error as Error).message}`); }
-      finally { building = false; }
+      watchTask = (async () => {
+        try {
+          // A save's own file event needs no second render. External writes do.
+          if (hash(await readFile(project.input)) !== result.metadata.sourceRevision) await rebuild();
+        } catch (error) { console.error(`Xarp rebuild: ${(error as Error).message}`); }
+        finally { building = false; watchTask = undefined; if (pendingChanges) schedule(); }
+      })();
     }, 150);
   };
   const watcher = options.watch === false ? undefined : watch(dirname(project.input), (_, file) => { if (file?.toString() === basename(project.input)) schedule(); });
@@ -221,7 +252,9 @@ export async function dev(options: DevOptions) {
     async close() {
       stopped = true; watcher?.close(); if (timer) clearTimeout(timer);
       server.closeAllConnections();
-      await new Promise<void>((accept, reject) => server.close(error => error ? reject(error) : accept()));
+      const closed = new Promise<void>((accept, reject) => server.close(error => error ? reject(error) : accept()));
+      await Promise.allSettled([...requests, ...(activeBuild ? [activeBuild] : []), ...(watchTask ? [watchTask] : [])]);
+      await closed;
     },
   };
 }

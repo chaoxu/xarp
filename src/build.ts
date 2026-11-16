@@ -9,6 +9,7 @@ import { load } from 'cheerio';
 import { engineOptions } from './engine.js';
 import { hash, parseSource, requireValue, selectedMarkdown, selectSlides } from './source.js';
 import { containedFile, copyTree, isWithin, outputIsOwned, pathExists } from './files.js';
+import { contentSectionSelector } from './slide-dom.js';
 import type { BuildOptions, BuildResult, EditorMetadata, Plugin, Section } from './types.js';
 
 const run = promisify(execFile);
@@ -153,8 +154,8 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     const $ = load(await readFile(htmlPath, 'utf8'));
     const svgSlides = $('svg[data-marpit-svg]');
     // SVG foreignObject retains mixed case in parse5, unlike HTML selectors.
-    const sections = svgSlides.children().children('section');
-    const editingError = document.editingError ?? (svgSlides.length !== selected.length ? 'Rendered slides do not match source boundaries. Source editing is disabled.' : undefined);
+    const sections = svgSlides.children().children(contentSectionSelector);
+    const editingError = document.editingError ?? (svgSlides.length !== selected.length || sections.length !== selected.length ? 'Rendered slides do not match source boundaries. Source editing is disabled.' : undefined);
     if (options.slides || options.sections) requireValue(!editingError, editingError ?? 'Slide mapping failed');
     if (theme === 'chao-ui') sections.addClass('pf-slide');
     $('head').append('<link rel="stylesheet" href="_xarp/theme/theme.css">');

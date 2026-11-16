@@ -23,6 +23,8 @@ The builder emits styles and deferred scripts in descriptor order. Shared URLs a
 
 `drawing()` loads its script and the shared history bundle. `editing()` also loads Moveable and the guarded Markdown edit mapper. They coordinate input through a native mode-change event. History uses Travels and Mutative.
 
+The builder, editor, and drawing tool use a shared selector for each slide's content section. Marp's background layers are excluded from editing and section navigation. The editor observes the active slide class as well as URL hash changes, so selection and the Markdown drawer follow keyboard navigation.
+
 `editing({ textSelectors, boxSelectors })` adds CSS selectors to the editor's supported targets. Explicit `data-xarp-edit="text"` and `data-xarp-edit="box"` attributes also mark targets. Source mapping can still reject an ambiguous operation, even when the element is selectable.
 
 The descriptor convention is provisional. Custom descriptors supply browser assets only. `dev()` recognizes the built-in editing descriptor and attaches fixed editor routes. There is no general server-plugin interface.
@@ -31,7 +33,9 @@ The descriptor convention is provisional. Custom descriptors supply browser asse
 
 The editor validates the deck, slide, source revision, payload, and resulting boundaries. It rechecks source bytes immediately before atomic replacement, writes Markdown, then rebuilds. The service accepts one save at a time and rejects an overlapping request. A failed rebuild after writing returns `saved: true, rebuilt: false` so the browser can distinguish saved source from stale output.
 
-The browser keeps history and unsaved changes per slide. A successful save patches that slide's rendering while retaining undo. Preview notifications reload a clean page and preserve active editing, pending changes, and ink. Changes to configuration, themes, or assets require restarting `dev`.
+The browser keeps history and unsaved changes per slide. A successful save patches that slide's rendering while retaining undo. The server compares the previous and rebuilt HTML to identify changes to other slides and deck CSS. Slides without unsaved edits update immediately. Slides with unsaved edits receive the latest rendering when saved or returned to their saved text. Changes to deck CSS or background-layer structure show a reload notice. An undo state with unsaved edits keeps the appearance it was captured with until the slide is saved or returns to its saved state.
+
+Preview notifications reload a clean page and preserve active editing, pending changes, and ink. The file watcher retains notifications that arrive during a save or build, then rebuilds when the disk revision differs from the built revision. Closing the preview waits for active requests and builds. Changes to configuration, themes, or assets require restarting `dev`.
 
 The [editor protocol](editor-protocol.md) can be implemented by another server. Authentication, staged rendering, and publication belong to that server. A static export does not provide disk access.
 

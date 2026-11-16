@@ -1,6 +1,6 @@
 {
   "name": "@chaoxu/xarp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Marp presentations with visual editing and drawing",
   "license": "MIT",
   "type": "module",
@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc && node scripts/build-browser.mjs",
     "test": "vitest run",
-    "test:browser": "node tests/editor-browser.ts && node tests/drawing-browser.mjs && node tests/runtime-browser.mjs",
+    "test:browser": "node tests/editor-browser.ts && node tests/editing-reliability-browser.mjs && node tests/drawing-browser.mjs && node tests/runtime-browser.mjs",
     "test:package": "node tests/package.mjs",
     "example": "node lib/cli.js build --config examples/basic/xarp.config.mjs",
     "prepack": "npm run build"

@@ -15,7 +15,9 @@ export function createEngine(options: ConstructorParameters<typeof Marp>[0] = {}
     xarpMapping: { breaks: [], comments: [] } as SlideMapping,
   });
   engine.use((md: any) => {
-    md.core.ruler.after('block', 'xarp_slide_mapping', (state: { src: string; tokens: Token[] }) => {
+    md.core.ruler.after('block', 'xarp_slide_mapping', (state: { src: string; tokens: Token[]; inlineMode?: boolean }) => {
+      // Header/footer inline parsing re-enters the core chain of this engine.
+      if (state.inlineMode) return;
       const frontmatter = state.tokens.find(token => token.type === 'front_matter');
       const lines = state.src.split('\n');
       engine.xarpMapping = {

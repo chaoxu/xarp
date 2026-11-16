@@ -1,3 +1,5 @@
+import { contentSections } from '../slide-dom.js';
+
 (() => {
   if (window.__xarpEditorInitialized) return;
   window.__xarpEditorInitialized = true;
@@ -27,6 +29,8 @@
   let baselineSerial = 0, pendingGroup = null, restoringHistory = false, composing = false;
   let textSession = null;
   let overlayFrame = null;
+  let latestRendering = null, reloadRequired = false;
+  const staleSlides = new Set(), unrenderedSlides = new Set();
 
   const toolbar = document.createElement("div");
   toolbar.className = "xarp-editor-toolbar";
@@ -46,7 +50,8 @@
       <button type="button" class="xarp-editor-btn" id="te-copy-edits" hidden title="Copy every pending slide edit before reloading">Copy Edits</button>
       <button type="button" class="xarp-editor-btn xarp-editor-btn-primary" id="te-save" disabled>Save</button>
       <button type="button" class="xarp-editor-btn" id="te-done">Done</button>
-    </div>`;
+    </div>
+    <span id="te-notice" class="xarp-editor-notice" role="status" hidden></span>`;
 
   const overlay = document.createElement("div");
   overlay.className = "xarp-editor-overlay";
@@ -70,7 +75,8 @@
   $("te-source-file").textContent = meta.sourceFile || "slides.md";
   // Saving replaces section contents, so these slide nodes remain stable.
   const slideSvgs = [...document.querySelectorAll("svg[data-marpit-svg]")];
-  const sections = [...document.querySelectorAll("svg[data-marpit-svg] > foreignObject > section")];
+  const sections = contentSections(document);
+  const sectionFor = element => sections.find(section => section?.contains(element));
 
   const slideIndex = () => {
     const idx = slideSvgs.findIndex(s => s.classList.contains("bespoke-marp-active"));
@@ -80,7 +86,13 @@
   };
   const activeSection = () => sections[slideIndex()];
   const slideId = (i = slideIndex()) => meta.slides?.[i] || `slide-${i + 1}`;
-  const setStatus = (msg, kind = "") => { $("te-status").textContent = msg; $("te-status").title = msg; $("te-status").className = `xarp-editor-status${kind ? ` is-${kind}` : ""}`; };
+  const setStatus = (msg, kind = "") => {
+    const notice = reloadRequired || unrenderedSlides.size ? "Reload to see the latest rendering. Save or copy pending edits first."
+      : staleSlides.size ? "Slides with unsaved edits will update after you save or undo them." : "";
+    $("te-status").textContent = msg; $("te-status").title = msg;
+    $("te-notice").textContent = notice; $("te-notice").hidden = !notice;
+    $("te-status").className = `xarp-editor-status${kind ? ` is-${kind}` : ""}`;
+  };
   const isSvgChild = el => el instanceof SVGElement && el.tagName.toLowerCase() !== "svg";
   const sourceDirty = index => { const draft = sourceDrafts.get(index); return !!draft && draft.markdown !== savedMarkdown(index, draft.original); };
   const visualDirty = index => {
@@ -91,6 +103,67 @@
     catch (_) { return true; }
   };
   const pendingSlides = () => [...new Set([...editsBySlide.keys(), ...sourceDrafts.keys(), ...activeBaselines.keys()])].filter(index => visualDirty(index) || sourceDirty(index));
+
+  function copyAttributes(target, source) {
+    for (const attribute of [...target.attributes]) target.removeAttribute(attribute.name);
+    for (const attribute of source.attributes) target.setAttribute(attribute.name, attribute.value);
+  }
+
+  function patchRendering(index, doc) {
+    const slide = slideSvgs[index], nextSlide = doc.querySelectorAll("svg[data-marpit-svg]")[index];
+    const section = sections[index], nextSection = contentSections(doc)[index];
+    const layers = [...slide.children], nextLayers = nextSlide ? [...nextSlide.children] : [];
+    if (!nextSection || slide.getAttribute("viewBox") !== nextSlide.getAttribute("viewBox")
+      || layers.length !== nextLayers.length || layers.some((layer, i) => layer.tagName !== nextLayers[i].tagName
+        || layer.contains(section) !== nextLayers[i].contains(nextSection))) {
+      unrenderedSlides.add(index);
+      return false;
+    }
+    if (selectedEl && section.contains(selectedEl)) selectBox(null, section);
+    for (const [i, layer] of layers.entries()) {
+      copyAttributes(layer, nextLayers[i]);
+      if (layer.contains(section)) {
+        copyAttributes(section, nextSection);
+        section.innerHTML = nextSection.innerHTML;
+      } else layer.innerHTML = nextLayers[i].innerHTML;
+    }
+    unrenderedSlides.delete(index);
+    const saved = baselines.get(savedBaselines.get(index));
+    if (saved) {
+      saved.html = section.innerHTML;
+      saved.attributes = [...section.attributes].map(attribute => [attribute.name, attribute.value]);
+    }
+    return true;
+  }
+
+  function reconcileStaleSlides() {
+    if (!latestRendering) return;
+    for (const index of staleSlides) {
+      if (visualDirty(index) || sourceDirty(index) || textSession?.index === index
+        || svgInput && sections[index].contains(svgInput.target)) continue;
+      staleSlides.delete(index);
+      patchRendering(index, latestRendering);
+    }
+  }
+
+  function applyRenderingReceipt(data, savedIndex) {
+    if (typeof data.html !== "string" || !data.rebuilt) {
+      unrenderedSlides.add(savedIndex);
+      return;
+    }
+    latestRendering = new DOMParser().parseFromString(data.html, "text/html");
+    staleSlides.delete(savedIndex);
+    patchRendering(savedIndex, latestRendering);
+    if (!Array.isArray(data.changedSlides) || typeof data.deckStyleChanged !== "boolean") reloadRequired = true;
+    else {
+      reloadRequired ||= data.deckStyleChanged;
+      for (const id of data.changedSlides) {
+        const index = meta.slides.indexOf(id);
+        if (index >= 0 && index !== savedIndex) staleSlides.add(index);
+      }
+    }
+    reconcileStaleSlides();
+  }
 
   function baselineId(index) {
     if (!activeBaselines.has(index)) {
@@ -316,6 +389,7 @@
       else if (drawerOpen && drawerSlide === index && previousFocus?.kind === "source" && desired !== undefined && (matchesSaved || state.edits.length === 0)) sourceDrafts.set(index, { markdown: desired, original: savedMarkdown(index, desired), sourceRevision });
       else sourceDrafts.delete(index);
       if (drawerSlide === index) $("te-textarea").value = sourceDrafts.get(index)?.markdown ?? desired ?? "";
+      reconcileStaleSlides();
       updateButtons();
       const focus = previousFocus?.kind === "source" && drawerOpen ? state.focus?.kind === "source" ? state.focus : { kind: "source", start: (desired ?? "").length, end: (desired ?? "").length, direction: "none" }
         : state.focus?.kind === "box" && previousFocus?.kind === "text" && JSON.stringify(state.focus.path) === JSON.stringify(previousFocus.path)
@@ -329,7 +403,14 @@
   function showPendingStatus() {
     const pending = pendingSlides();
     const pendingText = pending.length ? `Unsaved slides: ${pending.map(index => index + 1).join(", ")}` : "";
-    setStatus([apiError, pendingText].filter(Boolean).join(". "), apiError ? "error" : "");
+    const invalid = visualEditError(slideIndex());
+    setStatus([apiError, invalid, pendingText].filter(Boolean).join(". "), apiError || invalid ? "error" : "");
+  }
+
+  function visualEditError(index) {
+    if (!editsBySlide.get(index)?.size || baselines.get(activeBaselines.get(index))?.markdown === undefined) return "";
+    try { visualMarkdown(index); return ""; }
+    catch (error) { return `${error.message || error}. Undo this change first.`; }
   }
 
   function serviceError(response, data, fallback) {
@@ -398,10 +479,11 @@
 
   function updateButtons() {
     const index = slideIndex(), hasEdits = visualDirty(index) || sourceDirty(index);
+    const invalid = visualEditError(index);
     const history = histories.get(index);
     $("te-undo").disabled = savingSlide !== null || composing || (!history?.canUndo() && !pendingGroup);
     $("te-redo").disabled = savingSlide !== null || composing || !!pendingGroup || !history?.canRedo();
-    $("te-save").disabled = (!hasEdits && !publicationRetry) || savingSlide !== null;
+    $("te-save").disabled = (!hasEdits && !publicationRetry) || savingSlide !== null || !!invalid && !publicationRetry;
     $("te-save").textContent = publicationRetry ? "Retry Publish" : apiBase ? "Save Slide" : apiError ? "Retry Save" : "Copy Edits";
     $("te-save").title = publicationRetry ? "Publish the source that was already saved" : apiBase ? `Save slide ${index + 1} to ${meta.sourceFile}${hostedApi ? ` and publish ${meta.viewId}` : ""}` : apiError || "Copy this slide's edits. The source will remain unchanged.";
     $("te-copy-edits").hidden = pendingSlides().length === 0 || (!apiBase && !apiError);
@@ -620,14 +702,15 @@
     });
     moveable.on("dragStart", e => {
       if (savingSlide !== null) { e.stop(); return; }
-      const el = e.target, section = activeSection();
-      if (!section) return;
-      beginChange(slideIndex(), "gesture", JSON.stringify(elementPath(el, section)));
+      const el = e.target, section = sectionFor(el);
+      if (!section || section !== activeSection()) { e.stop(); return; }
+      beginChange(sections.indexOf(section), "gesture", JSON.stringify(elementPath(el, section)));
       initElementBaseline(el, section);
       el.dataset.teDragX = el.getAttribute("x") || el.getAttribute("cx") || "0";
       el.dataset.teDragY = el.getAttribute("y") || el.getAttribute("cy") || "0";
     });
     moveable.on("drag", e => {
+      if (sectionFor(e.target) !== activeSection()) return;
       const el = e.target, tag = el.tagName.toLowerCase();
       if (isSvgChild(el)) {
         if (["text", "rect", "image", "use", "svg"].includes(tag) && (el.hasAttribute("x") || el.hasAttribute("y"))) {
@@ -647,14 +730,16 @@
     moveable.on("dragEnd", e => { recordElementChange(e.target); flushHistory(); });
     moveable.on("resizeStart", e => {
       if (savingSlide !== null) { e.stop(); return; }
-      const el = e.target, section = activeSection();
-      if (section) beginChange(slideIndex(), "gesture", JSON.stringify(elementPath(el, section)));
-      if (section) initElementBaseline(el, section);
+      const el = e.target, section = sectionFor(el);
+      if (!section || section !== activeSection()) { e.stop(); return; }
+      beginChange(sections.indexOf(section), "gesture", JSON.stringify(elementPath(el, section)));
+      initElementBaseline(el, section);
       if (isSvgChild(el) && !["rect", "image", "svg"].includes(el.tagName.toLowerCase())) e.stop();
       el.dataset.teDragX = el.getAttribute("x") || "0";
       el.dataset.teDragY = el.getAttribute("y") || "0";
     });
     moveable.on("resize", e => {
+      if (sectionFor(e.target) !== activeSection()) return;
       const el = e.target;
       if (isSvgChild(el)) {
         el.setAttribute("width", String(Math.round(e.width)));
@@ -728,7 +813,7 @@
   }
 
   function startTextEditing(el, section) {
-    if (!el || !section || savingSlide !== null || sourceDirty(slideIndex())) return;
+    if (!el || !section || savingSlide !== null || sourceDirty(slideIndex()) || unrenderedSlides.has(slideIndex())) return;
     initElementBaseline(el, section);
     if (!restoringHistory) flushHistory();
     editingText = true;
@@ -741,11 +826,6 @@
       input.value = (el.textContent || "").trim();
       Object.assign(input.style, { left: `${Math.max(8, Math.round(r.left - 4))}px`, top: `${Math.max(42, Math.round(r.top - 4))}px`, minWidth: `${Math.max(140, Math.round(r.width + 24))}px` });
       input.oninput = () => { el.textContent = input.value; recordElementChange(el); groupTyping(Number(el.dataset.teSlide), "svg-text", el.dataset.teKey); };
-      input.onkeydown = e => {
-        e.stopPropagation();
-        if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); stopTextEditing(); }
-        else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); stopTextEditing(); saveEdits(); }
-      };
       input.onblur = () => stopTextEditing();
       document.body.appendChild(input);
       svgInput = { input, target: el };
@@ -773,8 +853,10 @@
 
   function resetSelectedBox() {
     if (!selectedEl || selectedEl.dataset.teInit !== "1") return;
+    const section = sectionFor(selectedEl);
+    if (section !== activeSection()) return;
     stopTextEditing();
-    beginChange(Number(selectedEl.dataset.teSlide), "reset", selectedEl.dataset.teKey);
+    beginChange(sections.indexOf(section), "reset", selectedEl.dataset.teKey);
     if (isSvgChild(selectedEl)) {
       for (const a of ["x", "y", "width", "height", "cx", "cy", "transform"]) {
         if (`teOrig_${a}` in selectedEl.dataset) selectedEl.setAttribute(a, selectedEl.dataset[`teOrig_${a}`]);
@@ -790,10 +872,11 @@
   }
 
   function nudgeSelected(dx, dy) {
-    const element = selectedEl, index = slideIndex();
-    const key = JSON.stringify(elementPath(element, activeSection()));
+    const element = selectedEl, section = sectionFor(element), index = sections.indexOf(section);
+    if (!section || section !== activeSection() || unrenderedSlides.has(index)) { selectBox(null, null); return; }
+    const key = JSON.stringify(elementPath(element, section));
     beginChange(index, "nudge", key);
-    initElementBaseline(element, activeSection());
+    initElementBaseline(element, section);
     if (isSvgChild(element)) {
       const tag = element.tagName.toLowerCase();
       if (["text", "rect", "image", "use"].includes(tag)) {
@@ -888,6 +971,8 @@
     flushHistory();
     const sIdx = explicitMarkdown !== undefined ? drawerSlide : slideIndex();
     if (sIdx === null) return;
+    const invalid = visualEditError(sIdx);
+    if (invalid) return setStatus(invalid, "error");
     const id = slideId(sIdx), map = editsBySlide.get(sIdx), draft = sourceDrafts.get(sIdx);
     let markdown = explicitMarkdown ?? (sourceDirty(sIdx) ? draft.markdown : undefined);
     const edits = map ? [...map.values()] : [];
@@ -941,15 +1026,7 @@
         }
         const section = sections[sIdx];
         if (selectedEl && section?.contains(selectedEl)) selectBox(null, section);
-        if (data.html && section) {
-          const doc = new DOMParser().parseFromString(data.html, "text/html");
-          const nextSec = doc.querySelectorAll("svg[data-marpit-svg] > foreignObject > section")[sIdx];
-          if (nextSec) {
-            for (const attribute of [...section.attributes]) section.removeAttribute(attribute.name);
-            for (const attribute of nextSec.attributes) section.setAttribute(attribute.name, attribute.value);
-            section.innerHTML = nextSec.innerHTML;
-          }
-        }
+        applyRenderingReceipt(data, sIdx);
         if (drawerSlide === sIdx) {
           $("te-textarea").value = sourceDrafts.get(sIdx)?.markdown ?? "";
           $("te-textarea").placeholder = sourceDrafts.has(sIdx) ? "" : "Reopen Slide Markdown to load the saved source.";
@@ -1036,6 +1113,7 @@
       }
       const pending = pendingSlides();
       const canAdvance = sourceRevision === data.sourceRevision || pending.length === 0;
+      const alreadyRendered = sourceRevision === data.sourceRevision && buildRevision === data.buildRevision;
       if (canAdvance) {
         sourceRevision = data.sourceRevision;
         buildRevision = data.buildRevision;
@@ -1044,15 +1122,7 @@
       const section = sections[index];
       if (index >= 0 && !visualDirty(index) && !sourceDirty(index)) {
         if (typeof data.markdown === "string") sourceDrafts.set(index, { markdown: data.markdown, original: data.markdown, sourceRevision: data.sourceRevision });
-        if (section && data.html) {
-          if (selectedEl && section.contains(selectedEl)) selectBox(null, section);
-          const nextSection = new DOMParser().parseFromString(data.html, "text/html").querySelectorAll("svg[data-marpit-svg] > foreignObject > section")[index];
-          if (nextSection) {
-            for (const attribute of [...section.attributes]) section.removeAttribute(attribute.name);
-            for (const attribute of nextSection.attributes) section.setAttribute(attribute.name, attribute.value);
-            section.innerHTML = nextSection.innerHTML;
-          }
-        }
+        if (!alreadyRendered) applyRenderingReceipt({ ...data, rebuilt: true }, index);
         if (drawerSlide === index && sourceDrafts.has(index)) $("te-textarea").value = sourceDrafts.get(index).markdown;
         if (typeof data.markdown === "string" && section) {
           const nextId = `slide-${index}-baseline-${++baselineSerial}`;
@@ -1061,7 +1131,7 @@
           savedBaselines.set(index, nextId);
           editsBySlide.set(index, new Map());
         }
-      }
+      } else if (!alreadyRendered) reloadRequired = true;
       publicationRetry = null;
       apiError = canAdvance ? "" : "Copy pending edits before reloading this updated deck.";
       apiBase = canAdvance ? location.origin : null;
@@ -1097,7 +1167,7 @@
   }
 
   function findTarget(raw, section) {
-    if (!raw || !section?.contains(raw) || raw.closest?.(NAV_SEL) || savingSlide !== null || sourceDirty(slideIndex())) return null;
+    if (!raw || !section?.contains(raw) || raw.closest?.(NAV_SEL) || savingSlide !== null || sourceDirty(slideIndex()) || unrenderedSlides.has(slideIndex())) return null;
     const target = raw.closest("svg text,svg rect,svg circle") || raw.closest(TEXT_SEL) || raw.closest(BOX_SEL);
     return target && section.contains(target) && !target.closest(".katex,.mermaid") ? target : null;
   }
@@ -1115,6 +1185,7 @@
     if (!draft) return;
     draft.markdown = $("te-textarea").value;
     groupTyping(drawerSlide, "source");
+    reconcileStaleSlides();
     showPendingStatus();
     updateButtons();
   });
@@ -1192,7 +1263,7 @@
     const a = document.activeElement;
     const typing = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable || a.closest?.('[contenteditable="true"]'));
 
-    if (editActive && (composing || e.isComposing)) return;
+    if (editActive && (composing || e.isComposing || e.keyCode === 229)) return;
     if (editActive && (e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "z" || (e.ctrlKey && e.key.toLowerCase() === "y"))) {
       e.preventDefault(); e.stopImmediatePropagation();
       changeHistory(e.key.toLowerCase() === "y" || e.shiftKey ? "redo" : "undo");
@@ -1204,7 +1275,7 @@
       return void saveEdits(a === $("te-textarea") ? $("te-textarea").value : undefined);
     }
     if (typing) {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); stopTextEditing(); }
+      if (e.key === "Escape" || (e.key === "Enter" && a === svgInput?.input)) { e.preventDefault(); e.stopPropagation(); stopTextEditing(); }
       else e.stopPropagation();
       return;
     }
@@ -1234,7 +1305,22 @@
     }
   }, true);
 
-  window.addEventListener("hashchange", () => { if (editActive) { selectBox(null, null); flushHistory(); hoveredEl = null; if (drawerOpen) loadSlideSource(); ensureBaseline(slideIndex()).catch(error => setStatus(String(error.message || error), "error")); showPendingStatus(); updateButtons(); setTimeout(renderOverlay, 30); } });
+  let observedSlide = slideIndex();
+  const slideChanged = () => {
+    const index = slideIndex();
+    if (index === observedSlide) return;
+    observedSlide = index;
+    if (!editActive) return;
+    selectBox(null, null);
+    flushHistory();
+    hoveredEl = null;
+    if (drawerOpen) void loadSlideSource();
+    ensureBaseline(index).catch(error => setStatus(String(error.message || error), "error"));
+    showPendingStatus(); updateButtons(); renderOverlay();
+  };
+  const slideObserver = new MutationObserver(slideChanged);
+  for (const slide of slideSvgs) slideObserver.observe(slide, { attributes: true, attributeFilter: ["class"] });
+  window.addEventListener("hashchange", slideChanged);
   window.addEventListener("beforeunload", event => {
     if (!pendingSlides().length && savingSlide === null) return;
     event.preventDefault();

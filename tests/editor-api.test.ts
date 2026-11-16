@@ -5,8 +5,37 @@ import { join } from 'node:path';
 import { createEditorApi } from '../lib/editor/server.js';
 import { editing } from '../lib/plugins/index.js';
 import { parseSource } from '../lib/source.js';
+import { build } from '../lib/build.js';
 
 const original = '# First\n\n---\n\n# Second\n';
+
+test('save receipts identify other changed slides and deck-wide CSS', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'xarp-render-receipt-'));
+  try {
+    await writeFile(join(cwd, 'slides.md'), original);
+    const config = { cwd, input: 'slides.md', plugins: [editing()] };
+    let result = await build(config);
+    const api = await createEditorApi({ config, result: () => result, rebuild: async () => result = await build(config) });
+    for (const [markdown, changedSlides, deckStyleChanged] of [
+      ['# Updated', [], false],
+      ['# Updated\n\n<!-- color: red -->', ['slide-2'], false],
+      ['# Updated\n\n<!-- color: red -->\n\n<style>h1 { letter-spacing: 3px }</style>', [], true],
+    ] as const) {
+      const response = await api(new Request('http://localhost/__xarp/save', {
+        method: 'POST', headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewId: 'slides', sourceFile: 'slides.md', slideId: 'slide-1', sourceRevision: result.metadata.sourceRevision, markdown }),
+      }));
+      expect(await response!.json()).toMatchObject({ saved: true, rebuilt: true, changedSlides, deckStyleChanged });
+    }
+    await rm(result.htmlPath);
+    const recovered = await api(new Request('http://localhost/__xarp/save', {
+      method: 'POST', headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ viewId: 'slides', sourceFile: 'slides.md', slideId: 'slide-1', sourceRevision: result.metadata.sourceRevision, markdown: '# Recovered' }),
+    }));
+    expect(await recovered!.json()).toMatchObject({ saved: true, rebuilt: true, deckStyleChanged: true });
+    expect(await readFile(result.htmlPath, 'utf8')).toContain('Recovered');
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+}, 15000);
 async function fixture(run: (f: any) => Promise<void>, rebuild?: () => Promise<unknown>) {
   const cwd = await mkdtemp(join(tmpdir(), 'xarp-api-'));
   try {

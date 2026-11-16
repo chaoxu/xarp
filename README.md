@@ -7,7 +7,7 @@ Xarp turns Marp Markdown into HTML presentations with optional visual editing an
 Install Node.js 24 or 26, then install the release package in your project:
 
 ```sh
-npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.1.0/chaoxu-xarp-0.1.0.tgz
+npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.1.1/chaoxu-xarp-0.1.1.tgz
 ```
 
 Write `slides.md`:
@@ -64,6 +64,10 @@ Run `npx xarp dev`. Press **E** to edit or **D** to draw. The controls stay hidd
 | D, then pointer input | Draw with a mouse, pen, or touch |
 
 Editing and drawing can be enabled separately or together. Undo remains available after saving. Drawing keeps ink per slide for the current page session. Reloading discards ink.
+
+Visual editing maps text changes in Markdown headings, paragraphs and list items, moves of Markdown headings, and changes to raw HTML and SVG elements. When a change cannot be mapped to Markdown, the editor reports it before saving. Undo that change to use Slide Markdown. Markdown table cells, and layout changes to Markdown blocks other than headings, require Slide Markdown.
+
+Saving a directive that affects other slides also updates those slides when they have no unsaved edits. Slides with unsaved edits keep those edits and update after saving or returning to their saved text. Deck CSS changes and adding or removing an image background show a reload notice. Save or copy pending edits before reloading.
 
 Source loading and saving require `dev`. A static export is the output directory served without `dev`. It supports visual changes and Copy Edits. When an edit cannot be mapped safely to source, use Slide Markdown. External source changes never overwrite pending browser edits automatically.
 

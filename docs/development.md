@@ -6,6 +6,8 @@ Use Node.js 24 or 26 and install from `package-lock.json` with `npm ci`. Run `np
 
 Browser checks cover visual edits, undo after saving, Markdown fallback, stale source, drawing history, navigation, resize, pointer input, plugin combinations, offline assets, and preview updates. Programmatic pen and touch events test the browser event path. Physical tablets, Safari, and Firefox need separate verification.
 
+Editing regression tests cover keyboard navigation, image backgrounds, Markdown lists, immediate mapping errors, composition handling, and changes that affect other slides. Dev-server tests cover external writes during saves and shutdown during a rebuild. Composition tests use Chrome's input protocol and synthetic keyboard events. An input method editor operated by a person still needs manual verification.
+
 Before a release, inspect `npm pack --dry-run`, the repository history, license notices, and the complete tarball. Build the synthetic example and inspect its presentation and narrow-viewport screenshots. Publish only library code, theme assets, documentation, and synthetic examples.
 
 ## Dependency audit
@@ -26,4 +28,4 @@ The script copies the declared distributable files, records the upstream revisio
 
 ## Release artifacts
 
-`npm pack` creates `chaoxu-xarp-0.1.0.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.
+`npm pack` creates `chaoxu-xarp-0.1.1.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.

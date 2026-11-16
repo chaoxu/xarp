@@ -1,7 +1,38 @@
 import { test, expect } from "vitest";
 import { updateSlideInSource } from "../lib/source.js";
+import { createEngine } from "../lib/engine.js";
 
 const source = `---\nmarp: true\n---\n\n<!-- slide: alpha -->\n\n# Alpha\n\n---\n\n<!-- slide: beta -->\n\n# Beta\n`;
+
+test("moving a heading keeps following Markdown blocks rendered", () => {
+  for (const following of ['- item 1\n- item 2', 'A paragraph with **bold** text.', '```js\nconst x = 1;\n```']) {
+    const markdown = `# Heading\n${following}`;
+    const updated = updateSlideInSource(markdown, 'slide-1', { edits: [{ tag: 'h1', beforeText: 'Heading', afterText: 'Heading', style: 'transform:translate(1px,0)' }] }).slideBody;
+    const expected = createEngine().render(following).html;
+    const actual = createEngine().render(updated).html;
+    const block = following.startsWith('-') ? '<ul>' : following.startsWith('```') ? '<pre>' : '<p>';
+    expect(actual.slice(actual.indexOf(block))).toBe(expected.slice(expected.indexOf(block)));
+  }
+});
+
+test('heading layout edits preserve CRLF line endings', () => {
+  const markdown = '# Heading\r\n- item\r\n';
+  const updated = updateSlideInSource(markdown, 'slide-1', { edits: [{ tag: 'h1', beforeText: 'Heading', afterText: 'Heading', style: 'width:300px' }] }).updatedSource;
+  expect(updated).toContain('</h1>\r\n\r\n- item');
+  expect(updated).not.toMatch(/(?<!\r)\n/);
+});
+
+test("list edits preserve tight, loose, nested and duplicate siblings", () => {
+  for (const [markdown, occurrence, expected] of [
+    ['- first\n- target\n- last', 1, '- first\n- changed\n- last'],
+    ['- first\n\n- target\n\n- last', 1, '- first\n\n- changed\n\n- last'],
+    ['- parent\n  - target\n  - target\n- last', 2, '- parent\n  - target\n  - changed\n- last'],
+    ['1. target\n2. target', 1, '1. target\n2. changed'],
+  ] as const) {
+    const updated = updateSlideInSource(markdown, 'slide-1', { edits: [{ tag: 'li', tagOccurrence: occurrence, beforeText: 'target', beforeMd: 'target', afterText: 'changed', afterMd: 'changed' }] });
+    expect(updated.slideBody).toBe(expected);
+  }
+});
 
 test("in-place slide edits update text, box styles, and SVG coordinates while preserving comments and math", () => {
   const deck = `---\nmarp: true\n---\n\n<!-- slide: alpha -->\n\n<!-- _class: pf-slide -->\n\n# Alpha\n\n---\n\n<!-- slide: beta -->\n\n<!-- _class: pf-slide example -->\n\n## A useful example heading\n\n<div class="example-panel">\n<p>Original text &amp; details</p>\n<p>Compare "the quantities" under $c / p$</p>\n</div>\n\n<svg viewBox="0 0 800 200">\n  <rect x="20" y="30" width="200" height="80" fill="#fafafa"/>\n  <text x="120" y="75" text-anchor="middle">Source diagram</text>\n</svg>\n\n<!--\nSpeaker note mentioning A useful example heading.\n-->\n`;

@@ -75,3 +75,18 @@ test('theme directives are detected without interpreting comments inside fenced 
   expect(parseSource('<!-- theme: uncover -->\n\n# A').theme).toBe('uncover');
   expect(parseSource('```html\n<!-- theme: gaia -->\n```').theme).toBeUndefined();
 });
+
+test('header and footer inline parsing preserves deck boundaries and source edits', () => {
+  for (const directive of ['header', 'footer']) {
+    for (const prefix of [`---\n${directive}: '**Label**'\n---\n\n`, `<!-- ${directive}: **Label** -->\n\n`]) {
+      const source = `${prefix}# First\n\n---\n\n# Second\n`;
+      const parsed = parseSource(source);
+      expect(parsed.slides).toHaveLength(2);
+      expect(parsed.editingError).toBeUndefined();
+      const updated = updateSlideInSource(source, 'slide-2', { markdown: '# Updated' });
+      expect(parseSource(updated.updatedSource).slides).toHaveLength(2);
+      expect(updated.updatedSource).toContain(prefix);
+      expect(updated.updatedSource).toContain('# Updated');
+    }
+  }
+});
