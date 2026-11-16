@@ -1,0 +1,46 @@
+{
+  "name": "@chaoxu/xarp",
+  "version": "0.1.0",
+  "description": "Marp presentations with visual editing and drawing",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "bin": { "xarp": "lib/cli.js" },
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "import": "./lib/index.js" },
+    "./plugins": { "types": "./lib/plugins/index.d.ts", "import": "./lib/plugins/index.js" },
+    "./editor": { "types": "./lib/editor/server.d.ts", "import": "./lib/editor/server.js" },
+    "./themes/*": "./themes/*"
+  },
+  "files": ["lib", "themes", "examples/basic/slides.md", "examples/basic/assets", "examples/basic/xarp.config.mjs", "docs", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "scripts": {
+    "build": "tsc && node scripts/build-browser.mjs",
+    "test": "vitest run",
+    "test:browser": "node tests/editor-browser.ts && node tests/drawing-browser.mjs && node tests/runtime-browser.mjs",
+    "test:package": "node tests/package.mjs",
+    "example": "node lib/cli.js build --config examples/basic/xarp.config.mjs",
+    "prepack": "npm run build"
+  },
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/chaoxu/xarp.git" },
+  "keywords": ["marp", "markdown", "presentation", "slides", "drawing", "editor"],
+  "dependencies": {
+    "@marp-team/marp-cli": "4.5.1",
+    "@marp-team/marp-core": "4.4.0",
+    "cheerio": "1.2.0",
+    "js-yaml": "5.5.0",
+    "markdown-it": "15.0.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9",
+    "@types/markdown-it": "14.2.0",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "moveable": "0.53.0",
+    "mutative": "2.0.2",
+    "puppeteer-core": "25.17.0",
+    "travels": "3.0.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

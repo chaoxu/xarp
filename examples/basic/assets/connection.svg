@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" role="img" aria-labelledby="title">
+  <title id="title">A source document connects to a presentation.</title>
+  <g fill="#f1f5f9" stroke="#94a3b8" stroke-width="2">
+    <rect x="40" y="60" width="280" height="140"/>
+    <rect x="580" y="60" width="280" height="140"/>
+  </g>
+  <path d="M340 130H550m-20-15 20 15-20 15" fill="none" stroke="#334155" stroke-width="3"/>
+  <g fill="#0f172a" font-family="system-ui,sans-serif" font-size="32" text-anchor="middle">
+    <text x="180" y="141">Source</text>
+    <text x="720" y="141">Presentation</text>
+  </g>
+</svg>

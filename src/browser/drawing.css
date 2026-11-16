@@ -1,0 +1,66 @@
+.xarp-drawing-toolbar {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 9998;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  color: var(--pf-text, #111);
+  background: var(--pf-bg, #fff);
+  border: 1px solid var(--pf-border, #b8b8b8);
+  font: 12px/1.2 var(--pf-font-mono, "Inconsolata", monospace);
+}
+
+.xarp-drawing-toolbar button {
+  color: inherit;
+  background: inherit;
+  border: 1px solid var(--pf-border, #b8b8b8);
+  font: inherit;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.xarp-drawing-toolbar .xarp-drawing-color {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  background: var(--drawing-color);
+}
+
+.xarp-drawing-color[aria-pressed="true"] {
+  outline: 2px solid #666;
+  outline-offset: 1px;
+}
+
+.xarp-drawing-toolbar button:disabled { opacity: .4; cursor: default; }
+.xarp-drawing-toolbar button:focus-visible { outline: 2px solid var(--pf-focus, #111); outline-offset: 2px; }
+
+.xarp-drawing-layer {
+  position: fixed;
+  z-index: 9980;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.xarp-drawing-layer * { pointer-events: none; }
+.xarp-drawing-surface { touch-action: none; }
+body.xarp-drawing-active .xarp-drawing-surface { pointer-events: all; cursor: crosshair; }
+
+.xarp-drawing-layer[hidden],
+.xarp-drawing-toolbar[hidden],
+body[data-bespoke-view="presenter"] .xarp-drawing-layer,
+body[data-bespoke-view="presenter"] .xarp-drawing-toolbar,
+body[data-bespoke-view="next"] .xarp-drawing-layer,
+body[data-bespoke-view="next"] .xarp-drawing-toolbar,
+body[data-bespoke-view="overview"] .xarp-drawing-layer,
+body[data-bespoke-view="overview"] .xarp-drawing-toolbar,
+body:has(.bespoke-marp-overview[data-open="1"]) .xarp-drawing-layer,
+body:has(.bespoke-marp-overview[data-open="1"]) .xarp-drawing-toolbar { display: none; }
+
+@media print {
+  .xarp-drawing-layer, .xarp-drawing-toolbar { display: none !important; }
+}

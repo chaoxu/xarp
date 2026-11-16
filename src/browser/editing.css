@@ -1,0 +1,212 @@
+/* In-place slide editor, Moveable drag/resize, and bounding-box inspector */
+
+.xarp-editor-toolbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  min-height: 38px;
+  z-index: 10000;
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 14px;
+  background: #020618;
+  color: #f8fafc;
+  border-bottom: 1px solid #334155;
+  font: 12px/1 "IBM Plex Mono", ui-monospace, monospace;
+  box-sizing: border-box;
+  user-select: none;
+  white-space: nowrap;
+}
+
+body.xarp-edit-active .xarp-editor-toolbar {
+  display: flex;
+}
+
+.xarp-editor-toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.xarp-editor-toolbar > div:first-child { flex: 1 1 700px; flex-wrap: wrap; }
+.xarp-editor-toolbar > div:last-child { flex: 1 1 300px; justify-content: flex-end; }
+#te-slide { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; }
+
+.xarp-editor-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  background: #2563eb;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.xarp-editor-coords-readout {
+  color: #94a3b8;
+  padding-left: 8px;
+  border-left: 1px solid #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 120px;
+}
+
+.xarp-editor-btn {
+  appearance: none;
+  font: inherit;
+  padding: 6px 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.xarp-editor-btn:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #94a3b8;
+}
+
+.xarp-editor-btn[aria-pressed="true"],
+.xarp-editor-btn-primary {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.xarp-editor-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.xarp-editor-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #93c5fd;
+}
+.xarp-editor-status.is-error { color: #fca5a5; }
+.xarp-editor-status.is-saved { color: #86efac; }
+
+/* Hover & wireframe bounding-box overlay */
+.xarp-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  pointer-events: none;
+  display: none;
+}
+
+body.xarp-edit-active .xarp-editor-overlay {
+  display: block;
+}
+
+.xarp-editor-box {
+  position: fixed;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.xarp-editor-box-margin { border: 1px dashed rgba(100, 116, 139, 0.35); }
+.xarp-editor-box-wireframe { border: 1px dashed rgba(100, 116, 139, 0.55); }
+.xarp-editor-box-parent { border: 1px dashed #64748b; }
+.xarp-editor-box-hover { border: 1.5px dashed #2563eb; background: rgba(37, 99, 235, 0.04); }
+.xarp-editor-box.is-overflow { border: 1.5px solid #dc2626; background: rgba(220, 38, 38, 0.05); }
+
+.xarp-editor-box-label {
+  position: absolute;
+  left: -1px;
+  top: -19px;
+  font: 11px/16px "IBM Plex Mono", ui-monospace, monospace;
+  padding: 1px 6px;
+  background: #2563eb;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.xarp-editor-box-parent > .xarp-editor-box-label { background: #475569; top: auto; bottom: -19px; }
+.xarp-editor-box.is-overflow > .xarp-editor-box-label { background: #dc2626; }
+
+body.xarp-edit-active .bespoke-marp-active section {
+  user-select: none;
+}
+
+body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"],
+body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"] * {
+  user-select: text;
+}
+
+body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"] {
+  outline: 2px solid #2563eb !important;
+  outline-offset: 2px;
+  cursor: text !important;
+}
+
+body.xarp-edit-active .bespoke-marp-active section .xarp-edit-math-token {
+  font: 0.88em "IBM Plex Mono", ui-monospace, monospace;
+  padding: 0 4px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px dashed #2563eb;
+  color: #1e40af;
+}
+
+.xarp-editor-svg-input {
+  position: fixed;
+  z-index: 10001;
+  font: 14px "IBM Plex Sans", sans-serif;
+  padding: 4px 8px;
+  background: #fff;
+  color: #020618;
+  border: 2px solid #2563eb;
+  box-shadow: 0 4px 12px rgba(2, 6, 24, 0.18);
+}
+
+.xarp-editor-drawer {
+  position: fixed;
+  inset: var(--xarp-editor-toolbar-height, 38px) 0 0 auto;
+  width: min(520px, 46vw);
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  background: #fff;
+  color: #020618;
+  border-left: 1px solid #cbd5e1;
+  font: 12px "IBM Plex Mono", ui-monospace, monospace;
+}
+
+body.xarp-edit-active .xarp-editor-drawer.is-open { display: flex; }
+
+.xarp-editor-drawer-header,
+.xarp-editor-drawer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.xarp-editor-drawer-footer { border-top: 1px solid #e2e8f0; border-bottom: 0; color: #64748b; }
+
+.xarp-editor-drawer-textarea {
+  flex: 1;
+  border: 0;
+  padding: 14px;
+  font: 13px/1.55 "IBM Plex Mono", ui-monospace, monospace;
+  color: #020618;
+  resize: none;
+  outline: none;
+}
+
+@media print {
+  .xarp-editor-toolbar, .xarp-editor-overlay,
+  .xarp-editor-drawer, .xarp-editor-svg-input, .moveable-control-box {
+    display: none !important;
+  }
+}

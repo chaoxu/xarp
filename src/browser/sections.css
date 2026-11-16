@@ -1,0 +1,71 @@
+section.xarp-sectioned { padding-bottom: 56px; }
+
+section.xarp-sectioned .xarp-section-nav {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  box-sizing: border-box;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  font-family: var(--pf-slide-font-sans, sans-serif);
+  font-size: 16px;
+  line-height: 26px;
+  color: inherit;
+}
+
+section.xarp-sectioned .xarp-section-nav a {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 6px;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+section.xarp-sectioned .xarp-section-nav a + a {
+  border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+}
+
+section.xarp-sectioned .xarp-section-nav a > :first-child {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+section.xarp-sectioned .xarp-section-nav .section-current {
+  font-weight: 600;
+}
+
+section.xarp-sectioned .xarp-section-nav a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -3px;
+}
+
+section.xarp-sectioned .section-track {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+section.xarp-sectioned .section-track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  height: 100%;
+  background: currentColor;
+  opacity: .13;
+}
+
+section.xarp-sectioned .section-current .section-track > span {
+  opacity: .22;
+}

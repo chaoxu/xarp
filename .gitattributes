@@ -1,0 +1,3 @@
+# Preserve upstream bytes and notices, including their original line endings.
+themes/chao-ui/vendor/** -text -whitespace
+licenses/upstream/** -text -whitespace

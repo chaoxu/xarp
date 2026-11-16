@@ -1,0 +1,9 @@
+node_modules/
+lib/
+dist/
+output/
+*.tgz
+.DS_Store
+.playwright-cli/
+.xarp-*/
+examples/*/dist/

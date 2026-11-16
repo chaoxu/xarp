@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/chaoxu/chao-ui",
+  "revision": "4a5a122b5515be3572bff101ad85b6b784d0c783",
+  "files": [
+    "theme.css",
+    "slides.css",
+    "fonts.css",
+    "vendor/",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ]
+}

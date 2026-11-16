@@ -1,0 +1,80 @@
+{
+  "keycon": {
+    "version": "1.4.0",
+    "file": "upstream/keycon.txt",
+    "repository": "https://github.com/daybrush/keycon",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "ba63dfff1a73df120bb652aa8dc695c3323cc13a",
+    "sha256": "77f98221f8531e87aa227c0a8d63c17c903dd4d36daf24bdc48296b09e06a25e"
+  },
+  "css-styled": {
+    "version": "1.0.8",
+    "file": "upstream/css-styled.txt",
+    "repository": "https://github.com/daybrush/css-styled",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "ba63dfff1a73df120bb652aa8dc695c3323cc13a",
+    "sha256": "77f98221f8531e87aa227c0a8d63c17c903dd4d36daf24bdc48296b09e06a25e"
+  },
+  "croact-css-styled": {
+    "version": "1.1.9",
+    "file": "upstream/croact-css-styled.txt",
+    "repository": "https://github.com/daybrush/css-styled",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "ba63dfff1a73df120bb652aa8dc695c3323cc13a",
+    "sha256": "77f98221f8531e87aa227c0a8d63c17c903dd4d36daf24bdc48296b09e06a25e"
+  },
+  "@puppeteer/browsers": {
+    "version": "2.13.2",
+    "file": "upstream/-puppeteer-browsers.txt",
+    "repository": "https://github.com/puppeteer/puppeteer",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "d2c171df74e931892e20f9395041bf8529e45330",
+    "sha256": "a27ca07269b3518550b2e83aed13eadd7d14d924b5864e14889b40cf227530ca"
+  },
+  "@cfcs/core": {
+    "version": "0.0.6",
+    "file": "upstream/-cfcs-core.txt",
+    "repository": "https://github.com/naver/cfcs",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "50814ff2936376d475e366bd0629377baa253314",
+    "sha256": "03a23caffda8e43fdefcdce73b05ac9a75fcfb63776a7408bf5c8202ff3c8e2a"
+  },
+  "puppeteer-core": {
+    "version": "24.43.1",
+    "file": "upstream/puppeteer-core.txt",
+    "repository": "https://github.com/puppeteer/puppeteer",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "d2c171df74e931892e20f9395041bf8529e45330",
+    "sha256": "a27ca07269b3518550b2e83aed13eadd7d14d924b5864e14889b40cf227530ca"
+  },
+  "mj-context-menu": {
+    "version": "0.6.1",
+    "file": "upstream/mj-context-menu.txt",
+    "repository": "https://github.com/zorkow/context-menu",
+    "upstreamPath": "LICENSE",
+    "gitBlob": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  "croact": {
+    "version": "1.0.4",
+    "file": "upstream/croact.txt",
+    "repository": "https://github.com/daybrush/croact",
+    "provenance": "MIT text with the copyright notice from croact/dist/croact.cjs.js. The package declares MIT and omits a separate license file.",
+    "sha256": "340a74a957c585d626b1717c9d27ccde64116622a5b8b9726b896e7671d26b2e"
+  },
+  "@egjs/component": {
+    "version": "3.0.5",
+    "file": "upstream/-egjs-component.txt",
+    "repository": "https://github.com/naver/egjs-component",
+    "provenance": "License block from the distributed README.md",
+    "sha256": "fd3cd1d05b9e05d8310eeeaba997140b2fdd21f237ff3afe1d94bfa64b3b96ed"
+  },
+  "degenerator": {
+    "version": "5.0.1",
+    "file": "upstream/degenerator.txt",
+    "repository": "https://github.com/TooTallNate/proxy-agents",
+    "upstreamPath": "packages/degenerator/LICENSE",
+    "gitBlob": "008728cb51847dcff9c68cf1d9c30d76b9323457",
+    "sha256": "8d8c55319c7729d57be811c747452636688d54f19701ee0752b6b15ad3771d9a"
+  }
+}
