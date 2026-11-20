@@ -645,6 +645,13 @@ html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
   --pf-vis-grid: var(--pf-border);
   --pf-vis-ink: var(--pf-fg);
   --pf-vis-muted: var(--pf-muted);
+  --pf-mark-node: var(--xarp-mark-node, circle);
+  --pf-mark-fill: var(--xarp-mark-fill, tint);
+  --pf-mark-stroke: var(--xarp-mark-stroke, crisp);
+  --pf-mark-arrow: var(--xarp-mark-arrow, triangle);
+  --pf-mark-panel: var(--xarp-mark-panel, hairline);
+  --pf-mark-roughness: var(--xarp-mark-roughness, 0);
+  --pf-mark-gap: var(--xarp-mark-gap, 7);
 
   color-scheme: var(--xarp-slide-mode, var(--xarp-mode, light)) !important;
   --color-background: var(--pf-bg) !important;
@@ -730,6 +737,41 @@ html[data-xarp-color-scheme="win2000"] svg[data-marpit-svg] > foreignObject > se
   border-radius: 0 !important;
   box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff !important;
 }
+
+/* Semantic Mark & Material Grammar (--xarp-mark-* -> --pf-mark-*) for chao-ui/marks.js */
+html[data-xarp-color-scheme="sumi-e"]       { --xarp-mark-node: dab;     --xarp-mark-fill: wash;       --xarp-mark-stroke: brush;  --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.28; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="shuimo"]       { --xarp-mark-node: dab;     --xarp-mark-fill: wash;       --xarp-mark-stroke: brush;  --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.24; --xarp-mark-gap: 8; }
+html[data-xarp-color-scheme="manga"]        { --xarp-mark-node: nib;     --xarp-mark-fill: screentone; --xarp-mark-stroke: gpen;   --xarp-mark-arrow: barb;     --xarp-mark-panel: comic;     --xarp-mark-roughness: 0.14; --xarp-mark-gap: 5.5; }
+html[data-xarp-color-scheme="han-rubbing"]  { --xarp-mark-node: chisel;  --xarp-mark-fill: stipple;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: chisel;   --xarp-mark-panel: stone;     --xarp-mark-roughness: 0.58; --xarp-mark-gap: 8; }
+html[data-xarp-color-scheme="song-scroll"]  { --xarp-mark-node: dab;     --xarp-mark-fill: wash;       --xarp-mark-stroke: brush;  --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.22; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="qinglu"]       { --xarp-mark-node: shippo;  --xarp-mark-fill: wash;       --xarp-mark-stroke: brush;  --xarp-mark-arrow: flick;    --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.16; --xarp-mark-gap: 7; }
+html[data-xarp-color-scheme="washi"]        { --xarp-mark-node: dab;     --xarp-mark-fill: wash;       --xarp-mark-stroke: gpen;   --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.18; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="shippo"]       { --xarp-mark-node: shippo;  --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="kikko"]        { --xarp-mark-node: diamond; --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="yagasuri"]     { --xarp-mark-node: diamond; --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 6.5; }
+html[data-xarp-color-scheme="edo"]          { --xarp-mark-node: nib;     --xarp-mark-fill: hachure;    --xarp-mark-stroke: gpen;   --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.22; --xarp-mark-gap: 7; }
+html[data-xarp-color-scheme="hanami"]       { --xarp-mark-node: shippo;  --xarp-mark-fill: wash;       --xarp-mark-stroke: crisp;  --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.10; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="wabi-sabi"]    { --xarp-mark-node: dab;     --xarp-mark-fill: wash;       --xarp-mark-stroke: brush;  --xarp-mark-arrow: flick;    --xarp-mark-panel: scroll;    --xarp-mark-roughness: 0.34; --xarp-mark-gap: 8.5; }
+html[data-xarp-color-scheme="ukiyo-e"]      { --xarp-mark-node: nib;     --xarp-mark-fill: hachure;    --xarp-mark-stroke: gpen;   --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.26; --xarp-mark-gap: 6.8; }
+html[data-xarp-color-scheme="urushi"]       { --xarp-mark-node: diamond; --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 8; }
+html[data-xarp-color-scheme="yosegi"]       { --xarp-mark-node: diamond; --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 6.8; }
+html[data-xarp-color-scheme="kumiko"]       { --xarp-mark-node: diamond; --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 7.2; }
+html[data-xarp-color-scheme="zellij"]       { --xarp-mark-node: star8;   --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 7; }
+html[data-xarp-color-scheme="isfahan"]      { --xarp-mark-node: star8;   --xarp-mark-fill: weave;      --xarp-mark-stroke: crisp;  --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 7.2; }
+html[data-xarp-color-scheme="sahara"]       { --xarp-mark-node: chisel;  --xarp-mark-fill: stipple;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: chisel;   --xarp-mark-panel: stone;     --xarp-mark-roughness: 0.65; --xarp-mark-gap: 8; }
+html[data-xarp-color-scheme="egypt"]        { --xarp-mark-node: chisel;  --xarp-mark-fill: stipple;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: chisel;   --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.32; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="maya"]         { --xarp-mark-node: chisel;  --xarp-mark-fill: stipple;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: chisel;   --xarp-mark-panel: stone;     --xarp-mark-roughness: 0.48; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="mughal"]       { --xarp-mark-node: star8;   --xarp-mark-fill: weave;      --xarp-mark-stroke: gpen;   --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.12; --xarp-mark-gap: 7; }
+html[data-xarp-color-scheme="wayang"]       { --xarp-mark-node: diamond; --xarp-mark-fill: stipple;    --xarp-mark-stroke: gpen;   --xarp-mark-arrow: barb;     --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.24; --xarp-mark-gap: 7.5; }
+html[data-xarp-color-scheme="starry"]       { --xarp-mark-node: dab;     --xarp-mark-fill: hachure;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: flick;    --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.52; --xarp-mark-gap: 6.5; }
+html[data-xarp-color-scheme="scream"]       { --xarp-mark-node: dab;     --xarp-mark-fill: hachure;    --xarp-mark-stroke: chisel; --xarp-mark-arrow: flick;    --xarp-mark-panel: stone;     --xarp-mark-roughness: 0.58; --xarp-mark-gap: 6.8; }
+html[data-xarp-color-scheme="nitrate"]      { --xarp-mark-node: circle;  --xarp-mark-fill: hachure;    --xarp-mark-stroke: gpen;   --xarp-mark-arrow: triangle; --xarp-mark-panel: inlay;     --xarp-mark-roughness: 0.28; --xarp-mark-gap: 6.5; }
+html[data-xarp-color-scheme="blueprint"]    { --xarp-mark-node: reticle; --xarp-mark-fill: hachure;    --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: graticule; --xarp-mark-roughness: 0;    --xarp-mark-gap: 6.5; }
+html[data-xarp-color-scheme="oscilloscope"] { --xarp-mark-node: reticle; --xarp-mark-fill: scanline;   --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: graticule; --xarp-mark-roughness: 0;    --xarp-mark-gap: 5.5; }
+html[data-xarp-color-scheme="pixel-8bit"]   { --xarp-mark-node: pixel;   --xarp-mark-fill: dither;     --xarp-mark-stroke: pixel;  --xarp-mark-arrow: pixel;    --xarp-mark-panel: pixel;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 6; }
+html[data-xarp-color-scheme="win2000"]      { --xarp-mark-node: pixel;   --xarp-mark-fill: dither;     --xarp-mark-stroke: crisp;  --xarp-mark-arrow: pixel;    --xarp-mark-panel: bevel;     --xarp-mark-roughness: 0;    --xarp-mark-gap: 6; }
+html[data-xarp-color-scheme="vaporwave"]    { --xarp-mark-node: diamond; --xarp-mark-fill: scanline;   --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: graticule; --xarp-mark-roughness: 0;    --xarp-mark-gap: 5.8; }
+html[data-xarp-color-scheme="code-art"]     { --xarp-mark-node: reticle; --xarp-mark-fill: hachure;    --xarp-mark-stroke: crisp;  --xarp-mark-arrow: vee;      --xarp-mark-panel: graticule; --xarp-mark-roughness: 0;    --xarp-mark-gap: 6.5; }
 
 html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section.xarp-sectioned > .xarp-section-nav {
   background-color: var(--pf-bg);

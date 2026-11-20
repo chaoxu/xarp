@@ -148,6 +148,30 @@
         "vendor/katex/FONT-NOTICES.txt",
         "vendor/katex/OFL.txt"
       ]
+    },
+    {
+      "id": "roughjs",
+      "name": "Rough.js",
+      "package": "roughjs",
+      "version": "4.6.6",
+      "source": "https://github.com/rough-stuff/rough",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2019 Preet Shihn",
+      "license_files": [
+        "vendor/roughjs/LICENSE"
+      ]
+    },
+    {
+      "id": "perfect-freehand",
+      "name": "perfect-freehand",
+      "package": "perfect-freehand",
+      "version": "1.2.3",
+      "source": "https://github.com/steveruizok/perfect-freehand",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2021 Stephen Ruiz Ltd",
+      "license_files": [
+        "vendor/perfect-freehand/LICENSE"
+      ]
     }
   ],
   "files": [
@@ -1180,6 +1204,72 @@
       "license": "MIT",
       "archive_member": "package/dist/katex.min.js",
       "archive_sha256": "24da5a599eb2fcede2e270b99a6ff48bca816beecc95feeb84e8cccbd1bb34fd"
+    },
+    {
+      "path": "vendor/perfect-freehand/LICENSE",
+      "component": "perfect-freehand",
+      "version": "1.2.3",
+      "source_url": "https://registry.npmjs.org/perfect-freehand/-/perfect-freehand-1.2.3.tgz",
+      "sha256": "6a5ac82b42ce0af6a1e5fe39b46f0b52f1368e81e437175e8d9ae21569c8688e",
+      "bytes": 1073,
+      "license": "MIT",
+      "archive_member": "package/LICENSE",
+      "archive_sha256": "060048047071b6ffb2170c8b867ba995f365ec811dc32435574d3d5f7625981f"
+    },
+    {
+      "path": "vendor/perfect-freehand/index.mjs",
+      "component": "perfect-freehand",
+      "version": "1.2.3",
+      "source_url": "https://registry.npmjs.org/perfect-freehand/-/perfect-freehand-1.2.3.tgz",
+      "sha256": "a02e221f71a757e46915a51d8f5ffc8d1788d9134e063b3edd21f429c973d46c",
+      "bytes": 4532,
+      "license": "MIT",
+      "archive_member": "package/dist/esm/index.mjs",
+      "archive_sha256": "060048047071b6ffb2170c8b867ba995f365ec811dc32435574d3d5f7625981f"
+    },
+    {
+      "path": "vendor/perfect-freehand/index.mjs.map",
+      "component": "perfect-freehand",
+      "version": "1.2.3",
+      "source_url": "https://registry.npmjs.org/perfect-freehand/-/perfect-freehand-1.2.3.tgz",
+      "sha256": "2d9455ba28ee1b59140c2656364f6e4589aded7ab81e660fcfab6a9e4ae755f5",
+      "bytes": 38259,
+      "license": "MIT",
+      "archive_member": "package/dist/esm/index.mjs.map",
+      "archive_sha256": "060048047071b6ffb2170c8b867ba995f365ec811dc32435574d3d5f7625981f"
+    },
+    {
+      "path": "vendor/roughjs/LICENSE",
+      "component": "roughjs",
+      "version": "4.6.6",
+      "source_url": "https://registry.npmjs.org/roughjs/-/roughjs-4.6.6.tgz",
+      "sha256": "dca9a392272606ac748ac0976a2a1133f14eef841c27beaa51a844d53c56a09d",
+      "bytes": 1068,
+      "license": "MIT",
+      "archive_member": "package/LICENSE",
+      "archive_sha256": "373873b2c3f1b7ddba878525c774816057c5818029780c7fba081f06018ba78c"
+    },
+    {
+      "path": "vendor/roughjs/rough.esm.js",
+      "component": "roughjs",
+      "version": "4.6.6",
+      "source_url": "https://registry.npmjs.org/roughjs/-/roughjs-4.6.6.tgz",
+      "sha256": "e921535f216ebc93d422489d614da955b5286812220b3149fc70978f4cb5bd45",
+      "bytes": 27748,
+      "license": "MIT",
+      "archive_member": "package/bundled/rough.esm.js",
+      "archive_sha256": "373873b2c3f1b7ddba878525c774816057c5818029780c7fba081f06018ba78c"
+    },
+    {
+      "path": "vendor/roughjs/rough.js",
+      "component": "roughjs",
+      "version": "4.6.6",
+      "source_url": "https://registry.npmjs.org/roughjs/-/roughjs-4.6.6.tgz",
+      "sha256": "6853af8619532f3939b156cd16824d2e14f31e71d3df306ad5558eeafacab194",
+      "bytes": 27762,
+      "license": "MIT",
+      "archive_member": "package/bundled/rough.js",
+      "archive_sha256": "373873b2c3f1b7ddba878525c774816057c5818029780c7fba081f06018ba78c"
     },
     {
       "path": "vendor/sarasa-mono-sc/LICENSE",

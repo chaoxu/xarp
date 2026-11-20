@@ -47,12 +47,21 @@ function syncSlideFrames(selected) {
   for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
     try {
       if (frame.contentDocument?.documentElement) {
-        if (selected === 'default') delete frame.contentDocument.documentElement.dataset.xarpColorScheme;
-        else frame.contentDocument.documentElement.dataset.xarpColorScheme = selected;
+        if (selected === 'default') {
+          delete frame.contentDocument.documentElement.dataset.xarpColorScheme;
+          delete frame.contentDocument.documentElement.dataset.pfStyle;
+        } else {
+          frame.contentDocument.documentElement.dataset.xarpColorScheme = selected;
+          frame.contentDocument.documentElement.dataset.pfStyle = selected;
+        }
       }
       if (typeof frame.contentWindow?.__setXarpColorScheme === 'function') {
         frame.contentWindow.__setXarpColorScheme(selected);
       }
+      if (typeof frame.contentWindow?.__setHrsStyle === 'function') {
+        frame.contentWindow.__setHrsStyle(selected);
+      }
+      frame.contentWindow?.dispatchEvent(new CustomEvent('chao-theme-change', { detail: { scheme: selected } }));
     } catch { /* Cross-origin embeds keep their own document state. */ }
   }
 }
@@ -71,10 +80,16 @@ function persistOverride() {
 
 function update() {
   const selected = currentSelected();
-  if (selected === 'default') delete root.dataset.xarpColorScheme;
-  else root.dataset.xarpColorScheme = selected;
+  if (selected === 'default') {
+    delete root.dataset.xarpColorScheme;
+    delete root.dataset.pfStyle;
+  } else {
+    root.dataset.xarpColorScheme = selected;
+    root.dataset.pfStyle = selected;
+  }
   select.value = isColorScheme(override) ? override : '';
   syncSlideFrames(selected);
+  window.dispatchEvent(new CustomEvent('chao-theme-change', { detail: { scheme: selected } }));
   window.dispatchEvent(new CustomEvent('xarp-color-scheme-change', {
     detail: { scheme: selected, authored, override: isColorScheme(override) ? override : null },
   }));

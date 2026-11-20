@@ -65,7 +65,10 @@ test('color schemes compose with themes and work offline without the picker', as
   expect(html('html').attr('data-xarp-color-scheme')).toBe('hanami');
   expect(html('section').hasClass('pf-slide')).toBe(false);
   expect(html('script[src]')).toHaveLength(0);
-  expect(await readFile(join(authored.output, '_xarp/palettes.css'), 'utf8')).toContain('--xarp-paper');
+  const palettesCss = await readFile(join(authored.output, '_xarp/palettes.css'), 'utf8');
+  expect(palettesCss).toContain('--xarp-paper');
+  expect(palettesCss).toContain('--pf-mark-node: var(--xarp-mark-node, circle)');
+  expect(palettesCss).toContain('html[data-xarp-color-scheme="zellij"]');
 
   const override = await build({ ...config, colorScheme: 'ukiyo-e' });
   expect(override.metadata.buildRevision).not.toBe(authored.metadata.buildRevision);
