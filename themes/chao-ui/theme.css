@@ -58,14 +58,15 @@
   --pf-vis-ink: #1e1c1a;
   --pf-vis-muted: #76716a;
 
-  /* Semantic Mark & Material Grammar (marks.js) */
-  --pf-mark-node: circle;
-  --pf-mark-fill: tint;
-  --pf-mark-stroke: crisp;
-  --pf-mark-arrow: triangle;
-  --pf-mark-panel: hairline;
-  --pf-mark-roughness: 0;
-  --pf-mark-gap: 7;
+  /* Semantic Mark & Material Grammar (marks.js; 'auto' defers to data-pf-style or Swiss default) */
+  --pf-mark-node: auto;
+  --pf-mark-fill: auto;
+  --pf-mark-stroke: auto;
+  --pf-mark-arrow: auto;
+  --pf-mark-panel: auto;
+  --pf-mark-roughness: auto;
+  --pf-mark-gap: auto;
+  --pf-mark-scan-angle: auto;
 
   /* Dimensions */
   --pf-radius: 0px; /* Forces flat 90-degree square corners */

@@ -28,7 +28,7 @@ try {
   assert(html.includes('data-xarp-color-scheme="ukiyo-e"'));
   assert((await readFile(join(directory, 'dist/_xarp/palettes.css'), 'utf8')).includes('--xarp-paper'));
   const notices = await readFile(join(directory, 'dist/_xarp/plugins/LICENSES.txt'), 'utf8');
-  for (const name of ['drauu 1.0.0', 'nanoevents 9.1.0', 'perfect-freehand 1.2.2']) assert(notices.includes(name), `Missing browser dependency notice: ${name}`);
+  for (const name of ['drauu 1.0.0', 'nanoevents 9.1.0', 'perfect-freehand 1.2.2', 'roughjs 4.6.6', 'perfect-freehand 1.2.3']) assert(notices.includes(name), `Missing browser dependency notice: ${name}`);
   await writeFile(join(directory, 'check.mjs'), `
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

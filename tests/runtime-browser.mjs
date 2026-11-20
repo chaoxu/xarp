@@ -101,7 +101,7 @@ try {
     await page.close();
   }
 
-  const paletteSource = '# A heading\n\nA [link](#2) and `inline code`.\n\n---\n\n![bg](assets/connection.svg)\n\n# Illustrated\n';
+  const paletteSource = '# A heading\n\nA [link](#2) and `inline code`.\n\n<svg id="semantic-fig" viewBox="0 0 240 80" width="240" height="80"><circle class="sem-dot" data-pf-mark="dot" data-pf-role="primary" cx="40" cy="40" r="10"/><rect class="sem-bar" data-pf-mark="bar" data-pf-role="caveat" x="90" y="20" width="120" height="36"/></svg>\n\n---\n\n![bg](assets/connection.svg)\n\n# Illustrated\n';
   await writeFile(join(config.cwd, 'colors.md'), paletteSource);
   await writeFile(join(config.cwd, 'custom.css'), '/* @theme custom */\nsection { background: var(--pf-bg); color: var(--pf-fg); font-size: 42px; }');
   for (const theme of ['chao-ui', 'default', 'gaia', 'uncover', 'custom.css']) {
@@ -134,6 +134,8 @@ try {
     const sumie = await style();
     assert.equal(sumie.background, 'rgb(250, 248, 242)', theme);
     assert.equal(sumie.font.includes('IBM Plex Serif'), true, theme);
+    assert.equal(await page.$eval('#semantic-fig', el => el.getAttribute('data-pf-hydrated')), '1', theme);
+    assert.equal(await page.$eval('#semantic-fig .sem-dot', el => Boolean(el.querySelector('path') || el.tagName.toLowerCase() === 'path')), true, theme);
     await page.select(select, 'shuimo');
     const shuimo = await style();
     assert.equal(shuimo.background, 'rgb(251, 251, 249)', theme);
@@ -171,6 +173,11 @@ try {
     assert.equal((await style()).background, 'rgb(248, 243, 230)', theme);
     await page.select(select, '');
     assert.deepEqual(await style(), original, theme);
+    if (theme === 'chao-ui') {
+      assert.equal(await page.$eval('#semantic-fig', el => el.getAttribute('data-pf-hydrated')), null);
+      assert.equal(await page.$eval('#semantic-fig .sem-dot', el => el.tagName.toLowerCase()), 'circle');
+      assert.equal(await page.$eval('#semantic-fig .sem-bar', el => el.tagName.toLowerCase()), 'rect');
+    }
     await page.goto(`${base}/?colorScheme=qinglu`);
     assert.equal((await style()).background, 'rgb(226, 204, 163)', theme);
     await page.keyboard.press('c');

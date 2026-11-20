@@ -10,7 +10,7 @@ if (source === target || target.startsWith(`${source}/`)) throw new Error('Choos
 const git = (...args) => execFileSync('git', ['-C', source, ...args], { encoding: 'utf8' }).trim();
 if (git('status', '--porcelain')) throw new Error('The upstream checkout must be clean');
 const revision = git('rev-parse', 'HEAD');
-const files = ['theme.css', 'slides.css', 'fonts.css', 'vendor/', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
+const files = ['theme.css', 'slides.css', 'fonts.css', 'diagrams.js', 'marks.js', 'vendor/', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
 await readFile(join(source, 'vendor/manifest.json'));
 await mkdir(target, { recursive: true });
 for (const file of files) {

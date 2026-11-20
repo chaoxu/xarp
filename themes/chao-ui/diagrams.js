@@ -29,12 +29,36 @@ export const FONTS = {
   mathBold: 'italic 600 14px "IBM Plex Serif", "STIX Two Text", Georgia, serif',
 };
 
+function splitTopLevelComma(str) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      parts.push(str.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(str.slice(start).trim());
+  return parts;
+}
+
+function parseColorMixArg(raw) {
+  const m = raw.match(/^(.*?)\s+([-+]?(?:\d+\.?\d*|\.\d+))%\s*$/);
+  if (m && m[1]) return { color: m[1].trim(), pct: clamp(Number(m[2]) / 100, 0, 1) };
+  return { color: raw.trim(), pct: null };
+}
+
 export function parseRgb(str, fallback = [31, 29, 26]) {
-  const s = (str || "").trim();
+  const s = String(str || "").trim();
+  if (!s || s === "none" || s === "transparent") return fallback;
   if (s.startsWith("#")) {
     const hex = s.slice(1);
-    if (hex.length === 3) {
-      return hex.split("").map((c) => parseInt(c + c, 16));
+    if (hex.length === 3 || hex.length === 4) {
+      return hex.slice(0, 3).split("").map((c) => parseInt(c + c, 16));
     }
     if (hex.length >= 6) {
       return [
@@ -44,8 +68,44 @@ export function parseRgb(str, fallback = [31, 29, 26]) {
       ];
     }
   }
-  const m = s.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
-  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (/^color-mix\(/i.test(s) && s.endsWith(")")) {
+    const inner = s.slice(s.indexOf("(") + 1, -1);
+    const parts = splitTopLevelComma(inner);
+    if (parts.length >= 3) {
+      const a1 = parseColorMixArg(parts[1]);
+      const a2 = parseColorMixArg(parts[2]);
+      if (a1.color.toLowerCase() === "transparent") return parseRgb(a2.color, fallback);
+      if (a2.color.toLowerCase() === "transparent") return parseRgb(a1.color, fallback);
+      let w1 = 0.5;
+      let w2 = 0.5;
+      if (a1.pct != null && a2.pct != null) {
+        const sum = a1.pct + a2.pct;
+        if (sum > 1e-6) {
+          w1 = a1.pct / sum;
+          w2 = a2.pct / sum;
+        }
+      } else if (a1.pct != null) {
+        w1 = a1.pct;
+        w2 = 1 - w1;
+      } else if (a2.pct != null) {
+        w2 = a2.pct;
+        w1 = 1 - w2;
+      }
+      const c1 = parseRgb(a1.color, fallback);
+      const c2 = parseRgb(a2.color, fallback);
+      return [
+        c1[0] * w1 + c2[0] * w2,
+        c1[1] * w1 + c2[1] * w2,
+        c1[2] * w1 + c2[2] * w2,
+      ];
+    }
+  }
+  const m = s.match(/^rgba?\(\s*([^\s,/)]+%?)\s*[\s,]\s*([^\s,/)]+%?)\s*[\s,]\s*([^\s,/)]+%?)/i);
+  if (m) {
+    const chan = (v) => (v.endsWith("%") ? clamp((Number(v.slice(0, -1)) * 255) / 100, 0, 255) : clamp(Number(v), 0, 255));
+    const r = chan(m[1]), g = chan(m[2]), b = chan(m[3]);
+    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return [r, g, b];
+  }
   return fallback;
 }
 
@@ -61,7 +121,10 @@ export function mixRgb(c1, c2, t) {
 
 export function palette(el = document.documentElement) {
   const cs = getComputedStyle(el);
-  const read = (name, fb) => cs.getPropertyValue(name).trim() || fb;
+  const read = (name, fb) => {
+    const raw = cs.getPropertyValue(name).trim() || fb;
+    return /^color-mix\(/i.test(raw) ? rgba(parseRgb(raw, parseRgb(fb)), 1) : raw;
+  };
   const bg = read("--pf-essay-bg", read("--pf-bg", "#ffffff"));
   const fg = read("--pf-vis-ink", read("--pf-fg", "#1f1d1a"));
   const muted = read("--pf-vis-muted", read("--pf-muted", "#6e6a63"));

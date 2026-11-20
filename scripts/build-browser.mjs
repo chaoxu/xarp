@@ -17,7 +17,7 @@ await build({
 });
 await build({
   absWorkingDir: root,
-  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js'],
+  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js', 'src/browser/marks.js'],
   outdir: destination, bundle: true, platform: 'browser', format: 'iife',
   legalComments: 'eof', target: ['es2022'],
 });
@@ -70,9 +70,15 @@ async function licenseTexts(names) {
 }
 
 // Drauu's published core also inlines nanoevents and perfect-freehand without
-// listing them as dependencies. Retain those upstream notices in our bundle.
+// listing them as dependencies, and semantic marks bundle chao-ui's vendored
+// roughjs and perfect-freehand modules. Retain those upstream notices in our bundle.
+const marksNotices = [
+  `roughjs 4.6.6\n${await readFile(join(root, 'themes/chao-ui/vendor/roughjs/LICENSE'), 'utf8')}`,
+  `perfect-freehand 1.2.3\n${await readFile(join(root, 'themes/chao-ui/vendor/perfect-freehand/LICENSE'), 'utf8')}`,
+].join('\n\n---\n\n');
 await writeFile(join(destination, 'LICENSES.txt'), await licenseTexts(['drauu', 'moveable', 'travels', 'mutative', 'markdown-it', 'katex', 'tslib'])
-  + '\n\n---\n\n' + await readFile(join(root, 'licenses/drauu-bundled.txt'), 'utf8'));
+  + '\n\n---\n\n' + await readFile(join(root, 'licenses/drauu-bundled.txt'), 'utf8')
+  + '\n\n---\n\n' + marksNotices);
 const marpCli = await packageDirectory('@marp-team/marp-cli');
 const rendererNotices = await licenseTexts(['@marp-team/marp-cli', '@marp-team/marp-core']);
 await writeFile(join(destination, 'RENDERER-LICENSES.txt'), rendererNotices + '\n\n' + await readFile(join(marpCli, 'lib/bespoke.js.LICENSE.txt'), 'utf8'));

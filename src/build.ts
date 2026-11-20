@@ -177,6 +177,15 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       paletteHash = hash(css);
       await writeFile(join(stage, '_xarp/palettes.css'), css);
       $('head').append('<link rel="stylesheet" href="_xarp/palettes.css">');
+      if (!assets.scripts.some(path => path.endsWith('/color-schemes.js')) && svgSlides.find('svg [data-pf-mark]').length > 0) {
+        const marksSource = join(browserRoot, 'marks.js');
+        const marksTarget = '_xarp/plugins/marks.js';
+        await mkdir(dirname(join(stage, marksTarget)), { recursive: true });
+        await copyFile(marksSource, join(stage, marksTarget));
+        await copyFile(join(browserRoot, 'LICENSES.txt'), join(stage, '_xarp/plugins/LICENSES.txt'));
+        assets.scripts.push(marksTarget);
+        assets.fingerprint.push([marksTarget, hash(await readFile(marksSource))]);
+      }
     }
     if (options.sections) {
       sections.addClass('xarp-sectioned');

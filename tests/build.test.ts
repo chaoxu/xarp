@@ -84,6 +84,13 @@ test('color schemes compose with themes and work offline without the picker', as
   expect(interactive('script[src$="/color-schemes.js"]')).toHaveLength(1);
   await expect(build({ ...config, colorScheme: 'unknown' as never })).rejects.toThrow('Unknown color scheme');
   expect(await readFile(withPicker.htmlPath, 'utf8')).toContain('Palette');
+
+  const semanticDeck = await project('---\ncolorScheme: sumi-e\n---\n# Marks\n\n<svg viewBox="0 0 200 80"><circle data-pf-mark="dot" cx="40" cy="40" r="10"/></svg>\n');
+  const semanticBuilt = await build(semanticDeck);
+  const semanticHtml = load(await readFile(semanticBuilt.htmlPath, 'utf8'));
+  expect(semanticHtml('script[src="_xarp/plugins/marks.js"]')).toHaveLength(1);
+  expect((await readFile(join(semanticBuilt.output, '_xarp/plugins/marks.js'))).length).toBeGreaterThan(0);
+  expect((await readFile(join(semanticBuilt.output, '_xarp/plugins/LICENSES.txt'), 'utf8'))).toContain('roughjs 4.6.6');
 }, 15000);
 
 test('named selection and section progress use the selected order', async () => {

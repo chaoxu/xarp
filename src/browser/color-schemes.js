@@ -1,4 +1,5 @@
 import { COLOR_SCHEMES, isColorScheme } from '../color-schemes.js';
+import { syncSlideMarks } from './marks.js';
 
 const meta = JSON.parse(document.getElementById('xarp-meta').textContent);
 const options = meta.plugins['color-schemes'];
@@ -88,6 +89,7 @@ function update() {
     root.dataset.pfStyle = selected;
   }
   select.value = isColorScheme(override) ? override : '';
+  syncSlideMarks();
   syncSlideFrames(selected);
   window.dispatchEvent(new CustomEvent('chao-theme-change', { detail: { scheme: selected } }));
   window.dispatchEvent(new CustomEvent('xarp-color-scheme-change', {
@@ -159,4 +161,7 @@ if (persist) window.addEventListener('storage', event => {
 });
 window.addEventListener('xarp-color-scheme-default', event => {
   if (isColorScheme(event.detail) && event.detail !== authored) setDefault(event.detail);
+});
+window.addEventListener('xarp-slide-patched', event => {
+  syncSlideMarks(event.detail?.section || document);
 });

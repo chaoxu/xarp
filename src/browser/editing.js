@@ -131,6 +131,7 @@ import { contentSections } from '../slide-dom.js';
         section.innerHTML = nextSection.innerHTML;
       } else layer.innerHTML = nextLayers[i].innerHTML;
     }
+    window.dispatchEvent(new CustomEvent("xarp-slide-patched", { detail: { section } }));
     unrenderedSlides.delete(index);
     const saved = baselines.get(savedBaselines.get(index));
     if (saved) {
@@ -555,7 +556,7 @@ import { contentSections } from '../slide-dom.js';
     ensureHistory(sections.indexOf(section));
     const tag = el.tagName.toLowerCase();
     const beforeText = (el.textContent || "").replace(/\u00a0/g, " ").trim();
-    const sameTag = [...section.querySelectorAll(tag)];
+    const sameTag = [...section.querySelectorAll(tag)].filter(node => !node.closest("[data-pf-mark-generated]"));
     const tagOccurrence = Math.max(0, sameTag.indexOf(el));
     let occurrence = 0;
     for (const other of section.querySelectorAll(`${TEXT_SEL},svg text`)) {
@@ -683,7 +684,7 @@ import { contentSections } from '../slide-dom.js';
 
     if (showAllBoxes) {
       for (const el of section.querySelectorAll(ALL_SEL)) {
-        if (el.closest(NAV_SEL) || el.closest(".katex,.mermaid") || el === hoveredEl || el === selectedEl) continue;
+        if (el.closest(NAV_SEL) || el.closest(".katex,.mermaid,[data-pf-mark-generated]") || el === hoveredEl || el === selectedEl) continue;
         const m = metrics(el, section, sr, rectFor);
         if (m.w > 2 && m.h > 2) boxes.push([m.rect, `xarp-editor-box-wireframe${m.overflow ? " is-overflow" : ""}`, m.overflow ? `${desc(el)} · ${m.w}×${m.h} OVERFLOW` : ""]);
       }
@@ -852,7 +853,7 @@ import { contentSections } from '../slide-dom.js';
     moveable.snapContainer = section;
     moveable.verticalGuidelines = [0, section.clientWidth / 3, section.clientWidth / 2, section.clientWidth * 2 / 3, section.clientWidth];
     moveable.horizontalGuidelines = [0, section.clientHeight / 3, section.clientHeight / 2, section.clientHeight * 2 / 3, section.clientHeight];
-    moveable.elementGuidelines = [...section.querySelectorAll(ALL_SEL)].filter(el => el !== selectedEl && !el.contains(selectedEl) && !selectedEl?.contains(el) && !el.closest(`${NAV_SEL},.katex,.mermaid`));
+    moveable.elementGuidelines = [...section.querySelectorAll(ALL_SEL)].filter(el => el !== selectedEl && !el.contains(selectedEl) && !selectedEl?.contains(el) && !el.closest(`${NAV_SEL},.katex,.mermaid,[data-pf-mark-generated]`));
   }
 
   function selectBox(el, section, startEvent = null) {
@@ -1241,8 +1242,9 @@ import { contentSections } from '../slide-dom.js';
 
   function findTarget(raw, section) {
     if (!raw || !section?.contains(raw) || raw.closest?.(NAV_SEL) || savingSlide !== null || sourceDirty(slideIndex()) || unrenderedSlides.has(slideIndex())) return null;
-    const target = raw.closest("img,svg text,svg rect,svg circle") || raw.closest(TEXT_SEL) || raw.closest(BOX_SEL);
-    return target && section.contains(target) && !target.closest(".katex,.mermaid") ? target : null;
+    const start = raw.closest?.("[data-pf-mark-generated]") ? raw.closest("svg") : raw;
+    const target = start && (start.closest("img,svg text,svg rect,svg circle") || start.closest(TEXT_SEL) || start.closest(BOX_SEL));
+    return target && section.contains(target) && !target.closest(".katex,.mermaid,[data-pf-mark-generated]") ? target : null;
   }
 
   $("te-snap").onclick = () => {
