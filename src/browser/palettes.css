@@ -1,13 +1,90 @@
-/* Slide color roles adapted from https://japanesecoloratlas.com/en/palettes.
-   These values are scoped to the deck. The surrounding editor keeps its own UI colors. */
+/* Slide visual worlds & color palettes for Xarp.
+   Scoped strictly to slide sections; editor and drawing UI keep their own colors. */
+
+html[data-xarp-color-scheme="shuimo"] {
+  --xarp-paper: #efece4;
+  --xarp-ink: #121210;
+  --xarp-surface: #e2e0d7;
+  --xarp-accent: #22383b;
+  --xarp-secondary: #c8281e;
+  --xarp-highlight: #587073;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 48%, transparent 52%, rgba(92, 86, 73, 0.20) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='14'%3E%3Cline x1='0' y1='0' x2='96' y2='0' stroke='%234a453b' stroke-opacity='0.085' stroke-width='0.9'/%3E%3Cline x1='0' y1='7' x2='96' y2='7' stroke='%234a453b' stroke-opacity='0.055' stroke-width='0.7'/%3E%3Cline x1='48' y1='0' x2='48' y2='14' stroke='%234a453b' stroke-opacity='0.045' stroke-width='0.8'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #efece4,
+    inset 0 0 0 9.5px rgba(28, 27, 24, 0.34),
+    inset 0 0 0 13px #efece4,
+    inset 0 0 0 14px rgba(28, 27, 24, 0.14);
+}
+
+html[data-xarp-color-scheme="qinglu"] {
+  --xarp-paper: #e2cca3;
+  --xarp-ink: #1c1610;
+  --xarp-surface: #cfe3d4;
+  --xarp-accent: #0e4b75;
+  --xarp-secondary: #1c6b68;
+  --xarp-highlight: #bf2c1f;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 48%, rgba(255, 244, 214, 0.18) 0%, transparent 58%, rgba(112, 72, 24, 0.26) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cline x1='0' y1='0' x2='12' y2='0' stroke='%236e4e24' stroke-opacity='0.09' stroke-width='0.8'/%3E%3Cline x1='0' y1='6' x2='12' y2='6' stroke='%236e4e24' stroke-opacity='0.06' stroke-width='0.6'/%3E%3Cline x1='0' y1='0' x2='0' y2='12' stroke='%236e4e24' stroke-opacity='0.07' stroke-width='0.7'/%3E%3Cline x1='6' y1='0' x2='6' y2='12' stroke='%236e4e24' stroke-opacity='0.045' stroke-width='0.6'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #e2cca3,
+    inset 0 0 0 10px rgba(14, 75, 117, 0.44),
+    inset 0 0 0 14px #e2cca3,
+    inset 0 0 0 15px rgba(143, 73, 30, 0.36);
+}
+
+html[data-xarp-color-scheme="washi"] {
+  --xarp-paper: #f7efe0;
+  --xarp-ink: #1e2229;
+  --xarp-surface: #e4ecf2;
+  --xarp-accent: #154580;
+  --xarp-secondary: #d13b24;
+  --xarp-highlight: #b8842e;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", "YuMincho", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='32' viewBox='0 0 64 32'%3E%3Cg fill='none' stroke='%23154580' stroke-opacity='0.09' stroke-width='0.95'%3E%3Ccircle cx='32' cy='32' r='30'/%3E%3Ccircle cx='32' cy='32' r='22'/%3E%3Ccircle cx='32' cy='32' r='14'/%3E%3Ccircle cx='32' cy='32' r='6'/%3E%3Ccircle cx='0' cy='16' r='30'/%3E%3Ccircle cx='0' cy='16' r='22'/%3E%3Ccircle cx='0' cy='16' r='14'/%3E%3Ccircle cx='64' cy='16' r='30'/%3E%3Ccircle cx='64' cy='16' r='22'/%3E%3Ccircle cx='64' cy='16' r='14'/%3E%3C/g%3E%3Crect x='12' y='7' width='3.5' height='1.3' transform='rotate(24 12 7)' fill='%23b8842e' fill-opacity='0.30'/%3E%3Crect x='49' y='21' width='3' height='1.1' transform='rotate(-19 49 21)' fill='%239e6d20' fill-opacity='0.26'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 8px 0 0 0 #f7efe0,
+    inset 10px 0 0 0 rgba(21, 69, 128, 0.38),
+    inset 13px 0 0 0 #f7efe0,
+    inset 14px 0 0 0 rgba(209, 59, 36, 0.28);
+}
+
+html[data-xarp-color-scheme="edo"] {
+  --xarp-paper: #f0e1c4;
+  --xarp-ink: #261914;
+  --xarp-surface: #e5daf0;
+  --xarp-accent: #4a247d;
+  --xarp-secondary: #c72c22;
+  --xarp-highlight: #965a18;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern: radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(122, 84, 38, 0.18) 100%);
+  --xarp-frame:
+    inset 0 0 0 7px #f0e1c4,
+    inset 0 0 0 9.5px rgba(38, 25, 20, 0.62),
+    inset 0 0 0 13.5px #f0e1c4,
+    inset 0 0 0 14.5px rgba(74, 36, 125, 0.42);
+}
+
 html[data-xarp-color-scheme="hanami"] {
   --xarp-paper: #fbf1f3;
   --xarp-ink: #382d36;
-  --xarp-surface: #f1d5dc;
-  --xarp-accent: #80415d;
-  --xarp-secondary: #637749;
-  --xarp-highlight: #a899c7;
+  --xarp-surface: #f5d8e2;
+  --xarp-accent: #9c1c4c;
+  --xarp-secondary: #2f6b3f;
+  --xarp-highlight: #d45383;
+  --xarp-pattern:
+    radial-gradient(circle at 92% 10%, rgba(236, 140, 178, 0.22) 0%, transparent 42%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='83.14' viewBox='0 0 48 83.14'%3E%3Cg fill='none' stroke='%239c1c4c' stroke-opacity='0.08' stroke-width='0.85'%3E%3Cpath d='M24 0v83.14M0 0v83.14M48 0v83.14M0 0l48 83.14M48 0L0 83.14M0 41.57l48-27.71M0 13.86l48 27.71M0 41.57l48 27.71M0 69.28l48-27.71'/%3E%3C/g%3E%3C/svg%3E");
 }
+
 html[data-xarp-color-scheme="kimono"] {
   --xarp-paper: #f4efe3;
   --xarp-ink: #291f24;
@@ -15,7 +92,33 @@ html[data-xarp-color-scheme="kimono"] {
   --xarp-accent: #993939;
   --xarp-secondary: #264653;
   --xarp-highlight: #d8a431;
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M0 16L16 0M-4 4L4 -4M12 20L20 12' stroke='%23993939' stroke-opacity='0.06' stroke-width='1'/%3E%3C/svg%3E");
 }
+
+html[data-xarp-color-scheme="wabi-sabi"] {
+  --xarp-paper: #dae3d2;
+  --xarp-ink: #1c241b;
+  --xarp-surface: #cde0d0;
+  --xarp-accent: #1d5736;
+  --xarp-secondary: #b83a24;
+  --xarp-highlight: #87561e;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern: radial-gradient(ellipse at 50% 50%, transparent 56%, rgba(45, 64, 42, 0.16) 100%);
+  --xarp-frame:
+    inset 0 0 0 9px #dae3d2,
+    inset 0 0 0 10px rgba(29, 87, 54, 0.30);
+}
+
+html[data-xarp-color-scheme="japandi"] {
+  --xarp-paper: #f4efe6;
+  --xarp-ink: #302c29;
+  --xarp-surface: #e8ddcb;
+  --xarp-accent: #264653;
+  --xarp-secondary: #614a36;
+  --xarp-highlight: #888888;
+}
+
 html[data-xarp-color-scheme="ukiyo-e"] {
   --xarp-paper: #264653;
   --xarp-ink: #f4efe3;
@@ -25,30 +128,52 @@ html[data-xarp-color-scheme="ukiyo-e"] {
   --xarp-highlight: #bcabcf;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='24'%3E%3Cpath d='M0 4 Q 40 1, 80 4 T 160 4 M0 12 Q 45 15, 90 12 T 160 12 M0 20 Q 35 18, 85 20 T 160 20' fill='none' stroke='%23f5ce72' stroke-opacity='0.055' stroke-width='1'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #264653,
+    inset 0 0 0 9.8px rgba(245, 206, 114, 0.44),
+    inset 0 0 0 13.5px #264653,
+    inset 0 0 0 14.5px rgba(244, 239, 227, 0.20);
 }
-html[data-xarp-color-scheme="japandi"] {
-  --xarp-paper: #f4efe6;
-  --xarp-ink: #302c29;
-  --xarp-surface: #e8ddcb;
-  --xarp-accent: #264653;
-  --xarp-secondary: #614a36;
-  --xarp-highlight: #888888;
+
+html[data-xarp-color-scheme="urushi"] {
+  --xarp-paper: #0c0b0a;
+  --xarp-ink: #f0eadc;
+  --xarp-surface: #1f1a10;
+  --xarp-accent: #e8b842;
+  --xarp-secondary: #f2523d;
+  --xarp-highlight: #6ec9b1;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "Hiragino Mincho ProN", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 50%, rgba(56, 42, 16, 0.22) 0%, transparent 68%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cg fill='%23e8b842'%3E%3Ccircle cx='14' cy='22' r='0.9' fill-opacity='0.26'/%3E%3Ccircle cx='67' cy='11' r='0.7' fill-opacity='0.20'/%3E%3Ccircle cx='98' cy='44' r='1.0' fill-opacity='0.24'/%3E%3Ccircle cx='38' cy='76' r='0.8' fill-opacity='0.18'/%3E%3Ccircle cx='84' cy='96' r='0.9' fill-opacity='0.25'/%3E%3Ccircle cx='19' cy='105' r='0.7' fill-opacity='0.20'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #0c0b0a,
+    inset 0 0 0 9.6px rgba(232, 184, 66, 0.65),
+    inset 0 0 0 13.5px #0c0b0a,
+    inset 0 0 0 14.5px rgba(242, 82, 61, 0.36);
 }
-html[data-xarp-color-scheme="edo"] {
-  --xarp-paper: #e6e1d7;
-  --xarp-ink: #3b2a1e;
-  --xarp-surface: #d8d2c7;
-  --xarp-accent: #773c30;
-  --xarp-secondary: #655b32;
-  --xarp-highlight: #a79578;
-}
-html[data-xarp-color-scheme="wabi-sabi"] {
-  --xarp-paper: #e8ddcb;
-  --xarp-ink: #302b23;
-  --xarp-surface: #d8cbb6;
-  --xarp-accent: #594e24;
-  --xarp-secondary: #7f5128;
-  --xarp-highlight: #a8a49b;
+
+html[data-xarp-color-scheme="blueprint"] {
+  --xarp-paper: #0a345e;
+  --xarp-ink: #f2f8ff;
+  --xarp-surface: #124880;
+  --xarp-accent: #6be2ff;
+  --xarp-secondary: #ff944d;
+  --xarp-highlight: #7bf2c9;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cdefs%3E%3Cpattern id='s' width='20' height='20' patternUnits='userSpaceOnUse'%3E%3Cpath d='M 20 0 L 0 0 0 20' fill='none' stroke='%237fd8ff' stroke-opacity='0.12' stroke-width='0.75'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23s)'/%3E%3Cpath d='M 100 0 L 0 0 0 100' fill='none' stroke='%239be4ff' stroke-opacity='0.26' stroke-width='1.15'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #0a345e,
+    inset 0 0 0 9.5px rgba(155, 228, 255, 0.55),
+    inset 0 0 0 13.5px #0a345e,
+    inset 0 0 0 14.5px rgba(155, 228, 255, 0.24);
 }
 
 html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
@@ -103,6 +228,32 @@ html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
   --borderColor-default: var(--pf-border-strong) !important;
   --borderColor-muted: var(--pf-border) !important;
   --paginate-color: var(--pf-muted) !important;
+}
+
+/* Apply substrate pattern and frame border only on ordinary slides without authored background images. */
+html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section:not([data-marpit-advanced-background]):not([style*="background-image"]):not(.invert):not(.gaia) {
+  background-image: var(--xarp-pattern, none) !important;
+  box-shadow: var(--xarp-frame, none) !important;
+}
+
+/* Schemes with dedicated display/prose typography (serif scroll/silk/washi/lacquer or monospace blueprint). */
+html:is(
+  [data-xarp-color-scheme="shuimo"],
+  [data-xarp-color-scheme="qinglu"],
+  [data-xarp-color-scheme="washi"],
+  [data-xarp-color-scheme="edo"],
+  [data-xarp-color-scheme="wabi-sabi"],
+  [data-xarp-color-scheme="urushi"],
+  [data-xarp-color-scheme="blueprint"]
+) svg[data-marpit-svg] > foreignObject > section {
+  --pf-slide-font-sans: var(--xarp-font);
+  --pf-slide-font-sans-sc: var(--xarp-font-sc);
+  font-family: var(--xarp-font) !important;
+}
+
+html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section.xarp-sectioned > .xarp-section-nav {
+  background-color: var(--pf-bg);
+  z-index: 2;
 }
 
 html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section:is(.invert, .gaia) {

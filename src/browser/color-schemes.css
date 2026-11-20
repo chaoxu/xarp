@@ -41,13 +41,35 @@ body > .xarp-color-scheme-picker select {
   outline-offset: 1px;
 }
 
+.xarp-color-scheme-toast {
+  position: fixed;
+  bottom: 38px;
+  left: 16px;
+  z-index: 9999;
+  padding: 5px 10px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  font: 600 12px/1.2 var(--pf-slide-font-code, ui-monospace, monospace);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.xarp-color-scheme-toast.is-visible {
+  opacity: 1;
+}
+
 body > .xarp-editor-only,
 body.xarp-drawing-active > .xarp-color-scheme-picker,
+body.xarp-drawing-active > .xarp-color-scheme-toast,
 body:is([data-bespoke-view="presenter"], [data-bespoke-view="next"], [data-bespoke-view="overview"]) .xarp-color-scheme-picker,
+body:is([data-bespoke-view="presenter"], [data-bespoke-view="next"], [data-bespoke-view="overview"]) .xarp-color-scheme-toast,
 body:has(.bespoke-marp-overview[data-open="1"]) .xarp-color-scheme-picker {
   display: none;
 }
 
 @media print {
-  .xarp-color-scheme-picker { display: none !important; }
+  .xarp-color-scheme-picker,
+  .xarp-color-scheme-toast { display: none !important; }
 }

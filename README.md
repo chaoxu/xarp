@@ -107,9 +107,9 @@ An explicit `theme` overrides the source theme. Xarp bundles `chao-ui` and suppo
 
 Explicit `assets` replace the adjacent-directory default and preserve project-relative paths. Keep asset references relative to the output root. Output must be empty or already owned by Xarp, and cannot contain the source. Symlinks that leave the project are rejected.
 
-### Choose colors
+### Choose colors and visual styles
 
-Set the theme and palette independently in the Markdown front matter. This example pairs Gaia's layout and type with an indigo background and gold accents.
+Set the theme and visual scheme independently in the Markdown front matter. This example pairs Gaia's layout and type with an indigo woodblock background and gold accents.
 
 ```yaml
 ---
@@ -118,13 +118,13 @@ colorScheme: ukiyo-e
 ---
 ```
 
-Choose `hanami`, `kimono`, `ukiyo-e`, `japandi`, `edo`, or `wabi-sabi`. Use `default` for the theme's own colors. The six schemes adapt colors from the [Japanese Color Atlas](https://japanesecoloratlas.com/en/palettes).
+Choose `shuimo` (Chinese laid *Xuan* ink-wash), `qinglu` (Song woven silk, azurite, and malachite), `washi` (*kozo* paper, indigo, and *Seigaiha* waves), `edo` (woodblock buff and *Edo-murasaki* purple), `hanami` (sakura and *Suō* crimson), `kimono`, `wabi-sabi` (celadon matcha and Uji moss), `japandi`, `ukiyo-e` (Prussian night and gold), `urushi` (black lacquer and 24k *maki-e* gold), or `blueprint` (gridded cyanotype with monospace lettering). Use `default` for the theme's own colors.
 
 For a one-off build, run `npx xarp build --theme gaia --color-scheme ukiyo-e`. Both flags also work with `xarp dev` and override the corresponding configuration options.
 
-Press **E** and use **Colors** to preview a scheme across the deck. To save it for everyone in the local editor, add a global directive such as `<!-- colorScheme: hanami -->` in **Slide Markdown** and choose **Save Source**. The last such directive takes precedence over front matter. A `colorScheme` in `xarp.config.mjs` overrides both.
+Press **E** and use **Colors** (or press **C** in Edit Mode) to cycle schemes across the deck. Append `?colorScheme=shuimo` to preview a scheme in the current tab. To save a scheme for everyone in the local editor, add a global directive such as `<!-- colorScheme: shuimo -->` in **Slide Markdown** and choose **Save Source**. The last such directive takes precedence over front matter. A `colorScheme` in `xarp.config.mjs` overrides both.
 
-Add `colorSchemes()` from `@chaoxu/xarp/plugins` to the deck's plugins to show **Colors** to viewers of the exported HTML. The picker remembers a viewer's choice for that deck in their browser. Choose **Deck default** to follow the author's setting again, or use `colorSchemes({ persist: false })` for a session-only preview.
+Add `colorSchemes()` from `@chaoxu/xarp/plugins` to the deck's plugins to show **Colors** and enable the **C** shortcut for viewers of the exported HTML. The picker remembers a viewer's choice for that deck in their browser, syncs `data-xarp-color-scheme` onto same-origin `<iframe>` slide embeds, and dispatches `xarp-color-scheme-change` on `window`. Choose **Deck default** to follow the author's setting again, or use `colorSchemes({ persist: false })` for a session-only preview.
 
 Custom themes can use `var(--pf-bg)`, `var(--pf-fg)`, `var(--pf-accent)`, and `var(--pf-surface)` for the canvas, text, headings, and panels. Explicit CSS colors and images keep their authored appearance.
 

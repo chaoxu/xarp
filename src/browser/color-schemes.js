@@ -6,8 +6,16 @@ const root = document.documentElement;
 let authored = root.dataset.xarpColorScheme ?? 'default';
 const storageKey = 'xarp:palette:' + JSON.stringify([location.pathname, meta.deckId ?? meta.sourceFile, meta.viewId]);
 const persist = options?.persist !== false;
-let override = null;
-if (persist) {
+
+let urlOverride = null;
+try {
+  const params = new URLSearchParams(location.search);
+  const candidate = params.get('colorScheme') || params.get('style');
+  if (isColorScheme(candidate)) urlOverride = candidate;
+} catch { /* Query parsing is optional. */ }
+
+let override = urlOverride;
+if (!override && persist) {
   try { override = localStorage.getItem(storageKey); } catch { /* Storage is optional, including for local files. */ }
 }
 
@@ -17,15 +25,59 @@ if (!options) picker.classList.add('xarp-editor-only');
 picker.append('Colors');
 const select = document.createElement('select');
 select.setAttribute('aria-label', 'Color scheme');
-select.title = 'Preview colors in this browser. Set colorScheme in the Markdown to share a deck default.';
+select.title = 'Preview colors in this browser (shortcut: C). Set colorScheme in the Markdown to share a deck default.';
 picker.append(select);
 document.body.append(picker);
 
+const toast = document.createElement('div');
+toast.className = 'xarp-color-scheme-toast';
+toast.setAttribute('aria-live', 'polite');
+document.body.append(toast);
+let toastTimer = 0;
+
+function showToast(scheme) {
+  const entry = COLOR_SCHEMES.find(item => item.name === scheme);
+  toast.textContent = `Colors: ${entry ? entry.label : scheme}`;
+  toast.classList.add('is-visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 1500);
+}
+
+function syncSlideFrames(selected) {
+  for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
+    try {
+      if (frame.contentDocument?.documentElement) {
+        if (selected === 'default') delete frame.contentDocument.documentElement.dataset.xarpColorScheme;
+        else frame.contentDocument.documentElement.dataset.xarpColorScheme = selected;
+      }
+      if (typeof frame.contentWindow?.__setXarpColorScheme === 'function') {
+        frame.contentWindow.__setXarpColorScheme(selected);
+      }
+    } catch { /* Cross-origin embeds keep their own document state. */ }
+  }
+}
+
+function currentSelected() {
+  return isColorScheme(override) ? override : authored;
+}
+
+function persistOverride() {
+  if (!persist) return;
+  try {
+    if (override) localStorage.setItem(storageKey, override);
+    else localStorage.removeItem(storageKey);
+  } catch { /* The selection still applies in this tab. */ }
+}
+
 function update() {
-  const selected = isColorScheme(override) ? override : authored;
+  const selected = currentSelected();
   if (selected === 'default') delete root.dataset.xarpColorScheme;
   else root.dataset.xarpColorScheme = selected;
   select.value = isColorScheme(override) ? override : '';
+  syncSlideFrames(selected);
+  window.dispatchEvent(new CustomEvent('xarp-color-scheme-change', {
+    detail: { scheme: selected, authored, override: isColorScheme(override) ? override : null },
+  }));
 }
 
 function setDefault(scheme) {
@@ -33,25 +85,42 @@ function setDefault(scheme) {
   const label = COLOR_SCHEMES.find(palette => palette.name === scheme).label;
   const defaultOption = new Option(scheme === 'default' ? 'Deck default' : `Deck default · ${label}`, '');
   select.replaceChildren(defaultOption);
-  for (const { label, name } of COLOR_SCHEMES) select.add(new Option(label, name));
+  for (const { label: optionLabel, name } of COLOR_SCHEMES) select.add(new Option(optionLabel, name));
   update();
 }
 setDefault(authored);
 
+for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
+  frame.addEventListener('load', () => syncSlideFrames(currentSelected()));
+}
+
 select.addEventListener('change', () => {
   override = select.value || null;
   update();
-  if (persist) {
-    try {
-      if (override) localStorage.setItem(storageKey, override);
-      else localStorage.removeItem(storageKey);
-    } catch { /* The selection still applies in this tab. */ }
-  }
+  persistOverride();
 });
 select.addEventListener('keydown', event => {
   event.stopPropagation();
   if (event.key === 'Escape') select.blur();
 });
+
+window.addEventListener('keydown', event => {
+  if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+  if (event.key !== 'c' && event.key !== 'C') return;
+  if (!options && !document.body.classList.contains('xarp-edit-active')) return;
+  if (document.body.classList.contains('xarp-drawing-active')) return;
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable || active.closest?.('[contenteditable="true"]'))) return;
+  event.preventDefault();
+  const activeScheme = currentSelected();
+  const idx = COLOR_SCHEMES.findIndex(item => item.name === activeScheme);
+  const next = COLOR_SCHEMES[(idx + 1) % COLOR_SCHEMES.length].name;
+  override = next === authored ? null : next;
+  update();
+  persistOverride();
+  showToast(next);
+});
+
 if (persist) window.addEventListener('storage', event => {
   if (event.key === storageKey || event.key === null) {
     override = event.newValue;
