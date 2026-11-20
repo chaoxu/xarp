@@ -70,7 +70,7 @@ test('color schemes compose with themes and work offline without the picker', as
   const override = await build({ ...config, colorScheme: 'ukiyo-e' });
   expect(override.metadata.buildRevision).not.toBe(authored.metadata.buildRevision);
   expect(load(await readFile(override.htmlPath, 'utf8'))('html').attr('data-xarp-color-scheme')).toBe('ukiyo-e');
-  for (const scheme of ['shuimo', 'qinglu', 'washi', 'urushi', 'blueprint'] as const) {
+  for (const scheme of ['sumi-e', 'shuimo', 'manga', 'qinglu', 'washi', 'urushi', 'blueprint'] as const) {
     const styled = await build({ ...config, colorScheme: scheme });
     expect(load(await readFile(styled.htmlPath, 'utf8'))('html').attr('data-xarp-color-scheme')).toBe(scheme);
   }

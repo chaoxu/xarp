@@ -25,7 +25,7 @@ if (!options) picker.classList.add('xarp-editor-only');
 picker.append('Colors');
 const select = document.createElement('select');
 select.setAttribute('aria-label', 'Color scheme');
-select.title = 'Preview colors in this browser (shortcut: C). Set colorScheme in the Markdown to share a deck default.';
+select.title = 'Preview colors in this browser (shortcut: C / Shift+C). Set colorScheme in the Markdown to share a deck default.';
 picker.append(select);
 document.body.append(picker);
 
@@ -85,7 +85,21 @@ function setDefault(scheme) {
   const label = COLOR_SCHEMES.find(palette => palette.name === scheme).label;
   const defaultOption = new Option(scheme === 'default' ? 'Deck default' : `Deck default · ${label}`, '');
   select.replaceChildren(defaultOption);
-  for (const { label: optionLabel, name } of COLOR_SCHEMES) select.add(new Option(optionLabel, name));
+  const groups = new Map();
+  for (const { label: optionLabel, name, group } of COLOR_SCHEMES) {
+    if (!group) {
+      select.add(new Option(optionLabel, name));
+    } else {
+      let og = groups.get(group);
+      if (!og) {
+        og = document.createElement('optgroup');
+        og.label = group;
+        groups.set(group, og);
+        select.appendChild(og);
+      }
+      og.appendChild(new Option(optionLabel, name));
+    }
+  }
   update();
 }
 setDefault(authored);
@@ -114,7 +128,8 @@ window.addEventListener('keydown', event => {
   event.preventDefault();
   const activeScheme = currentSelected();
   const idx = COLOR_SCHEMES.findIndex(item => item.name === activeScheme);
-  const next = COLOR_SCHEMES[(idx + 1) % COLOR_SCHEMES.length].name;
+  const step = event.shiftKey ? -1 : 1;
+  const next = COLOR_SCHEMES[(idx + step + COLOR_SCHEMES.length) % COLOR_SCHEMES.length].name;
   override = next === authored ? null : next;
   update();
   persistOverride();

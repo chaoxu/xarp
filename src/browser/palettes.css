@@ -1,23 +1,98 @@
 /* Slide visual worlds & color palettes for Xarp.
    Scoped strictly to slide sections; editor and drawing UI keep their own colors. */
 
+html[data-xarp-color-scheme="sumi-e"] {
+  --xarp-paper: #faf8f2;
+  --xarp-ink: #0f1419;
+  --xarp-surface: #edf2f6;
+  --xarp-accent: #16354d;
+  --xarp-secondary: #d42a1e;
+  --xarp-highlight: #4b7391;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", "YuMincho", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 10% 90%, rgba(22, 53, 77, 0.065) 0%, transparent 48%),
+    radial-gradient(ellipse at 92% 8%, rgba(22, 53, 77, 0.045) 0%, transparent 40%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='90' viewBox='0 0 140 90'%3E%3Cpath d='M12 18 Q 28 14, 42 20 M88 64 Q 106 58, 122 65 M34 74 Q 46 70, 58 73' fill='none' stroke='%2316354d' stroke-opacity='0.045' stroke-width='0.9' stroke-linecap='round'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 10px 0 0 0 #faf8f2,
+    inset -10px 0 0 0 #faf8f2,
+    inset 12px 0 0 0 rgba(22, 53, 77, 0.28),
+    inset -12px 0 0 0 rgba(22, 53, 77, 0.28);
+}
+
 html[data-xarp-color-scheme="shuimo"] {
-  --xarp-paper: #efece4;
-  --xarp-ink: #121210;
-  --xarp-surface: #e2e0d7;
-  --xarp-accent: #22383b;
-  --xarp-secondary: #c8281e;
-  --xarp-highlight: #587073;
+  --xarp-paper: #fbfbf9;
+  --xarp-ink: #101010;
+  --xarp-surface: #eff1f2;
+  --xarp-accent: #1d2b30;
+  --xarp-secondary: #c9261d;
+  --xarp-highlight: #5c7078;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='12'%3E%3Cline x1='0' y1='0' x2='96' y2='0' stroke='%237c8285' stroke-opacity='0.055' stroke-width='0.75'/%3E%3Cline x1='0' y1='6' x2='96' y2='6' stroke='%237c8285' stroke-opacity='0.035' stroke-width='0.6'/%3E%3Cline x1='48' y1='0' x2='48' y2='12' stroke='%237c8285' stroke-opacity='0.03' stroke-width='0.6'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 9px #fbfbf9,
+    inset 0 0 0 10px rgba(16, 16, 16, 0.22),
+    inset 0 0 0 14px #fbfbf9,
+    inset 0 0 0 15px rgba(16, 16, 16, 0.08);
+}
+
+html[data-xarp-color-scheme="manga"] {
+  --xarp-paper: #ffffff;
+  --xarp-ink: #080808;
+  --xarp-surface: #f2f2f2;
+  --xarp-accent: #080808;
+  --xarp-secondary: #e60012;
+  --xarp-highlight: #383838;
+  --xarp-font: "Hiragino Kaku Gothic Std", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cg fill='%23080808' fill-opacity='0.15'%3E%3Cpolygon points='8,8 42,8 132,78'/%3E%3Cpolygon points='8,52 8,84 118,124'/%3E%3Cpolygon points='8,142 8,168 106,192'/%3E%3Cpolygon points='8,552 8,582 108,528'/%3E%3Cpolygon points='8,640 8,676 122,596'/%3E%3Cpolygon points='8,712 44,712 138,640'/%3E%3Cpolygon points='1272,8 1238,8 1148,78'/%3E%3Cpolygon points='1272,52 1272,84 1162,124'/%3E%3Cpolygon points='1272,142 1272,168 1174,192'/%3E%3Cpolygon points='1272,552 1272,582 1172,528'/%3E%3Cpolygon points='1272,640 1272,676 1158,596'/%3E%3Cpolygon points='1272,712 1236,712 1142,640'/%3E%3Cpolygon points='180,8 206,8 248,62'/%3E%3Cpolygon points='1100,8 1074,8 1032,62'/%3E%3Cpolygon points='180,712 206,712 248,658'/%3E%3Cpolygon points='1100,712 1074,712 1032,658'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 8px #ffffff,
+    inset 0 0 0 11px #080808,
+    inset 0 0 0 13px #ffffff,
+    inset 0 0 0 14px #080808;
+}
+
+html[data-xarp-color-scheme="han-rubbing"] {
+  --xarp-paper: #171614;
+  --xarp-ink: #efe9db;
+  --xarp-surface: #26231e;
+  --xarp-accent: #e3dac6;
+  --xarp-secondary: #e05241;
+  --xarp-highlight: #deb878;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cg stroke='%23ebe6dc' stroke-opacity='0.06' stroke-width='0.8'%3E%3Cline x1='0' y1='120' x2='54' y2='0'/%3E%3Cline x1='40' y1='120' x2='94' y2='0'/%3E%3Cline x1='80' y1='120' x2='120' y2='32'/%3E%3Cpath d='M10 38 l16 -9 l14 5' fill='none' stroke-opacity='0.10'/%3E%3C/g%3E%3Cg fill='%23ebe6dc'%3E%3Ccircle cx='22' cy='19' r='1.1' fill-opacity='0.12'/%3E%3Ccircle cx='78' cy='34' r='1.5' fill-opacity='0.09'/%3E%3Ccircle cx='51' cy='86' r='0.9' fill-opacity='0.13'/%3E%3Ccircle cx='104' cy='92' r='1.3' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 7px #171614,
+    inset 0 0 0 8.5px rgba(227, 218, 198, 0.62),
+    inset 0 0 0 13.5px #171614,
+    inset 0 0 0 14.5px rgba(227, 218, 198, 0.28);
+}
+
+html[data-xarp-color-scheme="song-scroll"] {
+  --xarp-paper: #e9ddc5;
+  --xarp-ink: #1c1915;
+  --xarp-surface: #dce3da;
+  --xarp-accent: #284c42;
+  --xarp-secondary: #a82d20;
+  --xarp-highlight: #7d5126;
   --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
   --xarp-pattern:
-    radial-gradient(ellipse at 50% 48%, transparent 52%, rgba(92, 86, 73, 0.20) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='14'%3E%3Cline x1='0' y1='0' x2='96' y2='0' stroke='%234a453b' stroke-opacity='0.085' stroke-width='0.9'/%3E%3Cline x1='0' y1='7' x2='96' y2='7' stroke='%234a453b' stroke-opacity='0.055' stroke-width='0.7'/%3E%3Cline x1='48' y1='0' x2='48' y2='14' stroke='%234a453b' stroke-opacity='0.045' stroke-width='0.8'/%3E%3C/svg%3E");
+    radial-gradient(ellipse at 20% 24%, rgba(255, 250, 238, 0.22) 0%, transparent 55%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cline x1='0' y1='0' x2='12' y2='0' stroke='%236e4e24' stroke-opacity='0.08' stroke-width='0.75'/%3E%3Cline x1='0' y1='6' x2='12' y2='6' stroke='%236e4e24' stroke-opacity='0.05' stroke-width='0.6'/%3E%3Cline x1='0' y1='0' x2='0' y2='12' stroke='%236e4e24' stroke-opacity='0.06' stroke-width='0.65'/%3E%3C/svg%3E");
   --xarp-frame:
-    inset 0 0 0 8px #efece4,
-    inset 0 0 0 9.5px rgba(28, 27, 24, 0.34),
-    inset 0 0 0 13px #efece4,
-    inset 0 0 0 14px rgba(28, 27, 24, 0.14);
+    inset 0 9px 0 0 #cdc1a5,
+    inset 0 -7px 0 0 #c4b79a,
+    inset 7px 0 0 0 #d4c8ad,
+    inset -7px 0 0 0 #59261f,
+    inset 0 0 0 8.5px #f4ede0,
+    inset 0 0 0 9.5px rgba(84, 66, 42, 0.48);
 }
 
 html[data-xarp-color-scheme="qinglu"] {
@@ -157,6 +232,155 @@ html[data-xarp-color-scheme="urushi"] {
     inset 0 0 0 14.5px rgba(242, 82, 61, 0.36);
 }
 
+html[data-xarp-color-scheme="sahara"] {
+  --xarp-paper: #ebd6b4;
+  --xarp-ink: #2a140a;
+  --xarp-surface: #e2c79d;
+  --xarp-accent: #8c2f16;
+  --xarp-secondary: #b82514;
+  --xarp-highlight: #8a4b12;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 96%, rgba(255, 162, 60, 0.16) 0%, transparent 52%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='72' viewBox='0 0 180 72'%3E%3Cpath d='M0 18 Q 45 14, 90 19 T 180 17 M0 52 Q 50 56, 95 50 T 180 53' fill='none' stroke='%235a2c17' stroke-opacity='0.085' stroke-width='1.1'/%3E%3Ccircle cx='34' cy='35' r='7' fill='none' stroke='%238c2f16' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 7px #6b371e,
+    inset 0 0 0 8.5px rgba(228, 178, 118, 0.55),
+    inset 0 0 0 10px rgba(32, 15, 7, 0.50);
+}
+
+html[data-xarp-color-scheme="egypt"] {
+  --xarp-paper: #f1e4c1;
+  --xarp-ink: #1c1712;
+  --xarp-surface: #dcebe6;
+  --xarp-accent: #145c63;
+  --xarp-secondary: #b83b20;
+  --xarp-highlight: #966912;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern:
+    linear-gradient(125deg, rgba(255, 232, 156, 0.18) 0%, transparent 46%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M0 7h28M0 21h28M7 0v28M21 0v28' stroke='%238c6d36' stroke-opacity='0.075' stroke-width='0.8'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 6px #b89250,
+    inset 0 0 0 8px #1f1a15,
+    inset 0 0 0 11px #145c63,
+    inset 0 0 0 12.5px #c14928;
+}
+
+html[data-xarp-color-scheme="maya"] {
+  --xarp-paper: #f1e4c6;
+  --xarp-ink: #171412;
+  --xarp-surface: #dbeae4;
+  --xarp-accent: #196158;
+  --xarp-secondary: #a82c1d;
+  --xarp-highlight: #8f5c14;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M4 12l18 2M38 8l2 16M14 44l22-2M48 38l-2 18M28 24l14 1' stroke='%236e4b2a' stroke-opacity='0.09' stroke-width='0.9' stroke-linecap='round'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 5px #7c5533,
+    inset 0 0 0 7px #f1e4c6,
+    inset 0 0 0 10px #a83020;
+}
+
+html[data-xarp-color-scheme="mughal"] {
+  --xarp-paper: #f6ecd6;
+  --xarp-ink: #1a1512;
+  --xarp-surface: #e1ebf0;
+  --xarp-accent: #173f52;
+  --xarp-secondary: #b83223;
+  --xarp-highlight: #966515;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110'%3E%3Cg fill='%23c99326'%3E%3Ccircle cx='18' cy='24' r='1.0' fill-opacity='0.28'/%3E%3Ccircle cx='76' cy='16' r='0.8' fill-opacity='0.22'/%3E%3Ccircle cx='94' cy='62' r='1.1' fill-opacity='0.25'/%3E%3Ccircle cx='42' cy='84' r='0.9' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 5px #f6ecd6,
+    inset 0 0 0 9px #173a4c,
+    inset 0 0 0 10px #c43b29,
+    inset 0 0 0 12.5px #e0b44c,
+    inset 0 0 0 13.5px #1a1612;
+}
+
+html[data-xarp-color-scheme="wayang"] {
+  --xarp-paper: #f9ecc7;
+  --xarp-ink: #211006;
+  --xarp-surface: #f0deb0;
+  --xarp-accent: #5e280d;
+  --xarp-secondary: #9e2116;
+  --xarp-highlight: #8c540e;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern: radial-gradient(ellipse at 50% 38%, rgba(255, 250, 224, 0.42) 0%, transparent 56%, rgba(120, 68, 16, 0.20) 100%);
+  --xarp-frame:
+    inset 0 7px 0 0 #45200c,
+    inset 0 -7px 0 0 #59662c,
+    inset 7px 0 0 0 #45200c,
+    inset -7px 0 0 0 #45200c,
+    inset 0 0 0 8.5px rgba(224, 162, 58, 0.62);
+}
+
+html[data-xarp-color-scheme="starry"] {
+  --xarp-paper: #102242;
+  --xarp-ink: #f7f2d9;
+  --xarp-surface: #193666;
+  --xarp-accent: #f4c430;
+  --xarp-secondary: #ff8559;
+  --xarp-highlight: #73c7ff;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern:
+    radial-gradient(circle at 86% 16%, rgba(244, 196, 48, 0.16) 0%, transparent 26%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='96' viewBox='0 0 160 96'%3E%3Cg fill='none' stroke-linecap='round' stroke-width='2.1'%3E%3Cpath d='M12 22 Q 28 16, 44 22' stroke='%236ec1ff' stroke-opacity='0.13'/%3E%3Cpath d='M58 18 Q 76 24, 92 18' stroke='%23f4c430' stroke-opacity='0.15'/%3E%3Cpath d='M110 26 Q 128 18, 146 24' stroke='%236ec1ff' stroke-opacity='0.12'/%3E%3Cpath d='M24 66 Q 44 58, 62 66' stroke='%233e73c2' stroke-opacity='0.18'/%3E%3Cpath d='M84 72 Q 104 80, 124 70' stroke='%23f4c430' stroke-opacity='0.12'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 6px #b88b2e,
+    inset 0 0 0 8.5px #d6ccb6,
+    inset 0 0 0 9.5px rgba(20, 16, 12, 0.65);
+}
+
+html[data-xarp-color-scheme="scream"] {
+  --xarp-paper: #21161a;
+  --xarp-ink: #f6e7ce;
+  --xarp-surface: #332124;
+  --xarp-accent: #f5963d;
+  --xarp-secondary: #ff6242;
+  --xarp-highlight: #7db8e8;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern:
+    linear-gradient(180deg, rgba(217, 78, 40, 0.14) 0%, transparent 38%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='80' viewBox='0 0 220 80'%3E%3Cpath d='M0 18 C 55 4, 110 32, 220 16 M0 46 C 65 62, 130 30, 220 48 M0 68 C 60 56, 150 78, 220 64' fill='none' stroke='%23f5963d' stroke-opacity='0.095' stroke-width='2.2'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 6px #362019,
+    inset 0 0 0 8px #b64626;
+}
+
+html[data-xarp-color-scheme="nitrate"] {
+  --xarp-paper: #e6dcc4;
+  --xarp-ink: #141311;
+  --xarp-surface: #dad0b8;
+  --xarp-accent: #363027;
+  --xarp-secondary: #8c2a20;
+  --xarp-highlight: #664e2c;
+  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 50%, transparent 58%, rgba(20, 18, 15, 0.24) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='200'%3E%3Cline x1='42' y1='0' x2='41' y2='200' stroke='%233b352c' stroke-opacity='0.07' stroke-width='0.7'/%3E%3Cline x1='187' y1='0' x2='188' y2='200' stroke='%23ffffff' stroke-opacity='0.18' stroke-width='0.7'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 14px 0 0 0 #141311,
+    inset -14px 0 0 0 #141311,
+    inset 0 4px 0 0 #141311,
+    inset 0 -4px 0 0 #141311,
+    inset 15.5px 0 0 0 rgba(198, 186, 158, 0.45),
+    inset -15.5px 0 0 0 rgba(198, 186, 158, 0.45);
+}
+
 html[data-xarp-color-scheme="blueprint"] {
   --xarp-paper: #0a345e;
   --xarp-ink: #f2f8ff;
@@ -174,6 +398,102 @@ html[data-xarp-color-scheme="blueprint"] {
     inset 0 0 0 9.5px rgba(155, 228, 255, 0.55),
     inset 0 0 0 13.5px #0a345e,
     inset 0 0 0 14.5px rgba(155, 228, 255, 0.24);
+}
+
+html[data-xarp-color-scheme="oscilloscope"] {
+  --xarp-paper: #06130b;
+  --xarp-ink: #d4ffe2;
+  --xarp-surface: #0c2617;
+  --xarp-accent: #39ff7a;
+  --xarp-secondary: #ffb347;
+  --xarp-highlight: #7affd4;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 50%, rgba(57, 255, 122, 0.06) 0%, transparent 65%, rgba(0, 0, 0, 0.45) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cdefs%3E%3Cpattern id='m' width='24' height='24' patternUnits='userSpaceOnUse'%3E%3Cpath d='M 24 0 L 0 0 0 24' fill='none' stroke='%2339ff7a' stroke-opacity='0.08' stroke-width='0.65'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='120' height='120' fill='url(%23m)'/%3E%3Cpath d='M 120 0 L 0 0 0 120' fill='none' stroke='%2339ff7a' stroke-opacity='0.22' stroke-width='1.05'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 7px #3b4744,
+    inset 0 0 0 8.5px rgba(57, 255, 122, 0.45),
+    inset 0 0 18px rgba(57, 255, 122, 0.12);
+}
+
+html[data-xarp-color-scheme="pixel-8bit"] {
+  --xarp-paper: #121936;
+  --xarp-ink: #fcfcfc;
+  --xarp-surface: #1c2857;
+  --xarp-accent: #f8b800;
+  --xarp-secondary: #ff5c38;
+  --xarp-highlight: #4ee05a;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-pattern: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0 3px, rgba(0, 0, 0, 0.18) 3px 4px);
+  --xarp-frame:
+    inset 0 0 0 7px #232636,
+    inset 0 0 0 8.6px #b82820,
+    inset 0 0 0 10.2px #e0ac38;
+}
+
+html[data-xarp-color-scheme="win2000"] {
+  --xarp-paper: #ece9d8;
+  --xarp-ink: #111111;
+  --xarp-surface: #ffffff;
+  --xarp-accent: #0046bf;
+  --xarp-secondary: #c41e1e;
+  --xarp-highlight: #006655;
+  --xarp-font: Tahoma, Verdana, "MS Sans Serif", "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
+  --xarp-pattern: linear-gradient(180deg, #0054e3 0px, #3a6ea5 6px, transparent 6px);
+  --xarp-frame:
+    inset 2px 2px 0 #ffffff,
+    inset -2px -2px 0 #808080,
+    inset 0 0 0 4px #d4d0c8;
+}
+
+html[data-xarp-color-scheme="vaporwave"] {
+  --xarp-paper: #1b0b2e;
+  --xarp-ink: #fdf2ff;
+  --xarp-surface: #2a1447;
+  --xarp-accent: #00f0ff;
+  --xarp-secondary: #ff4ecd;
+  --xarp-highlight: #ffd166;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-pattern:
+    radial-gradient(circle at 50% 74%, rgba(255, 78, 205, 0.18) 0%, transparent 38%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720' preserveAspectRatio='none'%3E%3Cg stroke='%2300f0ff' stroke-opacity='0.15' stroke-width='1'%3E%3Cline x1='0' y1='588' x2='1280' y2='588'/%3E%3Cline x1='0' y1='628' x2='1280' y2='628'/%3E%3Cline x1='0' y1='672' x2='1280' y2='672'/%3E%3Cline x1='640' y1='550' x2='120' y2='720'/%3E%3Cline x1='640' y1='550' x2='380' y2='720'/%3E%3Cline x1='640' y1='550' x2='640' y2='720'/%3E%3Cline x1='640' y1='550' x2='900' y2='720'/%3E%3Cline x1='640' y1='550' x2='1160' y2='720'/%3E%3C/g%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 4px 0 0 #1b0b2e,
+    inset 0 6px 0 0 rgba(0, 240, 255, 0.55),
+    inset 0 -4px 0 0 #1b0b2e,
+    inset 0 -6px 0 0 rgba(255, 78, 205, 0.55),
+    inset 6px 0 0 0 rgba(157, 78, 221, 0.35),
+    inset -6px 0 0 0 rgba(157, 78, 221, 0.35);
+}
+
+html[data-xarp-color-scheme="code-art"] {
+  --xarp-paper: #0d1117;
+  --xarp-ink: #e6edf3;
+  --xarp-surface: #161b22;
+  --xarp-accent: #58a6ff;
+  --xarp-secondary: #ff7b72;
+  --xarp-highlight: #e9c47d;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-pattern:
+    radial-gradient(ellipse at 50% 94%, rgba(88, 166, 255, 0.10) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Ccircle cx='24' cy='24' r='0.85' fill='%2358a6ff' fill-opacity='0.18'/%3E%3Ccircle cx='72' cy='24' r='0.85' fill='%2358a6ff' fill-opacity='0.14'/%3E%3Ccircle cx='24' cy='72' r='0.85' fill='%2358a6ff' fill-opacity='0.14'/%3E%3Ccircle cx='72' cy='72' r='0.85' fill='%23e9c47d' fill-opacity='0.18'/%3E%3C/svg%3E");
+  --xarp-frame:
+    inset 0 0 0 4px #1b2432,
+    inset 0 0 0 5px rgba(88, 166, 255, 0.38);
 }
 
 html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
@@ -205,8 +525,6 @@ html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
   --pf-vis-ink: var(--pf-fg);
   --pf-vis-muted: var(--pf-muted);
 
-  /* Marp scopes the built-in themes under an ID. Override their color tokens
-     without overriding authored CSS properties, images, or background layers. */
   color-scheme: var(--xarp-slide-mode, var(--xarp-mode, light)) !important;
   --color-background: var(--pf-bg) !important;
   --color-foreground: var(--pf-fg) !important;
@@ -236,19 +554,53 @@ html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section:not(
   box-shadow: var(--xarp-frame, none) !important;
 }
 
-/* Schemes with dedicated display/prose typography (serif scroll/silk/washi/lacquer or monospace blueprint). */
+/* Schemes with dedicated display/prose typography. */
 html:is(
+  [data-xarp-color-scheme="sumi-e"],
   [data-xarp-color-scheme="shuimo"],
+  [data-xarp-color-scheme="manga"],
+  [data-xarp-color-scheme="han-rubbing"],
+  [data-xarp-color-scheme="song-scroll"],
   [data-xarp-color-scheme="qinglu"],
   [data-xarp-color-scheme="washi"],
   [data-xarp-color-scheme="edo"],
   [data-xarp-color-scheme="wabi-sabi"],
   [data-xarp-color-scheme="urushi"],
-  [data-xarp-color-scheme="blueprint"]
+  [data-xarp-color-scheme="sahara"],
+  [data-xarp-color-scheme="egypt"],
+  [data-xarp-color-scheme="maya"],
+  [data-xarp-color-scheme="mughal"],
+  [data-xarp-color-scheme="wayang"],
+  [data-xarp-color-scheme="starry"],
+  [data-xarp-color-scheme="scream"],
+  [data-xarp-color-scheme="nitrate"],
+  [data-xarp-color-scheme="blueprint"],
+  [data-xarp-color-scheme="oscilloscope"],
+  [data-xarp-color-scheme="pixel-8bit"],
+  [data-xarp-color-scheme="win2000"],
+  [data-xarp-color-scheme="vaporwave"],
+  [data-xarp-color-scheme="code-art"]
 ) svg[data-marpit-svg] > foreignObject > section {
   --pf-slide-font-sans: var(--xarp-font);
   --pf-slide-font-sans-sc: var(--xarp-font-sc);
   font-family: var(--xarp-font) !important;
+}
+
+/* Manga halftone screentone fills on panels, code blocks, and tables + crisp bold panel strokes. */
+html[data-xarp-color-scheme="manga"] svg[data-marpit-svg] > foreignObject > section :where(.pf-slide-panel, .pf-slide-theorem, pre, :not(pre) > code, th) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7'%3E%3Crect width='7' height='7' fill='%23ffffff'/%3E%3Ccircle cx='3.5' cy='3.5' r='0.85' fill='%23080808'/%3E%3C/svg%3E") !important;
+  border-color: #080808 !important;
+}
+
+/* Oscilloscope P1 phosphor bloom on headings and panels. */
+html[data-xarp-color-scheme="oscilloscope"] svg[data-marpit-svg] > foreignObject > section :where(h1, h2, h3) {
+  text-shadow: 0 0 10px rgba(57, 255, 122, 0.35);
+}
+
+/* Win2000 classic sunken bevel on panels and code blocks. */
+html[data-xarp-color-scheme="win2000"] svg[data-marpit-svg] > foreignObject > section :where(.pf-slide-panel, .pf-slide-theorem, pre) {
+  border-radius: 0 !important;
+  box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff !important;
 }
 
 html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section.xarp-sectioned > .xarp-section-nav {
@@ -268,8 +620,6 @@ html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section.gaia
   --pf-bg: var(--xarp-accent);
 }
 
-/* Supply colors where the theme relies on browser defaults. Authored
-   element styles and the section navigation keep their own precedence. */
 :where(html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section a) {
   color: var(--pf-blue);
 }
