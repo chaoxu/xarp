@@ -76,6 +76,12 @@ test('theme directives are detected without interpreting comments inside fenced 
   expect(parseSource('```html\n<!-- theme: gaia -->\n```').theme).toBeUndefined();
 });
 
+test('colorScheme uses Marp global directive precedence and ignores fenced examples', () => {
+  const source = '---\ncolorScheme: edo\n---\n\n# A\n\n<!-- colorScheme: kimono -->\n\n```html\n<!-- colorScheme: hanami -->\n```';
+  expect(parseSource(source).colorScheme).toBe('kimono');
+  expect(() => updateSlideInSource(source, 'slide-1', { markdown: '# A\n\n<!-- colorScheme: typo -->' })).toThrow('Unknown color scheme');
+});
+
 test('header and footer inline parsing preserves deck boundaries and source edits', () => {
   for (const directive of ['header', 'footer']) {
     for (const prefix of [`---\n${directive}: '**Label**'\n---\n\n`, `<!-- ${directive}: **Label** -->\n\n`]) {

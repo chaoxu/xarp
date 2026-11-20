@@ -39,11 +39,14 @@ async function go(page, number) {
 async function editText(page, selector, value) {
   await page.click(selector, { count: 2 });
   await page.waitForFunction(selector => document.querySelector(selector)?.isContentEditable, {}, selector);
+  await selectContents(page, selector);
+  await page.keyboard.type(value); await page.keyboard.press('Escape');
+}
+async function selectContents(page, selector) {
   await page.$eval(selector, element => {
     const range = document.createRange(); range.selectNodeContents(element);
     const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
   });
-  await page.keyboard.type(value); await page.keyboard.press('Escape');
 }
 async function save(page, selector = '#te-save') {
   const response = page.waitForResponse(response => new URL(response.url()).pathname === '/__xarp/save');
@@ -63,6 +66,43 @@ async function saveMarkdown(page, markdown) {
 }
 const plain = '# One\n- item 1\n- item 2\n\n<p id="p1" style="position:absolute;left:80px;top:400px">Para one</p>\n\n<svg width="500" height="140" style="position:absolute;left:80px;top:500px"><text id="svg-label" x="30" y="50">Label</text></svg>\n\n---\n\n# Two\n\nSecond paragraph here\n\n---\n\n# Three\n\n| A | B |\n| - | - |\n| one | two |\n';
 try {
+  await withDeck('# Formula\n', async ({ page, source }) => {
+    const block = '$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$';
+    const body = '# Formula\n\n- **Square** $x^2$\n\n' + block + '\n\n```tex\n' + block + '\n```';
+    await saveMarkdown(page, body);
+    assert.equal(await text(page, 'li strong'), 'Square');
+    assert.equal(await text(page, 'li annotation'), 'x^2');
+    assert.equal(await page.$eval('.katex-mathml', el => getComputedStyle(el).position), 'absolute');
+    assert.match(await page.$eval('.katex-html', el => getComputedStyle(el).fontFamily), /KaTeX_Main/);
+    await page.click('#te-source');
+
+    await page.click('li', { count: 2 });
+    await selectContents(page, 'li .xarp-edit-math-token');
+    await page.keyboard.type('$x^3$');
+    await page.keyboard.press('Escape');
+    assert.equal(await text(page, 'li annotation'), 'x^3');
+    await save(page);
+    const changedInline = body.replace('$x^2$', '$x^3$');
+    assert.equal((await source()).trim(), changedInline);
+
+    const paragraph = 'section > p';
+    await page.click(paragraph, { count: 2 });
+    await selectContents(page, paragraph);
+    const updatedBlock = block.replace('a &= b', 'a^2 &= b');
+    const cdp = await page.createCDPSession();
+    await cdp.send('Input.insertText', { text: updatedBlock });
+    await cdp.detach();
+    await page.keyboard.press('Escape');
+    assert.equal((await text(page, '.katex-display annotation')).trim(), updatedBlock.slice(3, -3));
+    await save(page);
+    assert.equal((await source()).trim(), changedInline.replace('a &= b', 'a^2 &= b'));
+    await page.reload({ waitUntil: 'networkidle0' });
+    assert.equal((await text(page, '.katex-display annotation')).trim(), updatedBlock.slice(3, -3));
+    assert.equal(await text(page, 'li annotation'), 'x^3');
+    assert.match(await text(page, 'code.language-tex'), /a &= b/);
+    checks.push('Adding the first formula loads its styles; inline and multiline formula edits render, save as Markdown, and survive reload');
+  });
+
   await withDeck(plain, async ({ page, source }) => {
     await page.click('#te-source');
     await page.waitForFunction(() => document.getElementById('te-textarea').value.includes('# One'));
@@ -152,7 +192,7 @@ try {
     assert.equal(await text(page, '#p2'), 'Second changed');
     await go(page, 1); await page.keyboard.press('d');
     await page.mouse.move(150, 350); await page.mouse.down(); await page.mouse.move(300, 400); await page.mouse.up();
-    await page.waitForSelector('.xarp-drawing-layer g > path');
+    await page.waitForSelector('.xarp-drawing-ink > path');
     checks.push('Background slides and subsequent slides edit, save, navigate and draw using their content layer');
   }, { sections: [{ label: 'First', count: 1 }, { label: 'Second', count: 1 }] });
 

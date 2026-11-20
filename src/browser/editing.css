@@ -1,4 +1,6 @@
 /* In-place slide editor, Moveable drag/resize, and bounding-box inspector */
+/* Marp only embeds math styles when the initial deck contains a formula. */
+@import url("../theme/vendor/katex/katex.min.css");
 
 .xarp-editor-toolbar {
   position: fixed;
@@ -145,15 +147,20 @@ body.xarp-edit-active .bespoke-marp-active section {
   user-select: none;
 }
 
-body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"],
+body.xarp-edit-active .bespoke-marp-active section :is([contenteditable="true"], [contenteditable="plaintext-only"]),
 body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"] * {
   user-select: text;
 }
 
-body.xarp-edit-active .bespoke-marp-active section [contenteditable="true"] {
+body.xarp-edit-active .bespoke-marp-active section :is([contenteditable="true"], [contenteditable="plaintext-only"]) {
   outline: 2px solid #2563eb !important;
   outline-offset: 2px;
   cursor: text !important;
+}
+
+body.xarp-edit-active .bespoke-marp-active section [contenteditable="plaintext-only"] {
+  white-space: pre-wrap;
+  font-family: var(--pf-slide-font-code, monospace);
 }
 
 body.xarp-edit-active .bespoke-marp-active section .xarp-edit-math-token {
@@ -218,3 +225,22 @@ body.xarp-edit-active .xarp-editor-drawer.is-open { display: flex; }
     display: none !important;
   }
 }
+
+.xarp-slide-organizer {
+  margin: auto;
+  box-sizing: border-box;
+  width: min(900px, calc(100vw - 48px));
+  max-height: 80vh;
+  overflow: auto;
+  color: var(--pf-text, #111);
+  background: var(--pf-bg, #fff);
+  border: 1px solid var(--pf-border, #aaa);
+  padding: 24px;
+  font: 14px/1.5 var(--pf-font-sans, sans-serif);
+}
+.xarp-slide-organizer::backdrop { background: #0006; }
+.xarp-slide-organizer ol { padding: 0; list-style: none; }
+.xarp-slide-organizer li { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--pf-border, #aaa); }
+.xarp-slide-organizer li > span { flex: 1 1 240px; overflow-wrap: anywhere; }
+.xarp-slide-organizer button { font: inherit; color: inherit; background: inherit; border: 1px solid var(--pf-border, #aaa); padding: 4px 8px; cursor: pointer; margin: 2px; }
+.xarp-slide-organizer button:disabled { opacity: .4; cursor: default; }

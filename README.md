@@ -59,19 +59,32 @@ Run `npx xarp dev`. Press **E** to edit or **D** to draw. The controls stay hidd
 | Double-click text | Edit its contents |
 | Drag a box or its handles | Move or resize it |
 | Arrow keys in Edit Mode | Nudge the selected box, with Shift for larger steps |
+| Snap: On / Off | Snap to slide edges, centre, thirds, and other elements. Hold Alt to bypass |
+| Insert Image | Upload an image to the local deck and insert it on the current slide |
+| Slides | Reorder, add, duplicate, delete, or undo an arrangement in the local editor |
 | Slide Markdown | Read or edit the current slide's source |
 | Save Slide | Save supported edits to Markdown and rebuild |
 | Undo / Redo | Change the current slide's edit or drawing history |
 | Copy Edits | Copy pending edits from a static export or a stale page |
 | D, then pointer input | Draw with a mouse, pen, or touch |
 
-Editing and drawing can be enabled separately or together. Undo remains available after saving. Drawing keeps ink per slide for the current page session. Reloading discards ink.
+Editing and drawing can be enabled separately or together. Slide-edit Undo remains available after saving. Drawing keeps ink per slide. Enable Remember in the drawing toolbar to retain ink across reloads in this browser, or set `drawing({ persist: true })` as the default. The browser remembers your toolbar choice. Export SVG downloads the current slide's ink as a transparent SVG. Browser storage does not sync drawings between devices.
 
 Visual editing maps text changes in Markdown headings, paragraphs and list items, moves of Markdown headings, and changes to raw HTML and SVG elements. When a change cannot be mapped to Markdown, the editor reports it before saving. Undo that change to use Slide Markdown. Markdown table cells, and layout changes to Markdown blocks other than headings, require Slide Markdown.
 
 Saving a directive that affects other slides also updates those slides when they have no unsaved edits. Slides with unsaved edits keep those edits and update after saving or returning to their saved text. Deck CSS changes and adding or removing an image background show a reload notice. Save or copy pending edits before reloading.
 
 Source loading and saving require `dev`. A static export is the output directory served without `dev`. It supports visual changes and Copy Edits. When an edit cannot be mapped safely to source, use Slide Markdown. External source changes never overwrite pending browser edits automatically.
+
+## Insert images and organize slides
+
+In the local editor, choose Insert Image or drop an image onto the slide. Save pending edits on that slide first. Xarp accepts PNG, JPEG, GIF, and WebP files up to 8 MiB, stores them under `assets/xarp/` next to the Markdown, and saves the insertion through the ordinary source editor. Undo removes the insertion from the slide. Uploaded files remain available for Redo and are copied into builds, including builds with an explicit `assets` list.
+
+The Slides panel supports dragging or arrow buttons to reorder, plus Add after, Duplicate, and Delete. Operations save immediately and reload the deck. Save pending edits and export and clear drawing ink first. Undo arrangement and Redo arrangement use history held by the running local server. Arrangement history is available while the source bytes match its current snapshot. Restarting the server clears it. If an arrangement saves but fails to rebuild, open Slides and use the available Undo or Redo arrangement action to restore the previous source.
+
+The first structural edit assigns markers to slides that lack them. Existing markers keep their IDs. Configured `slides` selections must be organized in the source deck. With fixed `sections` counts, reordering is available and section boundaries stay at their configured positions. Adding, duplicating, or deleting slides requires updating that configuration separately.
+
+Remembered drawings belong to the browser origin, URL path, and source project. Explicit slide markers let drawings survive source revisions. Without markers, stored drawings apply only to the source revision that created them, preventing ink from appearing on a different slide after reordering. Moving the source project or changing the preview URL can change the storage namespace. Export SVG provides a file you can keep independently of browser storage. Only SVG paths and supported drawing attributes are restored.
 
 ## Configure the build
 
@@ -82,6 +95,7 @@ Paths in a configuration file are relative to that file. A CLI input argument ov
 | `input` | `slides.md` in the CLI | Markdown source file |
 | `output` | `dist` | Output directory inside the project |
 | `theme` | Source theme, otherwise `chao-ui` | Bundled Marp theme name or project-relative CSS file |
+| `colorScheme` | Source palette, otherwise the theme's own colors | Deck-wide color palette |
 | `slides` | All slides | Ordered list of explicit slide IDs |
 | `sections` | None | Bottom progress navigation as `{ label, count }` entries |
 | `assets` | Adjacent `assets/`, when present | Project-relative paths to copy |
@@ -92,6 +106,27 @@ Section counts must sum to the number of selected slides. Named selection uses m
 An explicit `theme` overrides the source theme. Xarp bundles `chao-ui` and supports Marp's `default`, `gaia`, and `uncover` themes. A custom CSS theme needs an `@theme` declaration and can import `chao-ui`. Add `class: pf-slide` in the deck when a custom theme uses chao-ui's slide classes.
 
 Explicit `assets` replace the adjacent-directory default and preserve project-relative paths. Keep asset references relative to the output root. Output must be empty or already owned by Xarp, and cannot contain the source. Symlinks that leave the project are rejected.
+
+### Choose colors
+
+Set the theme and palette independently in the Markdown front matter. This example pairs Gaia's layout and type with an indigo background and gold accents.
+
+```yaml
+---
+theme: gaia
+colorScheme: ukiyo-e
+---
+```
+
+Choose `hanami`, `kimono`, `ukiyo-e`, `japandi`, `edo`, or `wabi-sabi`. Use `default` for the theme's own colors. The six schemes adapt colors from the [Japanese Color Atlas](https://japanesecoloratlas.com/en/palettes).
+
+For a one-off build, run `npx xarp build --theme gaia --color-scheme ukiyo-e`. Both flags also work with `xarp dev` and override the corresponding configuration options.
+
+Press **E** and use **Colors** to preview a scheme across the deck. To save it for everyone in the local editor, add a global directive such as `<!-- colorScheme: hanami -->` in **Slide Markdown** and choose **Save Source**. The last such directive takes precedence over front matter. A `colorScheme` in `xarp.config.mjs` overrides both.
+
+Add `colorSchemes()` from `@chaoxu/xarp/plugins` to the deck's plugins to show **Colors** to viewers of the exported HTML. The picker remembers a viewer's choice for that deck in their browser. Choose **Deck default** to follow the author's setting again, or use `colorSchemes({ persist: false })` for a session-only preview.
+
+Custom themes can use `var(--pf-bg)`, `var(--pf-fg)`, `var(--pf-accent)`, and `var(--pf-surface)` for the canvas, text, headings, and panels. Explicit CSS colors and images keep their authored appearance.
 
 ## Use from JavaScript
 

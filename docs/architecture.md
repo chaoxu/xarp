@@ -21,7 +21,7 @@ interface Plugin {
 
 The builder emits styles and deferred scripts in descriptor order. Shared URLs appear once. Scripts initialize themselves after the document is parsed. Duplicate plugin names or conflicting asset filenames fail the build. Data is escaped in the `xarp-meta` JSON element.
 
-`drawing()` loads its script and the shared history bundle. `editing()` also loads Moveable and the guarded Markdown edit mapper. They coordinate input through a native mode-change event. History uses Travels and Mutative.
+`drawing()` bundles Drauu for stroke input and rendering. Travels and Mutative retain SVG snapshots per slide because Drauu resets its own history on load and clear. `editing()` uses the same history bundle, Moveable, and the guarded Markdown edit mapper. The plugins coordinate input through a native mode-change event.
 
 The builder, editor, and drawing tool use a shared selector for each slide's content section. Marp's background layers are excluded from editing and section navigation. The editor observes the active slide class as well as URL hash changes, so selection and the Markdown drawer follow keyboard navigation.
 
@@ -33,6 +33,8 @@ The descriptor convention is provisional. Custom descriptors supply browser asse
 
 The editor validates the deck, slide, source revision, payload, and resulting boundaries. It rechecks source bytes immediately before atomic replacement, writes Markdown, then rebuilds. The service accepts one save at a time and rejects an overlapping request. A failed rebuild after writing returns `saved: true, rebuilt: false` so the browser can distinguish saved source from stale output.
 
+The organizer uses a separate Travels history of complete source snapshots. Structural edits assign explicit slide IDs, use the ordinary guarded write path, and reload after a successful rebuild. Image uploads use content-derived filenames and are inserted through slide source history. Browser drawing storage uses an opaque hash of the canonical input path to separate projects served at the same URL.
+
 The browser keeps history and unsaved changes per slide. A successful save patches that slide's rendering while retaining undo. The server compares the previous and rebuilt HTML to identify changes to other slides and deck CSS. Slides without unsaved edits update immediately. Slides with unsaved edits receive the latest rendering when saved or returned to their saved text. Changes to deck CSS or background-layer structure show a reload notice. An undo state with unsaved edits keeps the appearance it was captured with until the slide is saved or returns to its saved state.
 
 Preview notifications reload a clean page and preserve active editing, pending changes, and ink. The file watcher retains notifications that arrive during a save or build, then rebuilds when the disk revision differs from the built revision. Closing the preview waits for active requests and builds. Changes to configuration, themes, or assets require restarting `dev`.
@@ -42,6 +44,8 @@ The [editor protocol](editor-protocol.md) can be implemented by another server. 
 ## Theme and assets
 
 `themes/chao-ui/upstream.json` pins the bundled theme revision and file inventory. The snapshot includes fonts and license notices. `chao-ui` remains the upstream design source.
+
+Marp resolves the theme at build time. Xarp's `colorScheme` global directive selects a palette independently. The build writes its name on the HTML root, and `_xarp/palettes.css` maps its colors onto chao-ui and Marp slide tokens. Edit Mode and the optional viewer picker share one browser control. A source save updates the author's default while preserving a viewer's explicit choice.
 
 Project assets are copied into the output directory. Symlinks must stay inside the project and directory cycles are rejected. Plugin assets use `_xarp/plugins/`, the theme uses `_xarp/theme/`, and section navigation uses `_xarp/sections.css`.
 

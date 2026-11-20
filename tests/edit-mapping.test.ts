@@ -4,6 +4,15 @@ import { createEngine } from "../lib/engine.js";
 
 const source = `---\nmarp: true\n---\n\n<!-- slide: alpha -->\n\n# Alpha\n\n---\n\n<!-- slide: beta -->\n\n# Beta\n`;
 
+test("display equations retain their source delimiters and remain distinct from adjacent blocks", () => {
+  const markdown = ['First', '$$a^2$$', '$$  b^2  $$', '$$', 'c^2', '$$', 'Last', '', '```', '$$c^2$$', '```'].join('\r\n');
+  const edits = ['a', 'b', 'c'].map(name => ({
+    tag: 'p', beforeMd: `$$\n${name}^2\n$$`, afterMd: `$$\n${name}^3\n$$`, afterText: `${name} cubed`,
+  }));
+  const { updatedSource } = updateSlideInSource(markdown, 'slide-1', { edits });
+  expect(updatedSource).toBe(markdown.replace('a^2', 'a^3').replace('b^2', 'b^3').replace('c^2', 'c^3'));
+});
+
 test("moving a heading keeps following Markdown blocks rendered", () => {
   for (const following of ['- item 1\n- item 2', 'A paragraph with **bold** text.', '```js\nconst x = 1;\n```']) {
     const markdown = `# Heading\n${following}`;

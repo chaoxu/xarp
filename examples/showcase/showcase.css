@@ -49,8 +49,6 @@ section.pf-slide.chapter {
 section.pf-slide.chapter h1 { color: inherit; font-size: 96px; margin-bottom: 20px; }
 section.pf-slide.chapter p { font-size: 34px; max-width: 820px; }
 section.pf-slide.chapter .xarp-section-nav { background: var(--pf-slide-surface); color: var(--pf-slide-fg); }
-section.pf-slide .split { display: grid; grid-template-columns: 1fr 1fr; gap: 54px; align-items: center; }
-section.pf-slide .split > * { min-width: 0; }
 section.pf-slide pre {
   background: var(--pf-slide-surface);
   border: 1px solid var(--pf-slide-border);
@@ -60,9 +58,6 @@ section.pf-slide pre {
   overflow: visible;
   margin: 0;
 }
-section.pf-slide .rendered { border-left: 3px solid var(--pf-slide-info); padding-left: 32px; }
-section.pf-slide .rendered h2 { font-size: 46px; }
-section.pf-slide .rendered p, section.pf-slide .rendered li { font-size: 27px; }
 section.pf-slide .math-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
 section.pf-slide .math-layout .katex-display { font-size: 31px; }
 section.pf-slide svg.figure { display: block; max-width: 100%; width: 100%; height: auto; overflow: visible; }
@@ -73,7 +68,7 @@ section.pf-slide .language-row .sample { font-size: 48px; margin: 0; }
 section.pf-slide.background h1 { max-width: 560px; font-size: 66px; }
 section.pf-slide.background p { max-width: 480px; }
 section.pf-slide.background .hint { border: 0; max-width: 500px; }
-section.pf-slide .editable-line { font-size: 58px; line-height: 1.2; margin-top: 45px; max-width: 980px; }
+section.pf-slide.edit-text h1 + p { font-size: 58px; line-height: 1.2; margin-top: 45px; max-width: 980px; }
 section.pf-slide .exercise { font-size: 26px; max-width: 900px; margin-top: 36px; }
 section.pf-slide .stage { position: relative; height: 335px; flex-shrink: 0; }
 section.pf-slide .piece { position: absolute; box-sizing: border-box; padding: 22px 26px; border: 1px solid var(--pf-slide-rule); background: var(--pf-slide-surface); }

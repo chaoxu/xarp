@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { load } from 'cheerio';
 import { build } from '../lib/index.js';
-import { editing, drawing } from '../lib/plugins/index.js';
+import { editing, drawing, colorSchemes } from '../lib/plugins/index.js';
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -56,6 +56,27 @@ test('theme options override front matter and custom themes import the bundled t
   const html = await readFile((await build({ ...config, theme: 'custom.css' })).htmlPath, 'utf8');
   expect(/--test-theme:\s*custom/.test(html)).toBe(true);
   await expect(build({ ...config, theme: 'missing' })).rejects.toThrow('Unknown theme: missing');
+}, 15000);
+
+test('color schemes compose with themes and work offline without the picker', async () => {
+  const config = await project('---\ntheme: gaia\ncolorScheme: hanami\n---\n# Palette\n');
+  const authored = await build(config);
+  const html = load(await readFile(authored.htmlPath, 'utf8'));
+  expect(html('html').attr('data-xarp-color-scheme')).toBe('hanami');
+  expect(html('section').hasClass('pf-slide')).toBe(false);
+  expect(html('script[src]')).toHaveLength(0);
+  expect(await readFile(join(authored.output, '_xarp/palettes.css'), 'utf8')).toContain('--xarp-paper');
+
+  const override = await build({ ...config, colorScheme: 'ukiyo-e' });
+  expect(override.metadata.buildRevision).not.toBe(authored.metadata.buildRevision);
+  expect(load(await readFile(override.htmlPath, 'utf8'))('html').attr('data-xarp-color-scheme')).toBe('ukiyo-e');
+  const withPicker = await build({ ...config, theme: 'chao-ui', colorScheme: 'default', plugins: [colorSchemes(), editing()] });
+  const interactive = load(await readFile(withPicker.htmlPath, 'utf8'));
+  expect(interactive('html').attr('data-xarp-color-scheme')).toBeUndefined();
+  expect(interactive('section').hasClass('pf-slide')).toBe(true);
+  expect(interactive('script[src$="/color-schemes.js"]')).toHaveLength(1);
+  await expect(build({ ...config, colorScheme: 'unknown' as never })).rejects.toThrow('Unknown color scheme');
+  expect(await readFile(withPicker.htmlPath, 'utf8')).toContain('Palette');
 }, 15000);
 
 test('named selection and section progress use the selected order', async () => {

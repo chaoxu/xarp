@@ -1,0 +1,127 @@
+/* Slide color roles adapted from https://japanesecoloratlas.com/en/palettes.
+   These values are scoped to the deck. The surrounding editor keeps its own UI colors. */
+html[data-xarp-color-scheme="hanami"] {
+  --xarp-paper: #fbf1f3;
+  --xarp-ink: #382d36;
+  --xarp-surface: #f1d5dc;
+  --xarp-accent: #80415d;
+  --xarp-secondary: #637749;
+  --xarp-highlight: #a899c7;
+}
+html[data-xarp-color-scheme="kimono"] {
+  --xarp-paper: #f4efe3;
+  --xarp-ink: #291f24;
+  --xarp-surface: #f1c6c1;
+  --xarp-accent: #993939;
+  --xarp-secondary: #264653;
+  --xarp-highlight: #d8a431;
+}
+html[data-xarp-color-scheme="ukiyo-e"] {
+  --xarp-paper: #264653;
+  --xarp-ink: #f4efe3;
+  --xarp-surface: #1d3642;
+  --xarp-accent: #f5ce72;
+  --xarp-secondary: #edac9e;
+  --xarp-highlight: #bcabcf;
+  --xarp-mode: dark;
+  --xarp-inverse-mode: light;
+}
+html[data-xarp-color-scheme="japandi"] {
+  --xarp-paper: #f4efe6;
+  --xarp-ink: #302c29;
+  --xarp-surface: #e8ddcb;
+  --xarp-accent: #264653;
+  --xarp-secondary: #614a36;
+  --xarp-highlight: #888888;
+}
+html[data-xarp-color-scheme="edo"] {
+  --xarp-paper: #e6e1d7;
+  --xarp-ink: #3b2a1e;
+  --xarp-surface: #d8d2c7;
+  --xarp-accent: #773c30;
+  --xarp-secondary: #655b32;
+  --xarp-highlight: #a79578;
+}
+html[data-xarp-color-scheme="wabi-sabi"] {
+  --xarp-paper: #e8ddcb;
+  --xarp-ink: #302b23;
+  --xarp-surface: #d8cbb6;
+  --xarp-accent: #594e24;
+  --xarp-secondary: #7f5128;
+  --xarp-highlight: #a8a49b;
+}
+
+html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section {
+  --pf-bg: var(--xarp-paper);
+  --pf-fg: var(--xarp-ink);
+  --pf-surface: var(--xarp-surface);
+  --pf-accent: var(--xarp-accent);
+  --pf-accent-fg: var(--pf-bg);
+  --pf-muted: color-mix(in srgb, var(--pf-fg) 78%, var(--pf-bg));
+  --pf-hover: color-mix(in srgb, var(--pf-fg) 9%, var(--pf-bg));
+  --pf-border: color-mix(in srgb, var(--pf-fg) 22%, var(--pf-bg));
+  --pf-border-strong: color-mix(in srgb, var(--pf-fg) 45%, var(--pf-bg));
+  --pf-blue: var(--pf-accent);
+  --pf-focus: var(--pf-accent);
+  --pf-green: light-dark(#276337, #9be7a6);
+  --pf-red: light-dark(#962f3c, #ffb1a5);
+  --pf-green-bg: color-mix(in srgb, var(--pf-green) 10%, var(--pf-bg));
+  --pf-red-bg: color-mix(in srgb, var(--pf-red) 10%, var(--pf-bg));
+  --pf-green-border: color-mix(in srgb, var(--pf-green) 45%, var(--pf-bg));
+  --pf-red-border: color-mix(in srgb, var(--pf-red) 45%, var(--pf-bg));
+  --pf-vis-slate: var(--pf-accent);
+  --pf-vis-terracotta: var(--xarp-secondary);
+  --pf-vis-ochre: var(--xarp-highlight);
+  --pf-vis-slate-soft: color-mix(in srgb, var(--pf-vis-slate) 18%, transparent);
+  --pf-vis-terracotta-soft: color-mix(in srgb, var(--pf-vis-terracotta) 18%, transparent);
+  --pf-vis-ochre-soft: color-mix(in srgb, var(--pf-vis-ochre) 18%, transparent);
+  --pf-vis-stone: var(--pf-border-strong);
+  --pf-vis-grid: var(--pf-border);
+  --pf-vis-ink: var(--pf-fg);
+  --pf-vis-muted: var(--pf-muted);
+
+  /* Marp scopes the built-in themes under an ID. Override their color tokens
+     without overriding authored CSS properties, images, or background layers. */
+  color-scheme: var(--xarp-slide-mode, var(--xarp-mode, light)) !important;
+  --color-background: var(--pf-bg) !important;
+  --color-foreground: var(--pf-fg) !important;
+  --color-background-code: var(--pf-surface) !important;
+  --color-background-stripe: var(--pf-surface) !important;
+  --color-background-paginate: var(--pf-surface) !important;
+  --color-highlight: var(--pf-accent) !important;
+  --color-highlight-hover: var(--pf-accent) !important;
+  --color-highlight-heading: var(--pf-accent) !important;
+  --color-header: var(--pf-muted) !important;
+  --color-header-shadow: var(--pf-bg) !important;
+  --color-dimmed: var(--pf-muted) !important;
+  --fgColor-default: var(--pf-fg) !important;
+  --fgColor-muted: var(--pf-muted) !important;
+  --fgColor-accent: var(--pf-accent) !important;
+  --bgColor-default: var(--pf-bg) !important;
+  --bgColor-muted: var(--pf-surface) !important;
+  --bgColor-neutral-muted: var(--pf-hover) !important;
+  --borderColor-default: var(--pf-border-strong) !important;
+  --borderColor-muted: var(--pf-border) !important;
+  --paginate-color: var(--pf-muted) !important;
+}
+
+html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section:is(.invert, .gaia) {
+  --pf-bg: var(--xarp-ink);
+  --pf-fg: var(--xarp-paper);
+  --pf-accent: var(--xarp-surface);
+  --pf-surface: color-mix(in srgb, var(--pf-fg) 9%, var(--pf-bg));
+  --xarp-slide-mode: var(--xarp-inverse-mode, dark);
+}
+
+html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section.gaia {
+  --pf-bg: var(--xarp-accent);
+}
+
+/* Supply colors where the theme relies on browser defaults. Authored
+   element styles and the section navigation keep their own precedence. */
+:where(html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section a) {
+  color: var(--pf-blue);
+}
+:where(html[data-xarp-color-scheme] svg[data-marpit-svg] > foreignObject > section) :where(pre, :not(pre) > code) {
+  background-color: var(--pf-surface);
+}

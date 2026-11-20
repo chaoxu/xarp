@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { build, dev } from '../lib/index.js';
-import { editing, drawing } from '../lib/plugins/index.js';
+import { editing, drawing, colorSchemes } from '../lib/plugins/index.js';
 import { nodeRequest, sendResponse, staticResponse } from '../lib/editor/server.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -63,18 +63,19 @@ try {
         for (const name of ['pointerdown', 'pointerup', 'pointercancel']) document.querySelector('.xarp-drawing-surface').addEventListener(name, event => window.__pointerEvents.push({ type: name, pointerType: event.pointerType, isPrimary: event.isPrimary, button: event.button }));
       });
       await page.mouse.move(100, 300); await page.mouse.down(); await page.mouse.move(300, 350, { steps: 8 }); await page.mouse.up();
-      await page.waitForSelector('.xarp-drawing-layer g > path');
+      await page.waitForSelector('.xarp-drawing-ink > path');
       const cdp = await page.createCDPSession();
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 120, y: 400, button: 'left', clickCount: 1, pointerType: 'pen' });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 320, y: 430, button: 'left', buttons: 1, pointerType: 'pen' });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 320, y: 430, button: 'left', clickCount: 1, pointerType: 'pen' });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      assert.equal(await page.$$eval('.xarp-drawing-layer g > path', paths => paths.length), 2, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
+      assert.equal(await page.$$eval('.xarp-drawing-ink > path', paths => paths.length), 2, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 460 }] });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 340, y: 490 }] });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      assert.equal(await page.$$eval('.xarp-drawing-layer g > path', paths => paths.length), 3, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
+      assert.equal(await page.$$eval('.xarp-drawing-ink > path', paths => paths.length), 3, JSON.stringify(await page.evaluate(() => window.__pointerEvents)));
+      if (plugins.length === 2 && plugins[0].name === 'editing') await page.screenshot({ path: join(output, 'drawing-drauu-1280.png') });
       await cdp.detach();
       if (edit) {
         await page.keyboard.press('e');
@@ -97,6 +98,40 @@ try {
       await page.screenshot({ path: join(output, 'example-panels.png') });
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(failedAssets, []);
+    await page.close();
+  }
+
+  const paletteSource = '# A heading\n\nA [link](#2) and `inline code`.\n\n---\n\n![bg](assets/connection.svg)\n\n# Illustrated\n';
+  await writeFile(join(config.cwd, 'colors.md'), paletteSource);
+  await writeFile(join(config.cwd, 'custom.css'), '/* @theme custom */\nsection { background: var(--pf-bg); color: var(--pf-fg); font-size: 42px; }');
+  for (const theme of ['chao-ui', 'default', 'gaia', 'uncover', 'custom.css']) {
+    const persist = theme !== 'custom.css';
+    const paletteBuild = await build({ cwd: config.cwd, input: 'colors.md', theme, plugins: [colorSchemes({ persist })] });
+    staticDirectory = paletteBuild.output;
+    const page = await browser.newPage();
+    await page.goto(base);
+    const select = 'select[aria-label="Color scheme"]';
+    await page.waitForSelector(select);
+    const style = () => page.$eval('section', section => {
+      const css = getComputedStyle(section);
+      return { background: css.backgroundColor, image: css.backgroundImage, ink: css.color, font: css.font,
+        padding: css.padding, code: getComputedStyle(section.querySelector('code')).backgroundColor };
+    });
+    const original = await style();
+    await page.select(select, 'ukiyo-e');
+    const dark = await style();
+    assert.equal(dark.background, 'rgb(38, 70, 83)', theme);
+    assert.equal(dark.ink, 'rgb(244, 239, 227)', theme);
+    assert.equal(dark.font, original.font, theme);
+    assert.equal(dark.padding, original.padding, theme);
+    assert.equal(await page.$eval('section p a', el => getComputedStyle(el).color), 'rgb(245, 206, 114)', theme);
+    assert.equal(await page.$eval('[data-marpit-advanced-background="content"]', el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', theme);
+    await page.reload();
+    assert.equal((await style()).background, persist ? dark.background : original.background, theme);
+    await page.select(select, 'hanami');
+    assert.equal((await style()).background, 'rgb(251, 241, 243)', theme);
+    await page.select(select, '');
+    assert.deepEqual(await style(), original, theme);
     await page.close();
   }
 
@@ -127,7 +162,44 @@ try {
   assert.equal(await page.$eval('#te-redo', element => element.disabled), false);
   assert.deepEqual(errors, []);
   await page.close();
-  console.log('PASS runtime: portable offline assets, plugin combinations and ordering, mouse/pen/touch, section links, plain-source save, live rebuild, retained drafts and undo');
+
+  const drawingPage = await browser.newPage();
+  await drawingPage.goto(preview.url, { waitUntil: 'networkidle0' });
+  await drawingPage.keyboard.press('d');
+  await drawingPage.mouse.move(150, 300); await drawingPage.mouse.down(); await drawingPage.mouse.move(350, 350, { steps: 8 }); await drawingPage.mouse.up();
+  const savedInk = await drawingPage.$eval('.xarp-drawing-ink', element => element.innerHTML);
+  assert.ok(savedInk.includes('<path'));
+  await drawingPage.keyboard.press('Escape');
+  await writeFile(join(config.cwd, 'plain.md'), '# Rebuilt with ink\n\nA paragraph.\n');
+  await drawingPage.waitForSelector('#xarp-preview-update');
+  assert.equal(await drawingPage.$eval('.xarp-drawing-ink', element => element.innerHTML), savedInk, 'external preview updates must retain ink');
+  await drawingPage.keyboard.press('d');
+  await drawingPage.keyboard.down('Control'); await drawingPage.keyboard.press('z'); await drawingPage.keyboard.up('Control');
+  assert.equal(await drawingPage.$eval('.xarp-drawing-ink', element => element.childElementCount), 0, 'drawing undo must survive a pending preview update');
+  await drawingPage.close();
+  const palettePage = await browser.newPage();
+  await palettePage.goto(preview.url, { waitUntil: 'networkidle0' });
+  const picker = 'select[aria-label="Color scheme"]';
+  await palettePage.waitForSelector(picker, { hidden: true });
+  await palettePage.keyboard.press('e');
+  await palettePage.waitForSelector(picker, { visible: true });
+  await palettePage.select(picker, 'kimono');
+  await palettePage.click('#te-source');
+  await palettePage.waitForFunction(() => document.querySelector('#te-textarea')?.value.includes('Rebuilt with ink'));
+  await palettePage.$eval('#te-textarea', field => {
+    field.value += '\n\n<!-- colorScheme: hanami -->';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await palettePage.click('#te-save-src');
+  await palettePage.waitForFunction(() => document.querySelector('#te-status').textContent.startsWith('Saved '));
+  assert.match(await readFile(join(config.cwd, 'plain.md'), 'utf8'), /<!-- colorScheme: hanami -->/);
+  assert.equal(await palettePage.evaluate(() => document.documentElement.dataset.xarpColorScheme), 'kimono');
+  await palettePage.select(picker, '');
+  assert.equal(await palettePage.evaluate(() => document.documentElement.dataset.xarpColorScheme), 'hanami');
+  await palettePage.reload();
+  assert.equal(await palettePage.evaluate(() => document.documentElement.dataset.xarpColorScheme), 'hanami');
+  await palettePage.close();
+  console.log('PASS runtime: portable offline assets, plugin ordering, mouse/pen/touch, section links, live rebuilds, retained drafts and ink, palette switching across themes and authored defaults');
 } catch (error) {
   console.error('Failure URLs:', (await browser.pages()).map(page => page.url()));
   for (const [index, page] of (await browser.pages()).entries()) await page.screenshot({ path: join(output, `runtime-failure-${index}.png`) }).catch(() => {});

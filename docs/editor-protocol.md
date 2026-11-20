@@ -60,3 +60,15 @@ The browser also understands `mode: "hosted"`, `publicationPending`, and publica
 A successful publication retry can omit `html` when the browser already has that source and build revision. Otherwise, it must include the rebuilt HTML to resume visual editing without a reload. Pending visual edits remain separate from publication retry and do not block it.
 
 These fields preserve the browser's distinction between source saving, rendering, and confirmed publication. An adapter needs its own integration tests before serving editable Xarp HTML.
+
+## Image uploads and slide organization
+
+Local status responses advertise `capabilities.images`, `capabilities.organize`, and `capabilities.resizeDeck`. The browser shows Insert Image and Slides when their capabilities are enabled. It disables Add, Duplicate, and Delete when `resizeDeck` is false. Hosted adapters can continue implementing the slide-save protocol without these routes.
+
+`POST /__xarp/asset` takes `viewId`, `sourceFile`, `sourceRevision`, and `image`, a base64 string. It uses the same origin, revision, and serialization checks as Save. The JSON request limit is 12 MiB and decoded images are limited to 8 MiB. Supported signatures are PNG, JPEG, GIF, and WebP. The receipt returns `ok`, the deck identity, and `path`. The immutable filename is derived from the image bytes. The client inserts that path through a normal slide save, so a failed save leaves its source draft available to retry. Uploads do not change Markdown by themselves.
+
+`GET /__xarp/deck?view=slides` returns identity, capabilities, slide IDs and titles, and `canUndo` / `canRedo` for arrangement history. `POST /__xarp/deck` takes the save identity and an `action`: `move`, `add`, `duplicate`, `delete`, `undo`, or `redo`. The first four actions take `slideId`. A move also takes a zero-based destination `to`. Add and Duplicate insert after the chosen slide. The last remaining slide cannot be deleted.
+
+Structural writes use the source revision check and atomic replacement used by Save. They return the usual `saved` / `rebuilt` distinction, plus `deckChanged: true` and the selected slide ID when available. Successful rebuilds include HTML for the client to reload. The browser permits structural writes only after pending edits and ink have been resolved.
+
+Arrangement history is held in memory by the local server and is valid only while its current snapshot exactly matches the source bytes. After a structural write fails to rebuild, status advertises `deckRecovery: true` and the committed source revision. Clients can offer the available Undo or Redo arrangement action against that revision while keeping editing of the stale rendering disabled.

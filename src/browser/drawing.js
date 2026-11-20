@@ -1,3 +1,4 @@
+import { createDrauu } from 'drauu';
 import { contentSection } from '../slide-dom.js';
 
 (() => {
@@ -7,13 +8,50 @@ import { contentSection } from '../slide-dom.js';
   const SVG_NS = "http://www.w3.org/2000/svg";
   const NAV_SEL = "[data-xarp-navigation]";
   const histories = new Map();
-  const finishedPaths = new WeakMap();
+  const meta = JSON.parse(document.getElementById("xarp-meta")?.textContent || "{}");
+  const preferenceKey = `xarp:remember:${JSON.stringify([location.pathname, meta.deckId ?? meta.sourceFile, meta.viewId])}`;
+  let persist = meta.plugins?.drawing?.persist === true;
+  try { const preference = localStorage.getItem(preferenceKey); if (preference !== null) persist = preference === "true"; } catch {}
+  const storageKey = key => `xarp:ink:${JSON.stringify([location.pathname, meta.deckId ?? meta.sourceFile, meta.viewId, meta.slideKeys?.[key] ?? `${meta.sourceRevision}:${meta.slides?.[key] ?? key}`])}`;
+  const message = document.createElement("span");
+  message.setAttribute("role", "status");
+  function storageError() { message.textContent = "Browser storage unavailable. Export SVG to keep your drawings."; }
+  function readInk(key) {
+    if (!persist) return "";
+    try {
+      const value = localStorage.getItem(storageKey(key));
+      if (!value) return "";
+      // Only our path-only drawing format is restored, never arbitrary SVG markup.
+      const parsed = new DOMParser().parseFromString(`<svg xmlns="${SVG_NS}">${value}</svg>`, "image/svg+xml");
+      if (parsed.querySelector("parsererror")) throw new Error("Invalid ink");
+      const svg = document.createElementNS(SVG_NS, "svg");
+      for (const node of parsed.documentElement.children) {
+        if (node.localName !== "path" || node.children.length) throw new Error("Invalid ink");
+        const path = document.createElementNS(SVG_NS, "path");
+        for (const name of ["d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "opacity"]) {
+          const value = node.getAttribute(name);
+          if (value !== null && (!['fill', 'stroke'].includes(name) || /^(none|#[0-9a-f]{3,8})$/i.test(value))) path.setAttribute(name, value);
+        }
+        svg.append(path);
+      }
+      return svg.innerHTML;
+    } catch { storageError(); return ""; }
+  }
+  function saveInk(key) {
+    if (!persist) return;
+    try {
+      const svg = historyFor(key).getState();
+      if (svg) localStorage.setItem(storageKey(key), svg);
+      else localStorage.removeItem(storageKey(key));
+      message.textContent = "";
+    } catch { storageError(); }
+  }
   const colors = [["Red", "#cf352e"], ["Blue", "#2468c9"], ["Yellow", "#e9ac16"], ["Black", "#111111"], ["White", "#ffffff"]];
-  let active = false, color = colors[0][1], current = null, pending = null, frame = 0, strokeFrame = 0;
+  let active = false, current = null, pointer = null, frame = 0;
   let observedSection = null;
 
   function historyFor(key) {
-    if (!histories.has(key)) histories.set(key, window.XarpHistory.create([]));
+    if (!histories.has(key)) histories.set(key, window.XarpHistory.create(readInk(key)));
     return histories.get(key);
   }
 
@@ -23,16 +61,16 @@ import { contentSection } from '../slide-dom.js';
   toolbar.setAttribute("role", "toolbar");
   toolbar.setAttribute("aria-label", "Slide drawing");
 
-  const swatches = colors.map(([name, value]) => {
+  const swatches = colors.map(([name, value], index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "xarp-drawing-color";
     button.style.setProperty("--drawing-color", value);
     button.setAttribute("aria-label", `${name} pen`);
     button.title = `${name} pen`;
-    button.setAttribute("aria-pressed", String(value === color));
+    button.setAttribute("aria-pressed", String(index === 0));
     button.addEventListener("click", () => {
-      color = value;
+      drauu.brush.color = value;
       swatches.forEach(item => item.setAttribute("aria-pressed", String(item === button)));
     });
     toolbar.append(button);
@@ -47,22 +85,43 @@ import { contentSection } from '../slide-dom.js';
     toolbar.append(button);
     return button;
   };
-  const undo = makeButton("Undo", () => {
+  function changeHistory(action) {
     finishStroke();
-    if (current) historyFor(current.key).undo();
     render();
+    if (current) { drauu.load(action(historyFor(current.key))); saveInk(current.key); }
+    updateControls();
+  }
+  const undo = makeButton("Undo", () => changeHistory(history => history.undo()));
+  const redo = makeButton("Redo", () => changeHistory(history => history.redo()));
+  const clear = makeButton("Clear slide", () => changeHistory(history => history.setState("")));
+  makeButton("Export SVG", () => {
+    finishStroke(); render();
+    if (!current) return;
+    const width = current.section.clientWidth, height = current.section.clientHeight;
+    const svg = `<svg xmlns="${SVG_NS}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${drauu.dump()}</svg>`;
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    const link = document.createElement("a"); link.href = url;
+    link.download = `drawing-${meta.slides?.[current.key] ?? current.key + 1}.svg`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
-  const redo = makeButton("Redo", () => {
+  const remember = makeButton("Remember: Off", () => {
     finishStroke();
-    if (current) historyFor(current.key).redo();
-    render();
+    persist = !persist;
+    try { localStorage.setItem(preferenceKey, String(persist)); } catch { storageError(); }
+    remember.textContent = persist ? "Remember: On" : "Remember: Off";
+    remember.setAttribute("aria-pressed", String(persist));
+    if (persist) {
+      for (const key of histories.keys()) saveInk(key);
+    } else {
+      try { for (let key = 0; key < (meta.slides?.length ?? histories.size); key++) localStorage.removeItem(storageKey(key)); }
+      catch { storageError(); }
+    }
   });
-  const clear = makeButton("Clear slide", () => {
-    finishStroke();
-    if (current) historyFor(current.key).setState([]);
-    render();
-  });
+  remember.textContent = persist ? "Remember: On" : "Remember: Off";
+  remember.setAttribute("aria-pressed", String(persist));
+  remember.title = "Remember ink on this browser and URL across reloads. This does not sync or change the Markdown.";
   makeButton("Done", () => setActive(false));
+  toolbar.append(message);
 
   const layer = document.createElementNS(SVG_NS, "svg");
   layer.classList.add("xarp-drawing-layer");
@@ -73,13 +132,63 @@ import { contentSection } from '../slide-dom.js';
   const clipRect = document.createElementNS(SVG_NS, "rect");
   clip.append(clipRect);
   defs.append(clip);
-  const ink = document.createElementNS(SVG_NS, "g");
+  const ink = document.createElementNS(SVG_NS, "svg");
+  ink.classList.add("xarp-drawing-ink");
   ink.setAttribute("clip-path", "url(#xarp-drawing-clip)");
   const surface = document.createElementNS(SVG_NS, "rect");
   surface.classList.add("xarp-drawing-surface");
   surface.setAttribute("fill", "transparent");
   layer.append(defs, ink, surface);
   document.body.append(layer, toolbar);
+
+  // Capture the stroke on our overlay, so dragging outside a slide cannot
+  // reach Marp's navigation. Drauu owns coordinates and stroke generation.
+  surface.addEventListener("pointerdown", event => {
+    if (!active || pointer || !event.isPrimary || event.button !== 0) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    render();
+    pointer = event;
+    surface.setPointerCapture(event.pointerId);
+  });
+  window.addEventListener("pointermove", event => {
+    if (pointer?.pointerId !== event.pointerId) return;
+    pointer = event;
+    // Preserve samples batched by the browser; Drauu handles the dispatched
+    // event itself after this capture listener.
+    for (const sample of event.getCoalescedEvents?.() ?? []) {
+      window.dispatchEvent(new PointerEvent("pointermove", sample));
+    }
+    pointer = event;
+  }, true);
+  surface.addEventListener("lostpointercapture", finishStroke);
+
+  const drauu = createDrauu({
+    el: ink,
+    eventTarget: surface,
+    acceptsInputTypes: [],
+    brush: { mode: "draw", color: colors[0][1], size: 4 },
+  });
+  drauu.on("start", updateControls);
+  drauu.on("end", () => {
+    const ended = pointer;
+    pointer = null;
+    // Drauu's load/clear reset its native undo. Retain SVG snapshots in the
+    // existing per-slide history so navigation and Clear remain undoable.
+    const svg = drauu.dump();
+    if (current) { historyFor(current.key).setState(svg); saveInk(current.key); }
+    drauu.load(svg);
+    if (ended && surface.hasPointerCapture(ended.pointerId)) surface.releasePointerCapture(ended.pointerId);
+    updateControls();
+  });
+
+  function finishStroke() {
+    if (!pointer || !drauu.drawing) return;
+    const { pointerId, pointerType, clientX, clientY, pressure } = pointer;
+    // Complete interrupted gestures through Drauu's normal public event path.
+    window.dispatchEvent(new PointerEvent("pointerup", { pointerId, pointerType, clientX, clientY, pressure }));
+  }
 
   function presentationVisible() {
     return !["presenter", "next", "overview"].includes(document.body.dataset.bespokeView)
@@ -105,90 +214,18 @@ import { contentSection } from '../slide-dom.js';
     render();
   }
 
-  function pathData(points) {
-    const width = current.width, height = current.height;
-    const coords = points.map(point => `${(point.x * width).toFixed(2)} ${(point.y * height).toFixed(2)}`);
-    if (coords.length === 1) coords.push(`${(points[0].x * width + 0.01).toFixed(2)} ${(points[0].y * height).toFixed(2)}`);
-    return `M ${coords.join(" L ")}`;
-  }
-
-  function paintPendingStroke() {
-    if (!pending?.path) return;
-    const { points } = pending.stroke;
-    if (pending.width !== current.width || pending.height !== current.height) {
-      pending.width = current.width;
-      pending.height = current.height;
-      pending.formatted = 0;
-      pending.data = "";
-    }
-    for (; pending.formatted < points.length; pending.formatted++) {
-      const point = points[pending.formatted];
-      const coordinate = `${(point.x * current.width).toFixed(2)} ${(point.y * current.height).toFixed(2)}`;
-      pending.data += `${pending.formatted === 0 ? "M " : " L "}${coordinate}`;
-    }
-    const dot = points.length === 1 ? ` L ${(points[0].x * current.width + 0.01).toFixed(2)} ${(points[0].y * current.height).toFixed(2)}` : "";
-    pending.path.setAttribute("d", pending.data + dot);
-  }
-
-  function scheduleStrokePaint() {
-    if (!strokeFrame) strokeFrame = requestAnimationFrame(() => {
-      strokeFrame = 0;
-      paintPendingStroke();
-    });
-  }
-
-  function createStrokePath(stroke) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", stroke.color);
-    path.setAttribute("stroke-width", "4");
-    path.setAttribute("stroke-linecap", "round");
-    path.setAttribute("stroke-linejoin", "round");
-    return path;
-  }
-
-  function finishedPath(stroke) {
-    let cached = finishedPaths.get(stroke);
-    if (!cached) {
-      cached = { path: createStrokePath(stroke) };
-      finishedPaths.set(stroke, cached);
-    }
-    if (cached.width !== current.width || cached.height !== current.height) {
-      cached.path.setAttribute("d", pathData(stroke.points));
-      cached.width = current.width;
-      cached.height = current.height;
-    }
-    return cached.path;
-  }
-
-  function paint() {
-    if (!current) return;
-    const history = historyFor(current.key);
-    const paths = history.getState().map(finishedPath);
-    if (pending?.key === current.key) {
-      pending.path ??= createStrokePath(pending.stroke);
-      paintPendingStroke();
-      paths.push(pending.path);
-    }
-    let next = ink.firstChild;
-    for (const path of paths) {
-      if (path === next) next = next.nextSibling;
-      else ink.insertBefore(path, next);
-    }
-    while (next) {
-      const obsolete = next;
-      next = next.nextSibling;
-      obsolete.remove();
-    }
-    undo.disabled = !pending && !history.canUndo();
-    redo.disabled = !!pending || !history.canRedo();
-    clear.disabled = paths.length === 0;
+  function updateControls() {
+    const history = current && historyFor(current.key);
+    undo.disabled = !pointer && !history?.canUndo();
+    redo.disabled = !!pointer || !history?.canRedo();
+    clear.disabled = !pointer && !history?.getState();
   }
 
   function render() {
     const selected = selectedSlide();
-    if (pending && selected?.key !== pending.key) finishStroke();
     const visible = !!selected && presentationVisible();
+    if (pointer && (!visible || selected.key !== current?.key)) finishStroke();
+    drauu.options.acceptsInputTypes = visible && active ? undefined : [];
     layer.toggleAttribute("hidden", !visible);
     toolbar.hidden = !visible || !active;
     if (!visible) return;
@@ -197,7 +234,8 @@ import { contentSection } from '../slide-dom.js';
     const width = selected.section.clientWidth, height = selected.section.clientHeight;
     const nav = selected.section.querySelector(NAV_SEL)?.getBoundingClientRect();
     const drawableHeight = nav && nav.height > 0 ? Math.max(0, Math.min(height, (nav.top - rect.top) / rect.height * height)) : height;
-    current = { ...selected, width, height, drawableHeight };
+    const changed = current?.key !== selected.key;
+    current = selected;
     Object.assign(layer.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
     layer.setAttribute("viewBox", `0 0 ${width} ${height}`);
     surface.setAttribute("width", String(width));
@@ -209,65 +247,14 @@ import { contentSection } from '../slide-dom.js';
       resizeObserver.observe(selected.section);
       observedSection = selected.section;
     }
-    paint();
+    if (changed) drauu.load(historyFor(current.key).getState());
+    updateControls();
   }
 
   function scheduleRender() {
     if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); });
   }
 
-  function point(event, rect) {
-    return {
-      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(current.drawableHeight / current.height, (event.clientY - rect.top) / rect.height)),
-    };
-  }
-
-  function finishStroke() {
-    if (!pending) return;
-    if (strokeFrame) cancelAnimationFrame(strokeFrame);
-    strokeFrame = 0;
-    paintPendingStroke();
-    const { pointerId, key, stroke, path, width, height } = pending;
-    pending = null;
-    const history = historyFor(key);
-    const completed = structuredClone(stroke);
-    history.update(strokes => { strokes.push(completed); });
-    finishedPaths.set(history.getState().at(-1), { path, width, height });
-    if (surface.hasPointerCapture(pointerId)) surface.releasePointerCapture(pointerId);
-    scheduleRender();
-  }
-
-  surface.addEventListener("pointerdown", event => {
-    if (!active || pending || !event.isPrimary || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    render();
-    if (!current) return;
-    const stroke = { color, points: [point(event, layer.getBoundingClientRect())] };
-    pending = { pointerId: event.pointerId, key: current.key, stroke };
-    surface.setPointerCapture(event.pointerId);
-    paint();
-  });
-  surface.addEventListener("pointermove", event => {
-    if (!pending || event.pointerId !== pending.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const coalesced = event.getCoalescedEvents?.() || [];
-    const rect = layer.getBoundingClientRect();
-    for (const sample of coalesced.length ? coalesced : [event]) {
-      pending.stroke.points.push(point(sample, rect));
-    }
-    scheduleStrokePaint();
-  });
-  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) {
-    surface.addEventListener(name, event => {
-      if (!pending || event.pointerId !== pending.pointerId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      finishStroke();
-    });
-  }
   // Touch events must not reach the presentation's swipe handlers or browser
   // history gestures while pointer events are drawing the stroke.
   for (const name of ["click", "dblclick", "contextmenu", "touchstart", "touchmove", "touchend"]) surface.addEventListener(name, event => {
@@ -278,8 +265,14 @@ import { contentSection } from '../slide-dom.js';
     if (event.detail?.mode === "edit") setActive(false);
   });
   window.addEventListener("xarp-preview-update", event => {
-    if (active || [...histories.values()].some(history => history.getState().length)) event.preventDefault();
+    if (active || [...histories.values()].some(history => history.getState())) event.preventDefault();
   });
+  window.addEventListener("xarp-before-deck-change", event => {
+    finishStroke();
+    for (let key = 0; key < (meta.slides?.length ?? histories.size); key++) historyFor(key);
+    if ([...histories.values()].some(history => history.getState())) event.preventDefault();
+  });
+  window.addEventListener("blur", finishStroke);
   window.addEventListener("keydown", event => {
     const target = event.target;
     if (target instanceof Element && (target.closest("input,textarea,select,[contenteditable=true]") || target.isContentEditable)) return;
@@ -292,9 +285,9 @@ import { contentSection } from '../slide-dom.js';
       const key = event.key.toLowerCase();
       if (key === "z") {
         event.preventDefault(); event.stopImmediatePropagation();
-        (event.shiftKey ? redo : undo).click();
+        changeHistory(history => event.shiftKey ? history.redo() : history.undo());
       } else if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === "y") {
-        event.preventDefault(); event.stopImmediatePropagation(); redo.click();
+        event.preventDefault(); event.stopImmediatePropagation(); changeHistory(history => history.redo());
       }
     }
   }, true);

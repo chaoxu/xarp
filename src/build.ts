@@ -10,6 +10,7 @@ import { engineOptions } from './engine.js';
 import { hash, parseSource, requireValue, selectedMarkdown, selectSlides } from './source.js';
 import { containedFile, copyTree, isWithin, outputIsOwned, pathExists } from './files.js';
 import { contentSectionSelector } from './slide-dom.js';
+import { isColorScheme } from './color-schemes.js';
 import type { BuildOptions, BuildResult, EditorMetadata, Plugin, Section } from './types.js';
 
 const run = promisify(execFile);
@@ -106,6 +107,13 @@ async function stageProjectAssets(options: BuildOptions, project: Awaited<Return
     targets.add(target);
     await copyTree(source, join(stage, target), project.cwd);
   }
+  // Images inserted by the editor travel with every build, even with explicit assets.
+  const inserted = join(adjacent, 'xarp');
+  if (await pathExists(inserted)) {
+    const source = await containedFile(project.cwd, inserted);
+    requireValue(!isWithin(source, project.output) && !isWithin(project.output, source), 'Inserted images must not include the output directory');
+    await copyTree(source, join(stage, 'assets/xarp'), project.cwd);
+  }
 }
 
 /** Build a portable HTML presentation. The returned paths are local to the caller. */
@@ -128,6 +136,8 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   } else {
     requireValue(['chao-ui', 'default', 'gaia', 'uncover'].includes(theme), `Unknown theme: ${theme}. Supply its CSS file as the theme option.`);
   }
+  const colorScheme = options.colorScheme ?? document.colorScheme ?? 'default';
+  requireValue(isColorScheme(colorScheme), `Unknown color scheme: ${colorScheme}`);
   await mkdir(dirname(project.output), { recursive: true });
   const stage = await mkdtemp(join(dirname(project.output), '.xarp-build-'));
   try {
@@ -159,6 +169,15 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     if (options.slides || options.sections) requireValue(!editingError, editingError ?? 'Slide mapping failed');
     if (theme === 'chao-ui') sections.addClass('pf-slide');
     $('head').append('<link rel="stylesheet" href="_xarp/theme/theme.css">');
+    if (colorScheme !== 'default') $('html').attr('data-xarp-color-scheme', colorScheme);
+    const usesPalettes = colorScheme !== 'default' || plugins.some(plugin => ['editing', 'color-schemes'].includes(plugin.name));
+    let paletteHash: string | undefined;
+    if (usesPalettes) {
+      const css = await readFile(join(browserRoot, 'palettes.css'));
+      paletteHash = hash(css);
+      await writeFile(join(stage, '_xarp/palettes.css'), css);
+      $('head').append('<link rel="stylesheet" href="_xarp/palettes.css">');
+    }
     if (options.sections) {
       sections.addClass('xarp-sectioned');
       await copyFile(join(browserRoot, 'sections.css'), join(stage, '_xarp/sections.css'));
@@ -181,13 +200,16 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     }
     const buildRevision = hash(JSON.stringify({
       source: document.revision, version: packageInfo.version, theme,
+      colorScheme: usesPalettes ? colorScheme : undefined, paletteHash,
       themeBytes: hash(await readFile(customTheme ?? join(themeRoot, 'slides.css'))),
       themeSnapshot: hash(await readFile(join(themeRoot, 'upstream.json'))),
       slides: options.slides, sections: options.sections, plugins: assets.data, files: assets.fingerprint,
     }));
     const metadata: EditorMetadata = {
+      deckId: hash(project.input),
       viewId: project.viewId, sourceFile: project.sourceFile, sourceRevision: document.revision,
-      buildRevision, slides: selected.map(slide => slide.id), editable: !editingError, ...(editingError ? { editingError } : {}),
+      buildRevision,
+      slides: selected.map(slide => slide.id), slideKeys: selected.map(slide => slide.explicitId ? slide.id : `${document.revision}:${slide.id}`), editable: !editingError, ...(editingError ? { editingError } : {}),
     };
     for (const path of assets.styles) $('head').append($('<link rel="stylesheet">').attr('href', path));
     const json = JSON.stringify({ ...metadata, plugins: assets.data }).replace(/</g, '\\u003c');

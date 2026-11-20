@@ -22,9 +22,13 @@ try {
   await run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', join(directory, packed.filename)], { cwd: directory, maxBuffer: 4 * 1024 * 1024 });
   await writeFile(join(directory, 'slides.md'), '# Consumer\n\nFormula $x^2$.\n\n---\n\n# Other slide\n');
   await writeFile(join(directory, 'xarp.config.mjs'), `import { editing, drawing } from '@chaoxu/xarp/plugins';\nexport default { input: 'slides.md', plugins: [editing(), drawing()] };\n`);
-  await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'build'], { cwd: directory });
+  await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'build', '--theme', 'gaia', '--color-scheme', 'ukiyo-e'], { cwd: directory });
   const html = await readFile(join(directory, 'dist/index.html'), 'utf8');
   assert(html.includes('Consumer') && html.includes('katex') && html.includes('_xarp/plugins/editing.js'));
+  assert(html.includes('data-xarp-color-scheme="ukiyo-e"'));
+  assert((await readFile(join(directory, 'dist/_xarp/palettes.css'), 'utf8')).includes('--xarp-paper'));
+  const notices = await readFile(join(directory, 'dist/_xarp/plugins/LICENSES.txt'), 'utf8');
+  for (const name of ['drauu 1.0.0', 'nanoevents 9.1.0', 'perfect-freehand 1.2.2']) assert(notices.includes(name), `Missing browser dependency notice: ${name}`);
   await writeFile(join(directory, 'check.mjs'), `
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

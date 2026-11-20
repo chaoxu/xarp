@@ -14,6 +14,7 @@ import { contentSections } from '../slide-dom.js';
   let editActive = false, showAllBoxes = false, drawerOpen = false, editingText = false;
   let hoveredEl = null, selectedEl = null, svgInput = null, moveable = null, apiBase = null;
   let apiKnown = false, hostedApi = false, apiError = "";
+  let capabilities = {}, snapEnabled = true, deckRecoveryRevision = null;
   let publicationRetry = null;
   let savingSlide = null, drawerSlide = null, sourceRequest = 0;
   let sourceRevision = meta.sourceRevision;
@@ -43,6 +44,9 @@ import { contentSections } from '../slide-dom.js';
       <button type="button" class="xarp-editor-btn" id="te-boxes" aria-pressed="false">Boxes: Hover</button>
       <button type="button" class="xarp-editor-btn" id="te-reset" disabled title="Reset selected box position/size">Reset Box</button>
       <button type="button" class="xarp-editor-btn" id="te-source" aria-pressed="false">Slide Markdown</button>
+      <button type="button" class="xarp-editor-btn" id="te-snap" aria-pressed="true" title="Hold Alt to bypass snapping">Snap: On</button>
+      <button type="button" class="xarp-editor-btn" id="te-image" hidden>Insert Image</button>
+      <button type="button" class="xarp-editor-btn" id="te-slides" hidden>Slides</button>
       <span class="xarp-editor-coords-readout" id="te-coords">Drag boxes to move or resize. Double-click text to edit.</span>
     </div>
     <div>
@@ -152,6 +156,9 @@ import { contentSections } from '../slide-dom.js';
       return;
     }
     latestRendering = new DOMParser().parseFromString(data.html, "text/html");
+    window.dispatchEvent(new CustomEvent("xarp-color-scheme-default", {
+      detail: latestRendering.documentElement.dataset.xarpColorScheme ?? "default",
+    }));
     staleSlides.delete(savedIndex);
     patchRendering(savedIndex, latestRendering);
     if (!Array.isArray(data.changedSlides) || typeof data.deckStyleChanged !== "boolean") reloadRequired = true;
@@ -274,14 +281,7 @@ import { contentSections } from '../slide-dom.js';
     const section = sections[index], clone = section.cloneNode(true);
     if (textSession?.index === index) {
       const copy = elementAt(clone, elementPath(textSession.element, section));
-      for (const token of copy?.querySelectorAll(".xarp-edit-math-token[data-te-math]") || []) {
-        const original = textSession.math[Number(token.dataset.teMath)];
-        if (original && token.textContent === original.source) {
-          const template = document.createElement("template");
-          template.innerHTML = original.html;
-          token.replaceWith(template.content);
-        }
-      }
+      if (copy) finishMathEditing(copy);
     }
     for (const element of clone.querySelectorAll("[contenteditable]")) element.removeAttribute("contenteditable");
     const html = clone.innerHTML;
@@ -320,7 +320,7 @@ import { contentSections } from '../slide-dom.js';
   }
 
   function beginChange(index, kind, key = "") {
-    if (restoringHistory) return;
+    if (restoringHistory || deckRecoveryRevision) return;
     if (pendingGroup && (pendingGroup.index !== index || pendingGroup.kind !== kind || pendingGroup.key !== key)) flushHistory();
     ensureHistory(index);
     if (!pendingGroup) pendingGroup = { index, kind, key, before: snapshot(index), timer: null };
@@ -357,6 +357,7 @@ import { contentSections } from '../slide-dom.js';
   }
 
   function changeHistory(direction) {
+    if (deckRecoveryRevision) return;
     if (!editActive || savingSlide !== null || composing) return;
     const index = slideIndex();
     const sourceContext = drawerOpen && drawerSlide === index && sourceDrafts.has(index)
@@ -420,6 +421,7 @@ import { contentSections } from '../slide-dom.js';
 
   function recognizeApi(data) {
     if (data?.editorApi === true) apiKnown = true;
+    if (data?.capabilities) capabilities = data.capabilities;
     if (data?.mode === "hosted" || data?.hosted === true) hostedApi = true;
   }
 
@@ -454,6 +456,15 @@ import { contentSections } from '../slide-dom.js';
           if (data.viewId !== meta.viewId || data.sourceFile !== meta.sourceFile || typeof data.sourceRevision !== "string") {
             throw new Error("The editor service is serving a different deck or source. Open the editor for this deck.");
           }
+          if (data.deckRecovery && !hostedApi) {
+            deckRecoveryRevision = data.sourceRevision;
+            reloadRequired = true;
+            sections.forEach((_, index) => unrenderedSlides.add(index));
+            apiBase = location.origin;
+            setStatus("The last arrangement saved but did not rebuild. Open Slides and use Undo or Redo arrangement to recover.", "error");
+            updateButtons();
+            return false;
+          }
           if (data.sourceRevision !== sourceRevision) {
             throw new Error(hostedApi
               ? `This deck is older than its source. Use Copy Edits before reloading if you have pending changes. If the mismatch remains, ask an agent to rebuild and publish ${meta.viewId}.`
@@ -481,25 +492,43 @@ import { contentSections } from '../slide-dom.js';
     const index = slideIndex(), hasEdits = visualDirty(index) || sourceDirty(index);
     const invalid = visualEditError(index);
     const history = histories.get(index);
-    $("te-undo").disabled = savingSlide !== null || composing || (!history?.canUndo() && !pendingGroup);
-    $("te-redo").disabled = savingSlide !== null || composing || !!pendingGroup || !history?.canRedo();
-    $("te-save").disabled = (!hasEdits && !publicationRetry) || savingSlide !== null || !!invalid && !publicationRetry;
+    $("te-undo").disabled = !!deckRecoveryRevision || savingSlide !== null || composing || (!history?.canUndo() && !pendingGroup);
+    $("te-redo").disabled = !!deckRecoveryRevision || savingSlide !== null || composing || !!pendingGroup || !history?.canRedo();
+    $("te-save").disabled = !!deckRecoveryRevision || (!hasEdits && !publicationRetry) || savingSlide !== null || !!invalid && !publicationRetry;
     $("te-save").textContent = publicationRetry ? "Retry Publish" : apiBase ? "Save Slide" : apiError ? "Retry Save" : "Copy Edits";
     $("te-save").title = publicationRetry ? "Publish the source that was already saved" : apiBase ? `Save slide ${index + 1} to ${meta.sourceFile}${hostedApi ? ` and publish ${meta.viewId}` : ""}` : apiError || "Copy this slide's edits. The source will remain unchanged.";
     $("te-copy-edits").hidden = pendingSlides().length === 0 || (!apiBase && !apiError);
     $("te-copy-edits").disabled = savingSlide !== null;
+    $("te-source").disabled = !!deckRecoveryRevision;
+    $("te-image").hidden = !capabilities.images;
+    $("te-slides").hidden = !capabilities.organize;
+    $("te-image").disabled = savingSlide !== null || hasEdits || reloadRequired || !!publicationRetry;
+    $("te-slides").disabled = savingSlide !== null;
     $("te-reset").disabled = !selectedEl || savingSlide !== null;
-    $("te-save-src").disabled = drawerSlide === null || !sourceDirty(drawerSlide) || savingSlide !== null || publicationRetry !== null;
+    $("te-save-src").disabled = !!deckRecoveryRevision || drawerSlide === null || !sourceDirty(drawerSlide) || savingSlide !== null || publicationRetry !== null;
     $("te-copy").disabled = drawerSlide === null || !sourceDrafts.has(drawerSlide);
-    $("te-textarea").readOnly = drawerSlide === null || !sourceDrafts.has(drawerSlide) || visualDirty(drawerSlide) || savingSlide !== null;
+    $("te-textarea").readOnly = !!deckRecoveryRevision || drawerSlide === null || !sourceDrafts.has(drawerSlide) || visualDirty(drawerSlide) || savingSlide !== null;
     if (moveable) {
-      const draggable = !editingText && savingSlide === null, resizable = savingSlide === null;
+      const draggable = !deckRecoveryRevision && !editingText && savingSlide === null, resizable = !deckRecoveryRevision && savingSlide === null;
       if (moveable.draggable !== draggable) moveable.draggable = draggable;
       if (moveable.resizable !== resizable) moveable.resizable = resizable;
     }
   }
 
+  function mathSource(element) {
+    if (!element.matches(".katex-display,.katex")) return null;
+    if (element.dataset.teMathSource !== undefined) return element.dataset.teMathSource;
+    const annotation = element.querySelector('annotation[encoding="application/x-tex"]');
+    if (!annotation) return null;
+    const tex = annotation.textContent.trim();
+    return element.classList.contains("katex-display") ? `$$\n${tex}\n$$` : `$${tex}$`;
+  }
+
   function serializeInline(el, mode = "md") {
+    if (textSession?.formulaOnly && el === textSession.element && el.isContentEditable) {
+      // Contenteditable represents pasted line breaks with divs or brs.
+      return el.innerText.replace(/\u00a0/g, " ").trim();
+    }
     let out = "";
     for (const n of el.childNodes) {
       if (n.nodeType === 3) {
@@ -507,10 +536,8 @@ import { contentSections } from '../slide-dom.js';
         out += mode === "html" ? t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : t;
       } else if (n.nodeType === 1) {
         if (n.classList.contains("xarp-edit-math-token")) { out += n.textContent || ""; continue; }
-        if (n.classList.contains("katex-display") || n.classList.contains("katex")) {
-          const ann = n.querySelector('annotation[encoding="application/x-tex"]');
-          if (ann) { out += n.classList.contains("katex-display") ? `$$${ann.textContent.trim()}$$` : `$${ann.textContent.trim()}$`; continue; }
-        }
+        const formula = mathSource(n);
+        if (formula !== null) { out += formula; continue; }
         const tag = n.tagName.toLowerCase(), inner = serializeInline(n, mode);
         if (tag === "br") out += "<br>";
         else if (tag === "strong" || tag === "b") out += mode === "md" ? `**${inner}**` : `<strong>${inner}</strong>`;
@@ -699,6 +726,11 @@ import { contentSections } from '../slide-dom.js';
       draggable: true,
       resizable: true,
       origin: false,
+      snappable: true,
+      snapGap: false,
+      snapThreshold: 6,
+      snapDirections: { left: true, right: true, top: true, bottom: true, center: true, middle: true },
+      elementSnapDirections: { left: true, right: true, top: true, bottom: true, center: true, middle: true },
     });
     moveable.on("dragStart", e => {
       if (savingSlide !== null) { e.stop(); return; }
@@ -756,6 +788,35 @@ import { contentSections } from '../slide-dom.js';
     moveable.on("resizeEnd", e => { recordElementChange(e.target); flushHistory(); });
   }
 
+  function editedFormula(source, original) {
+    const template = document.createElement("template");
+    if (source === original?.source) template.innerHTML = original.html;
+    else {
+      const delimiter = source.startsWith("$$") ? "$$" : "$";
+      if (!source.startsWith(delimiter) || !source.endsWith(delimiter) || source.length <= 2 * delimiter.length) return document.createTextNode(source);
+      const tex = source.slice(delimiter.length, -delimiter.length);
+      if (delimiter === "$" && tex !== tex.trim()) return document.createTextNode(source);
+      try {
+        template.innerHTML = window.XarpEdits.renderMath(tex, { displayMode: delimiter === "$$" });
+        template.content.firstElementChild.dataset.teMathSource = source;
+      } catch {
+        // Incomplete TeX and deck-defined macros keep their source for Marp.
+        return document.createTextNode(source);
+      }
+    }
+    return template.content;
+  }
+
+  function finishMathEditing(target) {
+    const session = textSession;
+    const source = serializeInline(session.element);
+    if (source === session.markdown) target.innerHTML = session.html;
+    else if (session.formulaOnly) target.replaceChildren(editedFormula(source));
+    else for (const token of target.querySelectorAll(".xarp-edit-math-token")) {
+      token.replaceWith(editedFormula(token.textContent, session.math[Number(token.dataset.teMath)]));
+    }
+  }
+
   function stopTextEditing(preferredFocus) {
     composing = false;
     const index = textSession?.index ?? (selectedEl?.dataset.teSlide !== undefined ? Number(selectedEl.dataset.teSlide) : slideIndex());
@@ -768,20 +829,10 @@ import { contentSections } from '../slide-dom.js';
       recordElementChange(current.target);
       current.input.remove();
     }
-    if (selectedEl && selectedEl.getAttribute("contenteditable") === "true") {
-      if (textSession && selectedEl === textSession.element) {
-        if (serializeInline(selectedEl, "md") === textSession.markdown) selectedEl.innerHTML = textSession.html;
-        else for (const token of selectedEl.querySelectorAll(".xarp-edit-math-token[data-te-math]")) {
-          const original = textSession.math[Number(token.dataset.teMath)];
-          if (original && token.textContent === original.source) {
-            const template = document.createElement("template");
-            template.innerHTML = original.html;
-            token.replaceWith(template.content);
-          }
-        }
-      }
-      recordElementChange(selectedEl);
+    if (selectedEl?.isContentEditable && textSession?.element === selectedEl) {
+      finishMathEditing(selectedEl);
       selectedEl.removeAttribute("contenteditable");
+      recordElementChange(selectedEl);
     }
     textSession = null;
     editingText = false;
@@ -793,6 +844,17 @@ import { contentSections } from '../slide-dom.js';
   let mouseDown = false;
   window.addEventListener("mouseup", () => { mouseDown = false; }, true);
 
+  function updateSnapping(alt = false) {
+    if (!moveable) return;
+    const section = activeSection();
+    moveable.snappable = snapEnabled && !alt;
+    if (!section) return;
+    moveable.snapContainer = section;
+    moveable.verticalGuidelines = [0, section.clientWidth / 3, section.clientWidth / 2, section.clientWidth * 2 / 3, section.clientWidth];
+    moveable.horizontalGuidelines = [0, section.clientHeight / 3, section.clientHeight / 2, section.clientHeight * 2 / 3, section.clientHeight];
+    moveable.elementGuidelines = [...section.querySelectorAll(ALL_SEL)].filter(el => el !== selectedEl && !el.contains(selectedEl) && !selectedEl?.contains(el) && !el.closest(`${NAV_SEL},.katex,.mermaid`));
+  }
+
   function selectBox(el, section, startEvent = null) {
     if (selectedEl !== el) stopTextEditing();
     selectedEl = el;
@@ -802,6 +864,7 @@ import { contentSections } from '../slide-dom.js';
       // trigger Moveable's CSS-size correction and undo the requested resize.
       moveable.checkResizableError = !el || !isSvgChild(el);
       moveable.target = el;
+      updateSnapping(startEvent?.altKey);
       if (startEvent && el && !editingText) {
         moveable.waitToChangeTarget().then(() => {
           if (mouseDown && selectedEl === el && !editingText) moveable.dragStart(startEvent);
@@ -834,19 +897,23 @@ import { contentSections } from '../slide-dom.js';
       return;
     }
 
-    textSession = { element: el, index: Number(el.dataset.teSlide), html: el.innerHTML, markdown: serializeInline(el, "md"), math: [] };
-    for (const k of [...el.querySelectorAll(".katex")]) {
-      const ann = k.querySelector('annotation[encoding="application/x-tex"]');
-      if (!ann) continue;
-      const disp = k.parentElement?.classList.contains("katex-display");
+    if (textSession?.element === el) return;
+    const markdown = serializeInline(el);
+    const formulaOnly = el.childElementCount === 1 && mathSource(el.firstElementChild) === markdown;
+    textSession = { element: el, index: Number(el.dataset.teSlide), html: el.innerHTML, markdown, formulaOnly, math: [] };
+    if (formulaOnly) el.textContent = markdown;
+    else for (const k of el.querySelectorAll(".katex")) {
+      const formula = k.closest(".katex-display") ?? k;
+      const source = mathSource(formula);
+      if (source === null) continue;
       const tok = document.createElement("code");
       tok.className = "xarp-edit-math-token";
-      tok.textContent = disp ? `$$${ann.textContent.trim()}$$` : `$${ann.textContent.trim()}$`;
+      tok.textContent = source;
       tok.dataset.teMath = String(textSession.math.length);
-      textSession.math.push({ source: tok.textContent, html: (disp ? k.parentElement : k).outerHTML });
-      (disp ? k.parentElement : k).replaceWith(tok);
+      textSession.math.push({ source, html: formula.outerHTML });
+      formula.replaceWith(tok);
     }
-    el.setAttribute("contenteditable", "true");
+    el.setAttribute("contenteditable", formulaOnly ? "plaintext-only" : "true");
     el.focus();
     renderOverlay();
   }
@@ -964,12 +1031,13 @@ import { contentSections } from '../slide-dom.js';
     }
   }
 
-  async function saveEdits(explicitMarkdown) {
+  async function saveEdits(explicitMarkdown, targetSlide) {
+    if (deckRecoveryRevision) return;
     if (savingSlide !== null) return;
     if (publicationRetry) return retryPublication();
     stopTextEditing();
     flushHistory();
-    const sIdx = explicitMarkdown !== undefined ? drawerSlide : slideIndex();
+    const sIdx = targetSlide ?? (explicitMarkdown !== undefined ? drawerSlide : slideIndex());
     if (sIdx === null) return;
     const invalid = visualEditError(sIdx);
     if (invalid) return setStatus(invalid, "error");
@@ -1152,6 +1220,11 @@ import { contentSections } from '../slide-dom.js';
     if (next) window.dispatchEvent(new CustomEvent("xarp-mode-request", { detail: { mode: "edit" } }));
     editActive = next;
     document.body.classList.toggle("xarp-edit-active", editActive);
+    const palettePicker = document.querySelector(".xarp-color-scheme-picker");
+    if (palettePicker) {
+      if (editActive) $("te-coords").before(palettePicker);
+      else document.body.append(palettePicker);
+    }
     if (!editActive) {
       stopTextEditing();
       selectBox(null, null);
@@ -1168,8 +1241,152 @@ import { contentSections } from '../slide-dom.js';
 
   function findTarget(raw, section) {
     if (!raw || !section?.contains(raw) || raw.closest?.(NAV_SEL) || savingSlide !== null || sourceDirty(slideIndex()) || unrenderedSlides.has(slideIndex())) return null;
-    const target = raw.closest("svg text,svg rect,svg circle") || raw.closest(TEXT_SEL) || raw.closest(BOX_SEL);
+    const target = raw.closest("img,svg text,svg rect,svg circle") || raw.closest(TEXT_SEL) || raw.closest(BOX_SEL);
     return target && section.contains(target) && !target.closest(".katex,.mermaid") ? target : null;
+  }
+
+  $("te-snap").onclick = () => {
+    snapEnabled = !snapEnabled;
+    $("te-snap").setAttribute("aria-pressed", String(snapEnabled));
+    $("te-snap").textContent = snapEnabled ? "Snap: On" : "Snap: Off";
+    updateSnapping();
+  };
+  window.addEventListener("keydown", event => { if (event.key === "Alt") updateSnapping(true); });
+  window.addEventListener("keyup", event => { if (event.key === "Alt") updateSnapping(); });
+  window.addEventListener("blur", () => updateSnapping());
+
+  const imagePicker = document.createElement("input");
+  imagePicker.type = "file";
+  imagePicker.accept = "image/png,image/jpeg,image/gif,image/webp";
+  imagePicker.hidden = true;
+  document.body.append(imagePicker);
+  $("te-image").onclick = () => imagePicker.click();
+  imagePicker.onchange = () => { const file = imagePicker.files[0]; imagePicker.value = ""; if (file) void insertImage(file); };
+
+  async function insertImage(file) {
+    if (!editActive || savingSlide !== null) return;
+    stopTextEditing(); flushHistory();
+    const index = slideIndex();
+    if (visualDirty(index) || sourceDirty(index)) return setStatus("Save this slide's edits before inserting an image.", "error");
+    if (!capabilities.images || !apiBase || reloadRequired) return setStatus("Open a current local editor to insert an image.", "error");
+    if (file.size > 8 * 1024 * 1024) return setStatus("Image is too large (maximum 8 MiB).", "error");
+    savingSlide = index; updateButtons();
+    let ready = false;
+    try {
+      await ensureBaseline(index);
+      const image = await new Promise((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error("Could not read image")); reader.readAsDataURL(file);
+      });
+      const response = await fetch(`${apiBase}/__xarp/asset`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ viewId: meta.viewId, sourceFile: meta.sourceFile, sourceRevision, image }) });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Image upload failed");
+      if (data.sourceRevision !== sourceRevision || data.viewId !== meta.viewId || data.sourceFile !== meta.sourceFile || !/^assets\/xarp\/[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(data.path)) throw new Error("Image receipt does not match this deck");
+      // Stage through ordinary source history so Undo and failed saves retain the insertion.
+      beginChange(index, "source");
+      const original = savedMarkdown(index);
+      const markdown = `${original}\n\n<img src="${data.path}" alt="" width="480">`;
+      sourceDrafts.set(index, { original, markdown, sourceRevision });
+      flushHistory();
+      ready = true;
+    } catch (error) { setStatus(error.message, "error"); }
+    finally { savingSlide = null; updateButtons(); }
+    if (ready) await saveEdits(sourceDrafts.get(index).markdown, index);
+  }
+  // Native image dragging can present an existing image as a dropped file.
+  // Moveable owns these gestures; only external files should reach insertion.
+  document.addEventListener("dragstart", event => {
+    if (editActive && activeSection()?.contains(event.target) && event.target.closest("img")) event.preventDefault();
+  }, true);
+  document.addEventListener("dragover", event => {
+    if (editActive && activeSection()?.contains(event.target) && event.dataTransfer?.types.includes("Files")) event.preventDefault();
+  });
+  document.addEventListener("drop", event => {
+    if (!editActive || !activeSection()?.contains(event.target) || !event.dataTransfer?.files.length) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.dataTransfer.files.length !== 1) return setStatus("Insert one image at a time.", "error");
+    void insertImage(event.dataTransfer.files[0]);
+  });
+
+  const organizer = document.createElement("dialog");
+  organizer.className = "xarp-slide-organizer";
+  organizer.setAttribute("aria-label", "Organize slides");
+  document.body.append(organizer);
+  $("te-slides").onclick = () => void openOrganizer();
+  async function openOrganizer() {
+    stopTextEditing(); flushHistory();
+    try {
+      const response = await fetch(`${apiBase}/__xarp/deck?view=${encodeURIComponent(meta.viewId)}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Could not load slides");
+      if (data.sourceRevision !== (deckRecoveryRevision ?? sourceRevision) || data.viewId !== meta.viewId || data.sourceFile !== meta.sourceFile) throw new Error("Source changed. Save or copy edits before reloading.");
+      organizer.replaceChildren();
+      const heading = document.createElement("h2"); heading.textContent = "Slides"; organizer.append(heading);
+      const help = document.createElement("p");
+      help.textContent = "Changes save immediately and reload the deck. Save pending edits and clear drawing ink first. Drag to reorder, or use the arrow buttons.";
+      if (!data.capabilities.resizeDeck) help.textContent += " Fixed section counts allow reordering only; section boundaries stay at their configured positions.";
+      organizer.append(help);
+      const button = (parent, label, action, disabled = false) => {
+        const el = document.createElement("button"); el.type = "button"; el.textContent = label; el.disabled = disabled;
+        el.onclick = action; parent.append(el); return el;
+      };
+      const controls = document.createElement("div"); organizer.append(controls);
+      button(controls, "Undo arrangement", () => organize({ action: "undo" }), !data.canUndo);
+      button(controls, "Redo arrangement", () => organize({ action: "redo" }), !data.canRedo);
+      button(controls, "Close", () => organizer.close());
+      if (deckRecoveryRevision) {
+        help.textContent = "The arrangement was saved, but rebuilding failed. Use the available Undo or Redo arrangement action to restore the previous source and rebuild it.";
+        organizer.showModal();
+        return;
+      }
+      const list = document.createElement("ol"); organizer.append(list);
+      let dragging = null;
+      data.slides.forEach((slide, index) => {
+        const row = document.createElement("li"); row.draggable = true; row.dataset.slideId = slide.id;
+        const title = document.createElement("span"); title.textContent = `${index + 1}. ${slide.title}`; row.append(title);
+        button(row, "↑", () => organize({ action: "move", slideId: slide.id, to: index - 1 }), index === 0).setAttribute("aria-label", `Move slide ${index + 1} up`);
+        button(row, "↓", () => organize({ action: "move", slideId: slide.id, to: index + 1 }), index === data.slides.length - 1).setAttribute("aria-label", `Move slide ${index + 1} down`);
+        button(row, "Add after", () => organize({ action: "add", slideId: slide.id }), !data.capabilities.resizeDeck);
+        button(row, "Duplicate", () => organize({ action: "duplicate", slideId: slide.id }), !data.capabilities.resizeDeck);
+        button(row, "Delete", () => organize({ action: "delete", slideId: slide.id }), !data.capabilities.resizeDeck || data.slides.length === 1);
+        row.ondragstart = event => { dragging = slide.id; event.dataTransfer.setData("text/plain", slide.id); };
+        row.ondragover = event => { if (dragging) event.preventDefault(); };
+        row.ondrop = event => { event.preventDefault(); if (dragging && dragging !== slide.id) void organize({ action: "move", slideId: dragging, to: index }); dragging = null; };
+        row.ondragend = () => { dragging = null; };
+        list.append(row);
+      });
+      organizer.showModal();
+    } catch (error) { setStatus(error.message, "error"); }
+  }
+  async function organize(action) {
+    if (savingSlide !== null) return;
+    organizer.close();
+    if (pendingSlides().length || reloadRequired && !(deckRecoveryRevision && ["undo", "redo"].includes(action.action)) || publicationRetry) return setStatus("Save or copy pending edits and reload before organizing slides.", "error");
+    const event = new CustomEvent("xarp-before-deck-change", { cancelable: true });
+    if (!window.dispatchEvent(event)) return setStatus("Export and clear drawing ink before organizing slides.", "error");
+    savingSlide = -1; updateButtons();
+    try {
+      const response = await fetch(`${apiBase}/__xarp/deck`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ viewId: meta.viewId, sourceFile: meta.sourceFile, sourceRevision: deckRecoveryRevision ?? sourceRevision, ...action }) });
+      const data = await response.json();
+      if (!data.saved) throw new Error(data.error || "Slides were not changed");
+      if (data.viewId !== meta.viewId || data.sourceFile !== meta.sourceFile || !data.deckChanged) throw new Error("Unexpected deck receipt; reload to check the source");
+      if (!data.rebuilt) {
+        deckRecoveryRevision = data.sourceRevision;
+        reloadRequired = true;
+        sections.forEach((_, index) => unrenderedSlides.add(index));
+        selectBox(null, null);
+        throw new Error(`Source saved, but rebuild failed. Open Slides and use Undo or Redo arrangement to recover. ${data.error}`);
+      }
+      const rebuilt = new DOMParser().parseFromString(data.html, "text/html");
+      const next = JSON.parse(rebuilt.getElementById("xarp-meta").textContent);
+      const index = next.slides.indexOf(data.selected);
+      savingSlide = null;
+      location.hash = `#${Math.max(0, index) + 1}`;
+      location.reload();
+    } catch (error) { setStatus(error.message, "error"); }
+    finally { savingSlide = null; updateButtons(); }
   }
 
   $("te-done").onclick = () => setEditMode(false);
@@ -1261,8 +1478,14 @@ import { contentSections } from '../slide-dom.js';
 
   window.addEventListener("keydown", e => {
     const a = document.activeElement;
+    if (e.target.closest?.(".xarp-color-scheme-picker")) return;
     const typing = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable || a.closest?.('[contenteditable="true"]'));
 
+    if (organizer.open) {
+      if (e.key === "Escape") { e.preventDefault(); organizer.close(); }
+      e.stopImmediatePropagation();
+      return;
+    }
     if (editActive && (composing || e.isComposing || e.keyCode === 229)) return;
     if (editActive && (e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "z" || (e.ctrlKey && e.key.toLowerCase() === "y"))) {
       e.preventDefault(); e.stopImmediatePropagation();

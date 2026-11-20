@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as yaml from 'js-yaml';
 import { createEngine } from './engine.js';
+import { isColorScheme, type ColorScheme } from './color-schemes.js';
 import { applyVisualEdits, type SlideTextEdit } from './editor/slide-edits.js';
 
 export const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -24,6 +25,7 @@ export interface SourceDocument {
   prefix: string;
   slides: Slide[];
   theme?: string;
+  colorScheme?: ColorScheme;
   editingError?: string;
 }
 
@@ -39,12 +41,14 @@ export function parseSource(source: string): SourceDocument {
   const frontmatter = (frontmatterText ? yaml.load(frontmatterText) : {}) ?? {};
   requireValue(typeof frontmatter === 'object' && !Array.isArray(frontmatter), 'Front matter must be a YAML mapping');
   let theme = typeof (frontmatter as Record<string, unknown>).theme === 'string' ? (frontmatter as Record<string, string>).theme : undefined;
+  const colorScheme = mapping.colorScheme;
   for (const comment of mapping.comments) {
     try {
       const directives = yaml.load(comment) as Record<string, unknown> | undefined;
       if (typeof directives?.theme === 'string') theme = directives.theme;
     } catch { /* Speaker notes need not be YAML. */ }
   }
+  requireValue(colorScheme === undefined || isColorScheme(colorScheme), `Unknown color scheme: ${String(colorScheme)}`);
   let prefix = source.slice(0, frontmatterEnd);
   const starts = [frontmatterEnd, ...mapping.breaks.map(([, end]) => at(end))];
   const ends = [...mapping.breaks.map(([start]) => at(start)), source.length];
@@ -70,7 +74,7 @@ export function parseSource(source: string): SourceDocument {
   }
   const editingError = /(?:^|[\n<])\s*(?:!--\s*)?headingDivider\s*:/i.test(source)
     ? 'Source editing does not support headingDivider. Use thematic breaks between slides.' : undefined;
-  return { source, revision: hash(source), frontmatter: frontmatter as Record<string, unknown>, prefix, slides, theme, editingError };
+  return { source, revision: hash(source), frontmatter: frontmatter as Record<string, unknown>, prefix, slides, theme, colorScheme, editingError };
 }
 
 export function selectSlides(document: SourceDocument, ids?: readonly string[]): Slide[] {

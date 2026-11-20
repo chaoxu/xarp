@@ -5,6 +5,7 @@ export interface SlideMapping {
   breaks: [number, number][];
   frontmatter?: { end: number; content: string };
   comments: string[];
+  colorScheme?: unknown;
 }
 
 export const engineOptions = { html: true, math: { lib: 'katex', katexFontPath: '_xarp/theme/vendor/katex/fonts/' } } as const;
@@ -14,6 +15,10 @@ export function createEngine(options: ConstructorParameters<typeof Marp>[0] = {}
   const engine = Object.assign(new Marp({ ...engineOptions, ...options }), {
     xarpMapping: { breaks: [], comments: [] } as SlideMapping,
   });
+  engine.customDirectives.global.colorScheme = value => {
+    engine.xarpMapping.colorScheme = value;
+    return {};
+  };
   engine.use((md: any) => {
     md.core.ruler.after('block', 'xarp_slide_mapping', (state: { src: string; tokens: Token[]; inlineMode?: boolean }) => {
       // Header/footer inline parsing re-enters the core chain of this engine.

@@ -5,14 +5,16 @@ import { pathToFileURL } from 'node:url';
 import { build } from './build.js';
 import { dev } from './editor/server.js';
 import { pathExists } from './files.js';
+import { isColorScheme } from './color-schemes.js';
 import type { BuildOptions } from './types.js';
 
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { config: { type: 'string', short: 'c' }, output: { type: 'string', short: 'o' }, port: { type: 'string', short: 'p' }, help: { type: 'boolean', short: 'h' } },
+    options: { config: { type: 'string', short: 'c' }, output: { type: 'string', short: 'o' }, port: { type: 'string', short: 'p' },
+      theme: { type: 'string' }, 'color-scheme': { type: 'string' }, help: { type: 'boolean', short: 'h' } },
   });
-  if (values.help) { console.log('Usage: xarp <build|dev> [slides.md] [--config xarp.config.mjs] [--output dist] [--port 4175]'); return; }
+  if (values.help) { console.log('Usage: xarp <build|dev> [slides.md] [--config xarp.config.mjs] [--output dist] [--port 4175] [--theme name-or-css] [--color-scheme name]'); return; }
   const [command, input, ...extra] = positionals;
   if (!['build', 'dev'].includes(command ?? '') || extra.length) throw new Error('Usage: xarp <build|dev> [slides.md] [--config xarp.config.mjs]');
   const configPath = resolve(values.config ?? 'xarp.config.mjs');
@@ -23,7 +25,14 @@ async function main() {
     if (!config || typeof config !== 'object') throw new Error('The config must export an object');
     cwd = dirname(configPath);
   }
-  const options: BuildOptions = { ...config, cwd, input: input ? resolve(process.cwd(), input) : config.input ?? 'slides.md', ...(values.output ? { output: resolve(process.cwd(), values.output) } : {}) };
+  const palette = values['color-scheme'];
+  if (palette !== undefined && !isColorScheme(palette)) throw new Error(`Unknown color scheme: ${palette}`);
+  const options: BuildOptions = {
+    ...config, cwd, input: input ? resolve(process.cwd(), input) : config.input ?? 'slides.md',
+    ...(values.output ? { output: resolve(process.cwd(), values.output) } : {}),
+    ...(values.theme !== undefined ? { theme: values.theme } : {}),
+    ...(palette !== undefined ? { colorScheme: palette } : {}),
+  };
   if (command === 'build') {
     const result = await build(options);
     console.log(result.htmlPath);

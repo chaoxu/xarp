@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { build, resolveProject } from '../build.js';
 import { containedFile, isWithin } from '../files.js';
 import { hash, parseSource, requireValue, selectSlides, updateSlideInSource } from '../source.js';
+import { editDeck, type DeckAction } from './deck.js';
+import { storeImage } from './assets.js';
+import { createHistory } from './history.js';
 import { renderingChanges } from './rendering.js';
 import type { BuildOptions, BuildResult } from '../types.js';
 import type { SlideTextEdit } from './slide-edits.js';
@@ -29,11 +32,14 @@ export interface SaveRequest {
   slideId: string;
   markdown?: string;
   edits?: SlideTextEdit[];
+  image?: string;
+  action?: DeckAction["action"];
+  to?: number;
 }
 
-async function readJson(request: Request): Promise<SaveRequest> {
+async function readJson(request: Request, limit = maxBody): Promise<SaveRequest> {
   const length = request.headers.get('content-length');
-  requireValue(length === null || Number(length) <= maxBody, 'Request body is too large');
+  requireValue(length === null || Number(length) <= limit, 'Request body is too large');
   const reader = request.body?.getReader();
   requireValue(reader, 'A JSON request body is required');
   const chunks: Uint8Array[] = [];
@@ -42,7 +48,7 @@ async function readJson(request: Request): Promise<SaveRequest> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.length;
-    if (size > maxBody) { await reader.cancel(); throw new Error('Request body is too large'); }
+    if (size > limit) { await reader.cancel(); throw new Error('Request body is too large'); }
     chunks.push(value);
   }
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -55,6 +61,7 @@ export async function createEditorApi(options: EditorApiOptions) {
   const project = await resolveProject(options.config);
   requireValue(options.config.plugins?.some(plugin => plugin.name === 'editing'), 'Enable the editing plugin to start the editor service');
   let busy = false;
+  let deckHistory: ReturnType<typeof createHistory<string>> | undefined;
   return async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/__xarp/')) return null;
@@ -63,8 +70,10 @@ export async function createEditorApi(options: EditorApiOptions) {
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return failure('Use the loopback editor URL', 403);
     const origin = request.headers.get('origin');
     if (origin && origin !== url.origin) return failure('A same-origin request is required', 403);
-    const saving = url.pathname === '/__xarp/save';
-    if (!['/__xarp/status', '/__xarp/slide', '/__xarp/save'].includes(url.pathname)) return failure('Unknown editor endpoint', 404);
+    const deck = url.pathname === '/__xarp/deck';
+    const asset = url.pathname === '/__xarp/asset';
+    const saving = url.pathname === '/__xarp/save' || asset || deck && request.method === 'POST';
+    if (!['/__xarp/status', '/__xarp/slide', '/__xarp/save', '/__xarp/deck', '/__xarp/asset'].includes(url.pathname)) return failure('Unknown editor endpoint', 404);
     if (request.method !== (saving ? 'POST' : 'GET')) return failure('Method not allowed', 405);
     if (saving && origin !== url.origin) return failure('A same-origin browser request is required', 403);
     if (saving && request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') return failure('Save requests must use application/json', 415);
@@ -79,22 +88,46 @@ export async function createEditorApi(options: EditorApiOptions) {
       const built = options.result();
       const identity = { viewId: project.viewId, sourceFile: project.sourceFile, sourceRevision: document.revision, buildRevision: built.metadata.buildRevision };
       const editingError = document.editingError ?? built.metadata.editingError;
+      const canOrganize = !editingError && !options.config.slides;
+      const canResizeDeck = canOrganize && !options.config.sections;
+      const capabilities = { images: true, organize: canOrganize, resizeDeck: canResizeDeck };
+      const historyState = () => ({ canUndo: deckHistory?.getState() === raw && deckHistory.canUndo(), canRedo: deckHistory?.getState() === raw && deckHistory.canRedo() });
       if (!saving) {
         if (url.searchParams.get('view') !== project.viewId) return failure('The editor is serving a different deck', 409, identity);
-        if (url.pathname === '/__xarp/status') return json({ ok: true, canSave: !editingError, ...identity, ...(editingError ? { error: editingError } : {}), version: options.version?.() ?? 1 });
+        if (url.pathname === '/__xarp/status') return json({ ok: true, canSave: !editingError, capabilities, deckRecovery: deckHistory?.getState() === raw && (deckHistory.canUndo() || deckHistory.canRedo()) && built.metadata.sourceRevision !== document.revision, ...identity, ...(editingError ? { error: editingError } : {}), version: options.version?.() ?? 1 });
         requireValue(!editingError, editingError ?? 'Source editing is unavailable');
+        if (deck) return json({ ok: true, ...identity, capabilities, ...historyState(), slides: slides.map(slide => ({ id: slide.id, title: slide.body.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? slide.id })) });
         const slideId = url.searchParams.get('slide');
         const slide = slides.find(item => item.id === slideId);
         requireValue(slide, 'The slide is not in this deck');
         return json({ ok: true, ...identity, slideId, markdown: slide.body });
       }
-      const body = await readJson(request);
+      const body = await readJson(request, asset ? 12 * 1024 * 1024 : maxBody);
       const savedIdentity = { ...identity, slideId: body.slideId };
       requireValue(!editingError, editingError ?? 'Source editing is unavailable');
       if (body.viewId !== project.viewId || body.sourceFile !== project.sourceFile) return failure('The deck or source does not match', 409, savedIdentity);
       if (body.sourceRevision !== document.revision) return failure('Slide source changed. Copy edits and reload before saving.', 409, savedIdentity);
-      requireValue(typeof body.slideId === 'string' && slides.some(slide => slide.id === body.slideId), 'The slide is not in this deck');
-      const { updatedSource, slideBody } = updateSlideInSource(raw, body.slideId, body);
+      if (asset) {
+        const path = await storeImage(sourcePath, body.image);
+        return json({ ok: true, ...identity, path });
+      }
+      let updatedSource: string, slideBody: string | undefined, selected: string | undefined;
+      if (deck) {
+        requireValue(canOrganize, 'Organize the source deck, not a configured slide selection');
+        requireValue(canResizeDeck || ['move', 'undo', 'redo'].includes(body.action ?? ''), 'This deck has fixed section counts. Update the configuration before adding or deleting slides.');
+        if (body.action === 'undo' || body.action === 'redo') {
+          requireValue(deckHistory?.getState() === raw, 'Source changed since the last deck operation; its history no longer applies');
+          requireValue(body.action === 'undo' ? deckHistory.canUndo() : deckHistory.canRedo(), 'No deck history in that direction');
+          updatedSource = body.action === 'undo' ? deckHistory.undo() : deckHistory.redo();
+          // Peek without consuming history before the guarded write succeeds.
+          if (body.action === 'undo') deckHistory.redo(); else deckHistory.undo();
+        } else {
+          ({ updatedSource, selected } = editDeck(raw, body as DeckAction));
+        }
+      } else {
+        requireValue(typeof body.slideId === 'string' && slides.some(slide => slide.id === body.slideId), 'The slide is not in this deck');
+        ({ updatedSource, slideBody } = updateSlideInSource(raw, body.slideId, body));
+      }
       const temporary = join(dirname(sourcePath), `.${basename(sourcePath)}.xarp-${randomUUID()}.tmp`);
       try {
         await writeFile(temporary, updatedSource, { flag: 'wx', mode: (await stat(sourcePath)).mode & 0o777 });
@@ -102,7 +135,15 @@ export async function createEditorApi(options: EditorApiOptions) {
         if (await readFile(sourcePath, 'utf8') !== raw) return failure('Source changed during save. Copy edits and reload.', 409, savedIdentity);
         await rename(temporary, sourcePath);
       } finally { await rm(temporary, { force: true }); }
-      const receipt = { ...savedIdentity, sourceRevision: hash(updatedSource), saved: true, markdown: slideBody };
+      if (deck) {
+        if (body.action === 'undo') deckHistory!.undo();
+        else if (body.action === 'redo') deckHistory!.redo();
+        else {
+          if (deckHistory?.getState() !== raw) deckHistory = createHistory(raw);
+          deckHistory!.setState(updatedSource);
+        }
+      }
+      const receipt = { ...savedIdentity, sourceRevision: hash(updatedSource), saved: true, markdown: slideBody, ...(deck ? { selected, deckChanged: true } : {}) };
       try {
         const previousHtml = await readFile(options.result().htmlPath, 'utf8').catch(error => {
           if (error.code === 'ENOENT') return '';
@@ -209,7 +250,7 @@ export async function dev(options: DevOptions) {
         const html = (await readFile(result.htmlPath, 'utf8')).replace('</body>', `<script defer src="/__xarp/preview.js" data-version="${version}"></script></body>`);
         return await sendResponse(new Response(html, { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } }), outgoing);
       }
-      if (building && pathname === '/__xarp/save') return await sendResponse(Response.json({ editorApi: true, mode: 'local', ok: false, saved: false, error: 'A rebuild is in progress. Retry shortly.' }, { status: 409 }), outgoing);
+      if (building && request.method === 'POST' && pathname.startsWith('/__xarp/')) return await sendResponse(Response.json({ editorApi: true, mode: 'local', ok: false, saved: false, error: 'A rebuild is in progress. Retry shortly.' }, { status: 409 }), outgoing);
       await sendResponse(await api?.(request) ?? await staticResponse(request, result.output), outgoing);
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500, { 'Content-Type': 'text/plain' });

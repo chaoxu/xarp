@@ -3,6 +3,29 @@ import MarkdownIt from "markdown-it";
 export const slideParser = new MarkdownIt("commonmark", { html: true });
 const parser = slideParser;
 
+// Marp emits a paragraph for a display equation, even when the next line
+// starts another equation or ordinary prose. Keep the same block boundary
+// when locating the paragraph's source. TeX itself is opaque to the mapper.
+parser.block.ruler.before('paragraph', 'xarp_display_math', (state, start, end, silent) => {
+  const line = (i: number) => state.src.slice(state.bMarks[i]! + state.tShift[i]!, state.eMarks[i]);
+  const first = line(start);
+  if (!first.startsWith('$$') || state.sCount[start]! - state.blkIndent >= 4) return false;
+  let last = start;
+  let content = first.slice(2);
+  while (!content.trimEnd().endsWith('$$')) {
+    last++;
+    if (last >= end || !state.isEmpty(last) && state.sCount[last]! < state.blkIndent) return false;
+    content = line(last);
+  }
+  if (!silent) {
+    state.line = last + 1;
+    const token = state.push('xarp_display_math', 'p', 0);
+    token.map = [start, state.line];
+    token.content = state.getLines(start, state.line, state.blkIndent, false).trim();
+  }
+  return true;
+}, { alt: ['paragraph'] });
+
 export type SlideTextEdit = {
   tag?: string;
   tagOccurrence?: number;
@@ -21,8 +44,19 @@ function requireValue(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function displayMath(source: string) {
+  if (!source.startsWith('$$') || !source.endsWith('$$')) return;
+  const tex = source.slice(2, -2).trim();
+  if (!tex) return;
+  const start = source.indexOf(tex, 2);
+  return { tex, opening: source.slice(0, start), closing: source.slice(start + tex.length) };
+}
+
 function buildEditPattern(candidate: string): RegExp {
-  const tokens = candidate.trim().split(/(\s+)/);
+  // KaTeX annotations contain the expression, without the source's spacing
+  // between the expression and its display delimiters.
+  const display = displayMath(candidate.trim());
+  const tokens = (display?.tex ?? candidate.trim()).split(/(\s+)/);
   const pattern = tokens.map(token => {
     if (/^\s+$/.test(token)) return "\\s+";
     let out = "";
@@ -38,7 +72,7 @@ function buildEditPattern(candidate: string): RegExp {
     }
     return out;
   }).join("");
-  return new RegExp(pattern, "g");
+  return new RegExp(display ? `\\$\\$\\s*${pattern}\\s*\\$\\$` : pattern, "g");
 }
 
 function updateOpeningTagAttrs(openingTag: string, attrs: Record<string, string>): string {
@@ -102,7 +136,12 @@ function textEditScope(segments: string[], edit: SlideTextEdit): { segIndex: num
     for (let i = 0; i < seg.length; i++) if (seg[i] === "\n") offsets.push(i + 1);
     const tokens = parser.parse(seg, {});
     tokens.forEach((token, i) => {
-      if (token.tag !== edit.tag || token.nesting !== 1 || token.hidden) return;
+      if (token.tag !== edit.tag || token.hidden) return;
+      if (token.type === 'xarp_display_math' && token.map) {
+        candidates.push({ segIndex: s, start: offsets[token.map[0]]!, end: offsets[token.map[1]] ?? seg.length, content: token.content, html: false });
+        return;
+      }
+      if (token.nesting !== 1) return;
       // Markdown list items wrap their inline text in a paragraph token, even
       // when tight-list rendering hides the paragraph's HTML tags.
       const inline = token.tag === 'li' && tokens[i + 1]?.type === 'paragraph_open' ? tokens[i + 2] : tokens[i + 1];
@@ -230,6 +269,8 @@ function applyTextEditToSlide(slideText: string, edit: SlideTextEdit, slideId: s
       requireValue(Number.isInteger(targetIdx) && targetIdx >= 0 && targetIdx < matches.length, "Edited text occurrence no longer exists. Use Slide Markdown");
       const chosen = matches[targetIdx]!;
       let replacement = rawAfter.trim();
+      const oldDisplay = displayMath(chosen.matched), newDisplay = displayMath(replacement);
+      if (!scope?.html && oldDisplay && newDisplay) replacement = oldDisplay.opening + newDisplay.tex + oldDisplay.closing;
       if (chosen.matched.includes("&amp;") && !replacement.includes("&amp;")) {
         replacement = replacement.replace(/&(?!amp;|lt;|gt;|quot;|#\d+;|#x[0-9a-fA-F]+;)/g, "&amp;");
       }

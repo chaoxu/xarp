@@ -24,21 +24,12 @@ description: Try Markdown slides, visual editing, drawing, and browser plugins.
 
 # Start with Markdown
 
-<div class="split">
-<div>
-<p class="label">Source</p>
-<pre><code># A useful idea&#10;&#10;Keep the source readable.&#10;&#10;- A question&#10;- An example&#10;- A conclusion</code></pre>
-</div>
-<div class="rendered">
-<h2>A useful idea</h2>
-<p>Keep the source readable.</p>
-<ul><li>A question</li><li>An example</li><li>A conclusion</li></ul>
-</div>
-</div>
+## Powers of $x$
 
-<p class="hint">Headings, lists, emphasis, links, and tables use Marp Markdown.</p>
+- **First power** $x$
+- **Second power** $x^2$
 
-<!-- The left column is a source specimen, and the right is its corresponding HTML content. The rest of this deck is authored in Marp Markdown with HTML where a layout or an editable object benefits from it. -->
+<p class="hint">In the local preview, press <kbd>E</kbd> and open Slide Markdown.<br>Add <code>- **Third power** $x^3$</code> to the list and choose Save Source.</p>
 
 ---
 
@@ -136,16 +127,17 @@ Change the words and the layout.
 ---
 
 <!-- slide: edit-text -->
+<!-- _class: pf-slide edit-text -->
 
 # Change this sentence
 
-<p class="editable-line" id="demo-edit-text" data-xarp-edit="text">Replace this sentence with your idea.</p>
+Replace this sentence with your idea.
 
 <p class="exercise">Press <kbd>E</kbd>, then double-click the sentence. Try Undo and Redo.</p>
 
 <p class="hint">In local preview, save an edit and try Undo again. Save again to write the undone state.</p>
 
-<!-- Use the raw HTML sentence as the primary editing target. Undo and Redo change the current slide's browser state. Saving does not erase its history, and undoing a saved edit does not write the source until another save. Static copies have no source-writing service. -->
+<!-- Undo and Redo change the current slide's browser state. Saving does not erase its history, and undoing a saved edit does not write the source until another save. Static copies have no source-writing service. -->
 
 ---
 

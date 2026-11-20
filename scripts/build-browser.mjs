@@ -17,11 +17,11 @@ await build({
 });
 await build({
   absWorkingDir: root,
-  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js'],
+  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js'],
   outdir: destination, bundle: true, platform: 'browser', format: 'iife',
   legalComments: 'eof', target: ['es2022'],
 });
-for (const name of ['editing.css', 'drawing.css', 'sections.css', 'preview.js']) {
+for (const name of ['editing.css', 'drawing.css', 'color-schemes.css', 'palettes.css', 'sections.css', 'preview.js']) {
   await copyFile(join(root, 'src/browser', name), join(destination, name));
 }
 const moveable = dirname(require.resolve('moveable/package.json'));
@@ -69,7 +69,10 @@ async function licenseTexts(names) {
   return notices.join('\n\n---\n\n');
 }
 
-await writeFile(join(destination, 'LICENSES.txt'), await licenseTexts(['moveable', 'travels', 'mutative', 'markdown-it', 'tslib']));
+// Drauu's published core also inlines nanoevents and perfect-freehand without
+// listing them as dependencies. Retain those upstream notices in our bundle.
+await writeFile(join(destination, 'LICENSES.txt'), await licenseTexts(['drauu', 'moveable', 'travels', 'mutative', 'markdown-it', 'katex', 'tslib'])
+  + '\n\n---\n\n' + await readFile(join(root, 'licenses/drauu-bundled.txt'), 'utf8'));
 const marpCli = await packageDirectory('@marp-team/marp-cli');
 const rendererNotices = await licenseTexts(['@marp-team/marp-cli', '@marp-team/marp-core']);
 await writeFile(join(destination, 'RENDERER-LICENSES.txt'), rendererNotices + '\n\n' + await readFile(join(marpCli, 'lib/bespoke.js.LICENSE.txt'), 'utf8'));
