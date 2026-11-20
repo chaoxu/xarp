@@ -118,10 +118,11 @@ colorScheme: ukiyo-e
 ---
 ```
 
-Choose from four curated families of visual schemes (or `default` for the theme's own colors):
+Choose from five curated families of visual schemes (or `default` for the theme's own colors):
 
 - **Core · Ink & Print**: `sumi-e` (Japanese *Gasenshi* paper and *ai-boku* blue-black Zen ink), `shuimo` (white *Sheng Xuan* `白宣` ink-wash), `manga` (stark white board, 45° halftone screentones, G-pen panel border, and peripheral speedlines), `han-rubbing` (Wujin pine-soot stone-relief rubbing `汉画像石拓`), `song-scroll` (Northern Song *Xuanhe* silk handscroll `宣和装`), and `qinglu` (Song woven silk, azurite, and malachite).
-- **Japanese Craft**: `washi` (*kozo* paper, indigo, and *Seigaiha* waves), `edo` (woodblock buff and *Edo-murasaki* purple), `hanami` (sakura and *Suō* crimson), `kimono`, `wabi-sabi` (celadon matcha and Uji moss), `japandi`, `ukiyo-e` (Prussian night and gold), and `urushi` (black lacquer and 24k *maki-e* gold).
+- **Japanese Wagara & Craft**: `washi` (*kozo* paper and *Seigaiha* waves `青海波`), `shippo` (Seven-Treasures overlapping circles `七宝つなぎ`), `kikko` (hexagonal samurai tortoiseshell & *Kagome* weave `亀甲・籠目`), `yagasuri` (arrow-feather weave `矢絣`), `edo` (woodblock buff and *Edo-murasaki* purple), `hanami` (sakura and *Asanoha* hemp-leaf `麻の葉`), `kimono`, `wabi-sabi` (celadon matcha and Uji moss), `japandi`, `ukiyo-e` (Prussian night and gold), and `urushi` (black lacquer and 24k *maki-e* gold).
+- **Wood Mosaic, Kumiko & Mosque**: `yosegi` (Hakone wood mosaic marquetry `箱根寄木細工`), `kumiko` (unpainted *Hinoki* *Asanoha* lattice joinery `組子細工`), `zellij` (Alhambra/Fez 8-pointed star & cross glazed mosaic), and `isfahan` (Safavid lapis-lazuli dome with 12-pointed turquoise & gold *Shamsa* rosettes).
 - **World Art History**: `sahara` (Tassili cave ochre sandstone), `egypt` (papyrus fresco and tomb block-band), `maya` (*amate* bark codex and Maya blue), `mughal` (*wasli* lapis and 24k *jadval* miniature), `wayang` (oil-lamp *kelir* shadow screen), `starry` (impasto cobalt night and giltwood frame), `scream` (expressionist fjord sunset), and `nitrate` (1922 35mm silver-nitrate silent film).
 - **Analog & Digital**: `blueprint` (gridded cyanotype), `oscilloscope` (1950s P1 emerald phosphor CRT graticule), `pixel-8bit` (1980s Famicom arcade scanlines), `win2000` (classic beveled desktop UI), `vaporwave` (outrun sunset grid and VHS chroma), and `code-art` (OLED generative SVG studio).
 

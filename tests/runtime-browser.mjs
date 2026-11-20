@@ -157,6 +157,18 @@ try {
     assert.equal(scope.font.includes('IBM Plex Mono'), true, theme);
     await page.select(select, 'win2000');
     assert.equal((await style()).background, 'rgb(236, 233, 216)', theme);
+    await page.select(select, 'yosegi');
+    const yosegi = await style();
+    assert.equal(yosegi.background, 'rgb(246, 235, 214)', theme);
+    assert.notEqual(yosegi.image, 'none', theme);
+    await page.select(select, 'kumiko');
+    assert.equal((await style()).background, 'rgb(250, 245, 235)', theme);
+    await page.select(select, 'zellij');
+    assert.equal((await style()).background, 'rgb(250, 246, 238)', theme);
+    await page.select(select, 'isfahan');
+    assert.equal((await style()).background, 'rgb(12, 35, 64)', theme);
+    await page.select(select, 'shippo');
+    assert.equal((await style()).background, 'rgb(248, 243, 230)', theme);
     await page.select(select, '');
     assert.deepEqual(await style(), original, theme);
     await page.goto(`${base}/?colorScheme=qinglu`);
