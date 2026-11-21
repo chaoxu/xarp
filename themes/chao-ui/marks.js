@@ -10,21 +10,69 @@
    ========================================================================== */
 
 import {
+  bump,
   clamp,
+  clipHalfspace,
+  createOctantScale,
   createPlotScale,
   ease,
+  ellipseMatrixPoints,
+  ellipsoidCutUpdate,
+  feasiblePolygon,
+  gpPosterior1D,
+  knots,
+  layoutTree,
   lerp,
+  lineInBox,
+  linearEnvelope,
+  mixColor,
   mixRgb,
   mountDiagram,
+  niceTicks,
+  normBallPoints,
   palette,
+  paretoFrontier,
   parseRgb,
+  regularPolygonPoints,
   rgba,
   seg,
   spring,
   stagger,
 } from "./diagrams.js";
+import { createLabelLayer, createStageTimeline, mountCraftStage } from "./stage.js";
 
-export { clamp, createPlotScale, ease, lerp, palette, parseRgb, rgba, seg, spring, stagger };
+export {
+  bump,
+  clamp,
+  clipHalfspace,
+  createLabelLayer,
+  createOctantScale,
+  createPlotScale,
+  createStageTimeline,
+  ease,
+  ellipseMatrixPoints,
+  ellipsoidCutUpdate,
+  feasiblePolygon,
+  gpPosterior1D,
+  knots,
+  layoutTree,
+  lerp,
+  lineInBox,
+  linearEnvelope,
+  mixColor,
+  mixRgb,
+  mountCraftStage,
+  niceTicks,
+  normBallPoints,
+  palette,
+  paretoFrontier,
+  parseRgb,
+  regularPolygonPoints,
+  rgba,
+  seg,
+  spring,
+  stagger,
+};
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const f1 = (n) => Math.round(n * 10) / 10;
@@ -2380,24 +2428,47 @@ function buildGridSpec(scale, G, opts = {}) {
   if (op < 0.002 || !scale) return [];
   const [rx0, rx1] = scale.rangeX;
   const [ry0, ry1] = scale.rangeY;
-  const nx = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksX ?? 4))));
-  const ny = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksY ?? 4))));
   const gridStroke = opts.gridStroke || G.P.grid;
   const out = [];
   const gOp = (op * 0.65).toFixed(3);
-  for (let i = 1; i <= nx; i++) {
-    const u = i / (nx + 1);
-    const px = f2(lerp(rx0, rx1, u));
-    out.push({ tag: "line", attrs: { x1: px, y1: f2(ry0), x2: px, y2: f2(ry1), stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+  const xSpan = (rx1 - rx0) || 1;
+  const ySpan = (ry1 - ry0) || 1;
+
+  let uX = null;
+  if (Array.isArray(opts.xTicks)) {
+    uX = opts.xTicks.map((v) => clamp((scale.x(v) - rx0) / xSpan, 0, 1));
+    for (let i = 0; i < opts.xTicks.length; i++) {
+      const px = f2(scale.x(opts.xTicks[i]));
+      out.push({ tag: "line", attrs: { x1: px, y1: f2(ry0), x2: px, y2: f2(ry1), stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+    }
+  } else {
+    const nx = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksX ?? 4))));
+    for (let i = 1; i <= nx; i++) {
+      const px = f2(lerp(rx0, rx1, i / (nx + 1)));
+      out.push({ tag: "line", attrs: { x1: px, y1: f2(ry0), x2: px, y2: f2(ry1), stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+    }
+    uX = nx || undefined;
   }
-  for (let j = 1; j <= ny; j++) {
-    const u = j / (ny + 1);
-    const py = f2(lerp(ry0, ry1, u));
-    out.push({ tag: "line", attrs: { x1: f2(rx0), y1: py, x2: f2(rx1), y2: py, stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+
+  let uY = null;
+  if (Array.isArray(opts.yTicks)) {
+    uY = opts.yTicks.map((v) => clamp((scale.y(v) - ry0) / ySpan, 0, 1));
+    for (let j = 0; j < opts.yTicks.length; j++) {
+      const py = f2(scale.y(opts.yTicks[j]));
+      out.push({ tag: "line", attrs: { x1: f2(rx0), y1: py, x2: f2(rx1), y2: py, stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+    }
+  } else {
+    const ny = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksY ?? 4))));
+    for (let j = 1; j <= ny; j++) {
+      const py = f2(lerp(ry0, ry1, j / (ny + 1)));
+      out.push({ tag: "line", attrs: { x1: f2(rx0), y1: py, x2: f2(rx1), y2: py, stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+    }
+    uY = ny || undefined;
   }
+
   if (opts.axes !== false) {
-    out.push(...buildAxisSpec(rx0, ry0, rx1, ry0, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: nx || undefined, opacity: op }));
-    out.push(...buildAxisSpec(rx0, ry0, rx0, ry1, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: ny || undefined, opacity: op }));
+    out.push(...buildAxisSpec(rx0, ry0, rx1, ry0, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: uX, opacity: op }));
+    out.push(...buildAxisSpec(rx0, ry0, rx0, ry1, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: uY, opacity: op }));
   }
   return out;
 }
@@ -2413,6 +2484,753 @@ function sampleFunctionPoints(fn, domain, opts) {
     pts[i] = sc ? sc.pt(vx, vy) : [vx, vy];
   }
   return pts;
+}
+
+/**
+ * Arc-length parameterized 2D trajectory `{ points, length, at(u), slice(u0, u1) }`
+ * from either `[[x, y], ...]` or an SVG path `d` string.
+ */
+export function samplePath(pointsOrSvgD, samplesPerCurve = 16) {
+  const raw = Array.isArray(pointsOrSvgD)
+    ? pointsOrSvgD
+    : sampleSimpleSvgPath(pointsOrSvgD, samplesPerCurve) || (sampleSvgSubpaths(pointsOrSvgD, samplesPerCurve)?.[0] ?? []);
+  const n = raw.length;
+  if (n === 0) {
+    return { points: [], length: 0, at: () => ({ x: 0, y: 0, angle: 0 }), slice: () => [] };
+  }
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) {
+    cum[i] = cum[i - 1] + hypot2(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]);
+  }
+  const total = cum[n - 1];
+
+  function at(u) {
+    if (n === 1 || total < 1e-9) return { x: raw[0][0], y: raw[0][1], angle: 0 };
+    const targetD = clamp(u, 0, 1) * total;
+    let lo = 0, hi = n - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (cum[mid] <= targetD) lo = mid;
+      else hi = mid - 1;
+    }
+    const d0 = cum[lo], d1 = cum[lo + 1];
+    const f = d1 > d0 + 1e-9 ? clamp((targetD - d0) / (d1 - d0), 0, 1) : 0;
+    const x = lerp(raw[lo][0], raw[lo + 1][0], f);
+    const y = lerp(raw[lo][1], raw[lo + 1][1], f);
+    const angle = Math.atan2(raw[lo + 1][1] - raw[lo][1], raw[lo + 1][0] - raw[lo][0]);
+    return { x, y, angle };
+  }
+
+  function slice(u0, u1) {
+    const a = clamp(Math.min(u0, u1), 0, 1);
+    const b = clamp(Math.max(u0, u1), 0, 1);
+    if (b - a < 1e-6 || n < 2) {
+      const p = at(a);
+      return [[p.x, p.y]];
+    }
+    const pStart = at(a);
+    const pEnd = at(b);
+    const dStart = a * total, dEnd = b * total;
+    const out = [[pStart.x, pStart.y]];
+    for (let i = 1; i < n - 1; i++) {
+      if (cum[i] > dStart + 1e-6 && cum[i] < dEnd - 1e-6) out.push(raw[i]);
+    }
+    out.push([pEnd.x, pEnd.y]);
+    return out;
+  }
+
+  return { points: raw, length: total, at, slice };
+}
+
+/** Compute trapezoid stage bounds `[{ cx, cy, leftX, rightX, topW, botW, y0, y1 }]` for `marks.funnel`. */
+export function computeFunnelLayout(x, y, w, h, stages = [], opts = {}) {
+  const n = stages.length;
+  if (!n) return [];
+  const gap = Number(opts.gap ?? 4);
+  const bandH = Math.max(2, (h - gap * (n - 1)) / n);
+  const cx = x + w * 0.5;
+  return stages.map((st, i) => {
+    const topRatio = clamp(st.topWidthRatio ?? st.widthRatio ?? 1 - (i / n) * 0.65, 0.04, 1);
+    const nextRatio = i + 1 < n ? (stages[i + 1].topWidthRatio ?? stages[i + 1].widthRatio ?? topRatio) : topRatio;
+    const botRatio = clamp(st.bottomWidthRatio ?? nextRatio, 0.04, 1);
+    const y0 = y + i * (bandH + gap);
+    const y1 = y0 + bandH;
+    const topW = w * topRatio, botW = w * botRatio;
+    return {
+      cx,
+      cy: (y0 + y1) * 0.5,
+      y0,
+      y1,
+      topW,
+      botW,
+      leftX: cx - Math.max(topW, botW) * 0.5,
+      rightX: cx + Math.max(topW, botW) * 0.5,
+    };
+  });
+}
+
+function buildArrowSpecsInline(ptsOrPath, G, opts, seed) {
+  const prep = prepareArrowGeometry(ptsOrPath, G, opts);
+  const out = [];
+  if (prep.shaftInput) {
+    out.push(...buildCurveSpec(prep.shaftInput, G, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
+  }
+  if (prep.head) {
+    out.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, G, {
+      role: opts.role,
+      fill: opts.stroke,
+      size: prep.head.size,
+      opacity: 1,
+    }));
+  }
+  return out;
+}
+
+export function buildGlyphSpec(kind, cx, cy, G, opts = {}) {
+  const size = Number(opts.size ?? 10);
+  const r = size * 0.5;
+  const col = opts.stroke || opts.fill || resolveRoleColor(G, opts.role || (kind === "cross" || kind === "warn" ? "caveat" : "primary"));
+  const sw = Number(opts.strokeWidth ?? Math.max(1.6, size * 0.17));
+  const seed = hashSeed(opts.seed ?? anchorSeed3(0x676c79, cx, cy, size));
+  const out = [];
+
+  if (opts.badge === "circle") {
+    out.push(...buildDotSpec(cx, cy, r * 1.45, G, { fill: G.P.surface, stroke: col, strokeWidth: Math.max(1.2, sw * 0.72), labelInside: true, seed }));
+  }
+  if (kind === "check") {
+    out.push(...buildCurveSpec([[cx - r * 0.78, cy + r * 0.04], [cx - r * 0.16, cy + r * 0.68], [cx + r * 0.86, cy - r * 0.66]], G, { stroke: col, strokeWidth: sw, lineCap: "round", lineJoin: "round", seed }));
+  } else if (kind === "cross") {
+    out.push(...buildCurveSpec([[cx - r * 0.72, cy - r * 0.72], [cx + r * 0.72, cy + r * 0.72]], G, { stroke: col, strokeWidth: sw, lineCap: "round", seed }));
+    out.push(...buildCurveSpec([[cx + r * 0.72, cy - r * 0.72], [cx - r * 0.72, cy + r * 0.72]], G, { stroke: col, strokeWidth: sw, lineCap: "round", seed: seed + 7 }));
+  } else if (kind === "diamond") {
+    const rr = r * 1.1;
+    const pts = [[cx, cy - rr], [cx + rr, cy], [cx, cy + rr], [cx - rr, cy]];
+    out.push(...buildRegionSpec(pts, G, { fill: opts.fill || G.P.surface, stroke: col, strokeWidth: sw * 0.85, weight: "subtle", seed }));
+  } else if (kind === "warn") {
+    const pts = [[cx, cy - r * 1.12], [cx + r * 1.08, cy + r * 0.92], [cx - r * 1.08, cy + r * 0.92]];
+    out.push(...buildRegionSpec(pts, G, { fill: G.P.surface, stroke: col, strokeWidth: sw * 0.82, weight: "subtle", seed }));
+    out.push(...buildCurveSpec([[cx, cy - r * 0.36], [cx, cy + r * 0.28]], G, { stroke: col, strokeWidth: sw, lineCap: "round", seed: seed + 3 }));
+    out.push(...buildDotSpec(cx, cy + r * 0.62, Math.max(1.2, sw * 0.55), G, { fill: col, stroke: "none", seed: seed + 5 }));
+  } else if (kind === "lock") {
+    const bw = r * 1.5, bh = r * 1.2;
+    const sr = bw * 0.32;
+    const sy = cy - bh * 0.62;
+    const shacklePts = [[cx - sr, cy - bh * 0.12]];
+    for (let i = 0; i <= 8; i++) {
+      const a = Math.PI + (Math.PI * i) / 8;
+      shacklePts.push([cx + Math.cos(a) * sr, sy + Math.sin(a) * sr]);
+    }
+    shacklePts.push([cx + sr, cy - bh * 0.12]);
+    out.push(...buildCurveSpec(shacklePts, G, { stroke: col, strokeWidth: sw * 0.95, seed }));
+    out.push(...buildPanelSpec(cx - bw * 0.5, cy - bh * 0.14, bw, bh, G, { fill: col, stroke: col, strokeWidth: 1, isCell: true, seed: seed + 2 }));
+    out.push(...buildDotSpec(cx, cy + bh * 0.38, Math.max(1.3, r * 0.18), G, { fill: G.P.bg, stroke: "none", seed: seed + 4 }));
+  } else if (kind === "clock") {
+    const ang = Number(opts.angle ?? -0.55);
+    out.push(...buildRingSpec(cx, cy, r, G, { stroke: col, strokeWidth: sw * 0.85, seed }));
+    out.push(...buildCurveSpec([[cx, cy - r * 0.56], [cx, cy], [cx + Math.cos(ang) * r * 0.68, cy + Math.sin(ang) * r * 0.68]], G, { stroke: col, strokeWidth: sw * 0.85, lineCap: "round", lineJoin: "round", seed: seed + 3 }));
+  } else if (kind === "retry") {
+    const rot = Number(opts.angle ?? 0);
+    const a0 = rot - 2.35, a1 = rot + 1.55;
+    const N = 12;
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const a = lerp(a0, a1, i / N);
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    out.push(...buildArrowSpecsInline(pts, G, { stroke: col, strokeWidth: sw * 0.9, headSize: Math.max(5.5, r * 0.95) }, seed));
+  } else if (kind === "lens") {
+    const lr = r * 0.68;
+    const lx = cx - r * 0.18, ly = cy - r * 0.18;
+    out.push(...buildRingSpec(lx, ly, lr, G, { stroke: col, strokeWidth: sw * 0.9, seed }));
+    out.push(...buildCurveSpec([[lx + lr * 0.71, ly + lr * 0.71], [cx + r * 0.88, cy + r * 0.88]], G, { stroke: col, strokeWidth: sw * 1.15, lineCap: "round", seed: seed + 5 }));
+  }
+  return out;
+}
+
+export function buildPlaqueSpec(x, y, w, h, G, opts = {}) {
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x706c71, x, y, w, h));
+  const accentCol = opts.accent || resolveRoleColor(G, opts.accentRole || opts.role || "primary");
+  const barThick = Number(opts.accentWidth ?? 4.5);
+  const side = opts.accentSide || "left";
+  const out = [...buildPanelSpec(x, y, w, h, G, {
+    fill: opts.fill || G.P.surface,
+    stroke: opts.stroke || G.P.grid,
+    strokeWidth: opts.strokeWidth ?? 1.4,
+    progress: opts.progress,
+    fillOpacity: opts.fillOpacity,
+    seed,
+  })];
+  if (side === "top") {
+    out.push(...buildRegionSpec([[x, y], [x + w, y], [x + w, y + barThick], [x, y + barThick]], G, { fill: accentCol, weight: "solid", stroke: "none", seed: seed + 1 }));
+  } else {
+    out.push(...buildRegionSpec([[x, y], [x + barThick, y], [x + barThick, y + h], [x, y + h]], G, { fill: accentCol, weight: "solid", stroke: "none", seed: seed + 1 }));
+  }
+  return out;
+}
+
+export function buildDocCardSpec(x, y, w, h, G, opts = {}) {
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x646f63, x, y, w, h));
+  const stroke = opts.stroke || resolveRoleColor(G, opts.role || "muted");
+  const fill = opts.fill || G.P.paper || G.P.bg;
+  const stack = Math.max(0, Math.min(4, Math.floor(Number(opts.stackDepth ?? 0))));
+  const out = [];
+  for (let s = stack; s >= 1; s--) {
+    const off = s * 4.5;
+    out.push(...buildPanelSpec(x + off, y + off, w, h, G, { fill: G.P.surface, stroke: G.P.grid, strokeWidth: 1.2, seed: seed + s * 11 }));
+  }
+  const fold = opts.foldedCorner ? Math.min(14, w * 0.16, h * 0.18) : 0;
+  if (fold > 0) {
+    const body = [[x, y], [x + w - fold, y], [x + w, y + fold], [x + w, y + h], [x, y + h]];
+    out.push(...buildRegionSpec(body, G, { fill, stroke, strokeWidth: opts.strokeWidth ?? 1.5, weight: "solid", fillOpacity: 1, seed }));
+    out.push(...buildCurveSpec([[x + w - fold, y], [x + w - fold, y + fold], [x + w, y + fold]], G, { stroke, strokeWidth: 1.2, seed: seed + 3 }));
+  } else {
+    out.push(...buildPanelSpec(x, y, w, h, G, { fill, stroke, strokeWidth: opts.strokeWidth ?? 1.5, seed }));
+  }
+  const padX = Math.min(12, w * 0.12);
+  let startY = y + Math.min(18, h * 0.22);
+  if (opts.headerRule !== false && h >= 44) {
+    const ry = opts.headerRuleY != null ? y + Number(opts.headerRuleY) : y + Math.min(26, h * 0.28);
+    out.push(...buildCurveSpec([[x + padX * 0.7, ry], [x + w - padX * 0.7, ry]], G, { stroke: G.P.grid, strokeWidth: 1.1, seed: seed + 5 }));
+    startY = ry + 10;
+  }
+  const ruled = opts.ruledLines;
+  const widths = Array.isArray(ruled)
+    ? ruled
+    : typeof ruled === "number" && ruled > 0
+      ? Array.from({ length: ruled }, (_, i) => (i === ruled - 1 ? 0.62 : i % 2 === 0 ? 0.88 : 0.76))
+      : [];
+  if (widths.length) {
+    const availH = Math.max(8, y + h - 10 - startY);
+    const stepY = widths.length > 1 ? Math.min(12, availH / (widths.length - 1)) : 0;
+    const maxLineW = Math.max(4, w - padX * 2);
+    for (let i = 0; i < widths.length; i++) {
+      const ly = startY + i * stepY;
+      const frac = widths[i] <= 1 ? widths[i] : widths[i] / maxLineW;
+      out.push(...buildCurveSpec([[x + padX, ly], [x + padX + maxLineW * clamp(frac, 0.1, 1), ly]], G, { stroke: G.P.grid, strokeWidth: 1.3, seed: seed + 20 + i }));
+    }
+  }
+  return out;
+}
+
+function resolveGraphNodePort(nd, dirX, dirY, pad) {
+  if (nd.shape === "box" || (nd.w && nd.h)) {
+    const w = Number(nd.w || 64), h = Number(nd.h || 32);
+    return rayBoxExit({ x: nd.x - w * 0.5, y: nd.y - h * 0.5, w, h, cx: nd.x, cy: nd.y, isPt: false }, dirX, dirY, pad);
+  }
+  const r = Number(nd.r ?? 8) + pad;
+  return [nd.x + dirX * r, nd.y + dirY * r];
+}
+
+export function buildGraphSpec(graph, G, opts = {}) {
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const highlights = graph.highlights || [];
+  const byId = new Map();
+  for (let i = 0; i < nodes.length; i++) byId.set(String(nodes[i].id), nodes[i]);
+  const out = [];
+  const baseSeed = hashSeed(opts.seed ?? 701);
+
+  for (let h = 0; h < highlights.length; h++) {
+    const hl = highlights[h];
+    const hNodes = (hl.nodes || []).map((id) => byId.get(String(id))).filter(Boolean);
+    if (hNodes.length < 2) continue;
+    const role = hl.role || "primary";
+    const col = hl.stroke || resolveRoleColor(G, role);
+    const hOp = clamp(hl.opacity ?? 1, 0, 1);
+    if (hl.fill && hNodes.length >= 3) {
+      out.push(...buildRegionSpec(hNodes.map((n) => [n.x, n.y]), G, { role, weight: "subtle", stroke: "none", opacity: hOp * 0.55, seed: baseSeed + h * 17 }));
+    }
+    if (hl.kind === "clique") {
+      for (let i = 0; i < hNodes.length; i++) {
+        for (let j = i + 1; j < hNodes.length; j++) {
+          out.push(...buildCurveSpec([[hNodes[i].x, hNodes[i].y], [hNodes[j].x, hNodes[j].y]], G, { stroke: col, strokeWidth: hl.strokeWidth ?? 2.1, opacity: hOp, seed: baseSeed + i * 31 + j }));
+        }
+      }
+    } else {
+      const pts = hNodes.map((n) => [n.x, n.y]);
+      if (hl.kind === "cycle" && pts.length >= 3) pts.push(pts[0]);
+      out.push(...buildCurveSpec(pts, G, { stroke: col, strokeWidth: hl.strokeWidth ?? 2.2, opacity: hOp, progress: hl.progress ?? 1, seed: baseSeed + h * 23 }));
+    }
+  }
+
+  for (let eIdx = 0; eIdx < edges.length; eIdx++) {
+    const e = edges[eIdx];
+    const u = byId.get(String(e.from)), v = byId.get(String(e.to));
+    if (!u || !v) continue;
+    const eOp = clamp(e.opacity ?? 1, 0, 1);
+    if (eOp < 0.002) continue;
+    const dx = v.x - u.x, dy = v.y - u.y;
+    const L = hypot2(dx, dy);
+    if (L < 1) continue;
+    const ux = dx / L, uy = dy / L;
+    const pad = Number(e.pad ?? 2.5);
+    const bend = Number(e.bend ?? 0);
+    const eCol = e.stroke || resolveRoleColor(G, e.role || "muted");
+    const eSw = Number(e.width ?? e.strokeWidth ?? 1.75);
+    const eDash = e.dashed ? (typeof e.dashed === "string" ? e.dashed : "5 4") : (e.dash || "");
+    const eProg = clamp(e.progress ?? 1, 0, 1);
+    const eSeed = baseSeed + 100 + eIdx * 13;
+
+    let geom;
+    if (Math.abs(bend) > 1e-3) {
+      const nx = -uy, ny = ux;
+      const p0 = resolveGraphNodePort(u, clamp(ux + nx * bend, -1, 1), clamp(uy + ny * bend, -1, 1), pad);
+      const p1 = resolveGraphNodePort(v, clamp(-ux + nx * bend, -1, 1), clamp(-uy + ny * bend, -1, 1), pad);
+      const midX = (p0[0] + p1[0]) * 0.5 + nx * bend * L * 0.5;
+      const midY = (p0[1] + p1[1]) * 0.5 + ny * bend * L * 0.5;
+      geom = `M ${f2(p0[0])} ${f2(p0[1])} Q ${f2(midX)} ${f2(midY)} ${f2(p1[0])} ${f2(p1[1])}`;
+    } else {
+      const p0 = resolveGraphNodePort(u, ux, uy, pad);
+      const p1 = resolveGraphNodePort(v, -ux, -uy, pad);
+      geom = [p0, p1];
+    }
+    const eOpts = { role: e.role || "muted", stroke: eCol, strokeWidth: eSw, dash: eDash, progress: eProg, opacity: eOp };
+    if (e.directed !== false && graph.directed !== false && e.directed !== 0) {
+      const arSpecs = buildArrowSpecsInline(geom, G, eOpts, eSeed);
+      for (let k = 0; k < arSpecs.length; k++) {
+        if (eOp < 0.999) arSpecs[k].attrs.opacity = (Number(arSpecs[k].attrs.opacity ?? 1) * eOp).toFixed(3);
+        out.push(arSpecs[k]);
+      }
+    } else {
+      out.push(...buildCurveSpec(geom, G, { ...eOpts, seed: eSeed }));
+    }
+  }
+
+  for (let nIdx = 0; nIdx < nodes.length; nIdx++) {
+    const nd = nodes[nIdx];
+    const nOp = clamp(nd.opacity ?? 1, 0, 1);
+    if (nOp < 0.002) continue;
+    const role = nd.role || (nd.status === "fail" ? "caveat" : nd.status === "ok" || nd.status === "goal" ? "primary" : "surface");
+    const strokeCol = nd.stroke || (role === "surface" ? G.P.fg : resolveRoleColor(G, role));
+    const fillCol = nd.fill || (role === "surface" ? G.P.surface : nd.hollow ? G.P.bg : resolveRoleColor(G, role));
+    const nSeed = baseSeed + 500 + nIdx * 19;
+    if (nd.shape === "box" || (nd.w && nd.h)) {
+      const w = Number(nd.w || 64), h = Number(nd.h || 32);
+      out.push(...buildPanelSpec(nd.x - w * 0.5, nd.y - h * 0.5, w, h, G, { role, fill: fillCol, stroke: strokeCol, strokeWidth: nd.strokeWidth ?? 1.7, opacity: nOp, seed: nSeed }));
+    } else {
+      const r = Number(nd.r ?? 8);
+      out.push(...buildDotSpec(nd.x, nd.y, r, G, { role, fill: fillCol, stroke: strokeCol, strokeWidth: nd.strokeWidth ?? 1.6, hollow: nd.hollow, labelInside: Boolean(nd.labelInside || nd.status || r >= 12), opacity: nOp, seed: nSeed }));
+    }
+    if (nd.status === "ok" || nd.status === "fail" || nd.status === "warn" || nd.status === "lock") {
+      const gKind = nd.status === "ok" ? "check" : nd.status === "fail" ? "cross" : nd.status;
+      const gSpecs = buildGlyphSpec(gKind, nd.x, nd.y, G, { size: (nd.r ?? 9) * 1.15, stroke: nd.status === "fail" ? G.P.terracotta : G.P.slate, seed: nSeed + 3 });
+      for (let k = 0; k < gSpecs.length; k++) {
+        if (nOp < 0.999) gSpecs[k].attrs.opacity = (Number(gSpecs[k].attrs.opacity ?? 1) * nOp).toFixed(3);
+        out.push(gSpecs[k]);
+      }
+    }
+  }
+  return out;
+}
+
+export function buildTapeSpec(x, y, cells = [], G, opts = {}) {
+  const cw = Number(opts.cellW ?? opts.size ?? 28);
+  const ch = Number(opts.cellH ?? opts.size ?? cw);
+  const gap = Number(opts.gap ?? 4);
+  const step = cw + gap;
+  const seed = hashSeed(opts.seed ?? anchorSeed3(0x746170, x, y, cells.length));
+  const out = [];
+
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i] || {};
+    const st = c.state || "empty";
+    const cx = x + i * step;
+    const cy = y + (st === "dropped" ? Number(opts.dropOffset ?? 10) : 0);
+    const cOp = st === "dropped" || st === "pruned" ? 0.5 : 1;
+    const role = c.role || (st === "dropped" || st === "pruned" ? "caveat" : st === "active" || st === "filled" ? "primary" : "surface");
+    const fill = c.fill || (st === "active" ? resolveRoleColor(G, "primary") : st === "filled" ? G.P.surface : G.P.bg);
+    const stroke = c.stroke || (role === "surface" ? G.P.muted : resolveRoleColor(G, role));
+    if (Math.abs(cw - ch) < 0.5) {
+      out.push(...buildPanelSpec(cx, cy, cw, ch, G, { isCell: true, role, fill, stroke, strokeWidth: st === "active" ? 2.1 : 1.5, opacity: cOp, seed: seed + i * 7 }));
+    } else {
+      out.push(...buildPanelSpec(cx, cy, cw, ch, G, { role, fill, stroke, strokeWidth: st === "active" ? 2.1 : 1.5, opacity: cOp, seed: seed + i * 7 }));
+    }
+    if (st === "pruned") {
+      out.push(...buildGlyphSpec("cross", cx + cw * 0.5, cy + ch * 0.5, G, { size: Math.min(cw, ch) * 0.55, role: "caveat", seed: seed + i * 7 + 3 }));
+    }
+  }
+
+  if (Array.isArray(opts.window) && opts.window.length >= 2) {
+    const [w0, w1] = opts.window;
+    const wx = x + w0 * step - 3.5;
+    const ww = Math.max(cw, (w1 - w0 + 1) * step - gap) + 7;
+    out.push(...buildPanelSpec(wx, y - 3.5, ww, ch + 7, G, { fill: "none", stroke: G.P.fg, strokeWidth: 2.3, seed: seed + 401 }));
+  }
+
+  if (opts.head && Number.isFinite(opts.head.index)) {
+    const hx = x + opts.head.index * step + cw * 0.5;
+    const hLen = Number(opts.head.length ?? 22);
+    const fromAbove = opts.head.side !== "bottom";
+    const y0 = fromAbove ? y - hLen - 4 : y + ch + hLen + 4;
+    const y1 = fromAbove ? y - 3 : y + ch + 3;
+    out.push(...buildArrowSpecsInline([[hx, y0], [hx, y1]], G, { role: opts.head.role || "primary", strokeWidth: 2 }, seed + 503));
+  }
+  return out;
+}
+
+export function buildMatrixSpec(x, y, grid = [], G, opts = {}) {
+  const rows = grid.length;
+  if (!rows) return [];
+  const cols = grid[0].length;
+  const cw = Number(opts.cellW ?? 26);
+  const ch = Number(opts.cellH ?? cw);
+  const gapX = Number(opts.gapX ?? opts.gap ?? 5);
+  const gapY = Number(opts.gapY ?? opts.gap ?? 5);
+  const activeSet = opts.activeRows ? new Set(opts.activeRows) : null;
+  const prunedSet = opts.prunedRows ? new Set(opts.prunedRows) : null;
+  const shape = opts.shape || "cell";
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x6d7478, x, y, rows, cols));
+  const out = [];
+
+  for (let r = 0; r < rows; r++) {
+    const rowPruned = prunedSet && prunedSet.has(r);
+    const rowActive = activeSet && activeSet.has(r);
+    if (rowActive) {
+      const rw = cols * (cw + gapX) - gapX + 6;
+      out.push(...buildPanelSpec(x - 3, y + r * (ch + gapY) - 2.5, rw, ch + 5, G, { fill: "none", stroke: G.P.slate, strokeWidth: 1.8, seed: seed + r * 3 }));
+    }
+    for (let c = 0; c < cols; c++) {
+      const val = grid[r][c];
+      if (val === undefined) continue;
+      const cx = x + c * (cw + gapX);
+      const cy = y + r * (ch + gapY);
+      const isFail = val === "fail" || rowPruned;
+      const isHit = val === 1 || val === true || val === "ok";
+      const role = isFail ? "caveat" : isHit ? "primary" : "surface";
+      const op = rowPruned ? 0.45 : val === null ? 0.35 : 1;
+
+      if (shape === "dot") {
+        const rad = Math.min(cw, ch) * 0.36;
+        out.push(...buildDotSpec(cx + cw * 0.5, cy + ch * 0.5, rad, G, { role, hollow: !isHit && !isFail, opacity: op, seed: seed + r * 37 + c }));
+      } else {
+        const fill = isHit ? G.P.slate : G.P.surface;
+        const stroke = isFail ? G.P.terracotta : isHit ? G.P.slate : G.P.grid;
+        out.push(...buildPanelSpec(cx, cy, cw, ch, G, { isCell: Math.abs(cw - ch) < 1, role, fill, stroke, strokeWidth: 1.35, opacity: op, seed: seed + r * 37 + c }));
+        if (val === "fail") {
+          out.push(...buildGlyphSpec("cross", cx + cw * 0.5, cy + ch * 0.5, G, { size: Math.min(cw, ch) * 0.52, role: "caveat", seed: seed + r * 37 + c + 1 }));
+        } else if (val === "ok") {
+          out.push(...buildGlyphSpec("check", cx + cw * 0.5, cy + ch * 0.5, G, { size: Math.min(cw, ch) * 0.52, role: "paper", stroke: G.P.bg, seed: seed + r * 37 + c + 2 }));
+        }
+      }
+    }
+  }
+  if (opts.sweepProgress != null && opts.sweepProgress > 0.01 && opts.sweepProgress < 0.99) {
+    const sx = x + clamp(opts.sweepProgress, 0, 1) * (cols * (cw + gapX) - gapX);
+    const totalH = rows * (ch + gapY) - gapY;
+    out.push(...buildCurveSpec([[sx, y - 5], [sx, y + totalH + 5]], G, { role: "primary", strokeWidth: 2.3, seed: seed + 999 }));
+  }
+  return out;
+}
+
+export function buildLanesSpec(x, y, w, h, rows = [], G, opts = {}) {
+  const n = rows.length;
+  if (!n) return [];
+  const dom = opts.domain || [0, 1];
+  const d0 = dom[0], dSpan = (dom[1] - d0) || 1;
+  const gap = Number(opts.laneGap ?? 8);
+  const laneH = Math.max(4, (h - gap * (n - 1)) / n);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x6c6e73, x, y, w, h));
+  const out = [];
+
+  for (let r = 0; r < n; r++) {
+    const ly = y + r * (laneH + gap);
+    if (opts.showTracks !== false) {
+      out.push(...buildRegionSpec([[x, ly], [x + w, ly], [x + w, ly + laneH], [x, ly + laneH]], G, { fill: G.P.surface, weight: "solid", stroke: "none", fillOpacity: 0.55, seed: seed + r }));
+    }
+    const ivs = rows[r]?.intervals || rows[r] || [];
+    for (let k = 0; k < ivs.length; k++) {
+      const iv = ivs[k];
+      const u0 = clamp((iv.start - d0) / dSpan, 0, 1);
+      const u1 = clamp((iv.end - d0) / dSpan, 0, 1);
+      const prog = clamp(iv.progress ?? 1, 0, 1);
+      const iw = (u1 - u0) * w * prog;
+      if (iw < 0.8) continue;
+      const ix = x + u0 * w;
+      const pts = [[ix, ly], [ix + iw, ly], [ix + iw, ly + laneH], [ix, ly + laneH]];
+      out.push(...buildRegionSpec(pts, G, { role: iv.role || "primary", weight: iv.weight || "strong", stroke: iv.stroke ?? (iv.dashed ? resolveRoleColor(G, iv.role || "primary") : "none"), dash: iv.dashed ? "4 3" : "", seed: seed + 50 + r * 29 + k }));
+    }
+  }
+  if (opts.cursor != null) {
+    const cx = x + clamp((opts.cursor - d0) / dSpan, 0, 1) * w;
+    out.push(...buildCurveSpec([[cx, y - 4], [cx, y + h + 4]], G, { role: "ink", strokeWidth: 1.8, dash: "4 3", seed: seed + 888 }));
+  }
+  return out;
+}
+
+export function buildStackBarSpec(x, y, w, h, segments = [], G, opts = {}) {
+  if (!segments.length) return [];
+  const horiz = opts.orientation !== "vertical";
+  const gap = Number(opts.gap ?? 2);
+  const sum = segments.reduce((acc, s) => acc + Math.max(0, Number(s.value || 0)), 0) || 1;
+  const norm = opts.normalize !== false ? sum : 1;
+  const totalSpan = (horiz ? w : h) - gap * Math.max(0, segments.length - 1);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x73746b, x, y, w, h));
+  const out = [];
+  let cursor = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    const frac = clamp(Math.max(0, Number(s.value || 0)) / norm, 0, 1);
+    const span = totalSpan * frac;
+    if (span < 0.5) continue;
+    const rx = horiz ? x + cursor : x;
+    const ry = horiz ? y : y + cursor;
+    const rw = horiz ? span : w;
+    const rh = horiz ? h : span;
+    const pts = [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]];
+    out.push(...buildRegionSpec(pts, G, {
+      role: s.role || "primary",
+      fill: s.fill,
+      weight: s.weight || (i === 0 ? "strong" : i === 1 ? "medium" : "subtle"),
+      stroke: s.dashed ? (s.stroke || G.P.muted) : (s.stroke || G.P.bg),
+      strokeWidth: 1.2,
+      dash: s.dashed ? "5 4" : "",
+      seed: seed + i * 17,
+    }));
+    cursor += span + gap;
+  }
+  return out;
+}
+
+export function buildGaugeSpec(x, y, w, h, fraction, G, opts = {}) {
+  const f = clamp(fraction ?? 0, 0, 1);
+  const horiz = opts.orientation !== "vertical";
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x676175, x, y, w, h));
+  const out = [...buildPanelSpec(x, y, w, h, G, { fill: G.P.surface, stroke: G.P.grid, strokeWidth: 1.3, seed })];
+  const fw = horiz ? w * f : w;
+  const fh = horiz ? h : h * f;
+  const fy = horiz ? y : y + (h - fh);
+  if (fw > 0.5 && fh > 0.5) {
+    out.push(...buildRegionSpec([[x, fy], [x + fw, fy], [x + fw, fy + fh], [x, fy + fh]], G, { role: opts.role || "primary", fill: opts.fill, weight: "strong", stroke: "none", seed: seed + 3 }));
+  }
+  if (opts.threshold != null) {
+    const th = clamp(opts.threshold, 0, 1);
+    if (horiz) {
+      const tx = x + w * th;
+      out.push(...buildCurveSpec([[tx, y - 4], [tx, y + h + 4]], G, { role: "caveat", strokeWidth: 1.8, dash: "4 3", seed: seed + 9 }));
+    } else {
+      const ty = y + h * (1 - th);
+      out.push(...buildCurveSpec([[x - 4, ty], [x + w + 4, ty]], G, { role: "caveat", strokeWidth: 1.8, dash: "4 3", seed: seed + 9 }));
+    }
+  }
+  return out;
+}
+
+export function buildFunnelSpec(x, y, w, h, stages = [], G, opts = {}) {
+  const layout = computeFunnelLayout(x, y, w, h, stages, opts);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x666e6c, x, y, w, h));
+  const out = [];
+  for (let i = 0; i < stages.length; i++) {
+    const st = stages[i];
+    const L = layout[i];
+    const prog = clamp(st.fillProgress ?? 1, 0, 1);
+    if (prog < 0.002) continue;
+    const cols = Math.max(1, Math.floor(Number(st.splitCols ?? 1)));
+    const yEnd = lerp(L.y0, L.y1, prog);
+    const curBotW = lerp(L.topW, L.botW, prog);
+    if (cols === 1) {
+      const poly = [
+        [L.cx - L.topW * 0.5, L.y0],
+        [L.cx + L.topW * 0.5, L.y0],
+        [L.cx + curBotW * 0.5, yEnd],
+        [L.cx - curBotW * 0.5, yEnd],
+      ];
+      out.push(...buildRegionSpec(poly, G, { role: st.role || (i === stages.length - 1 ? "primary" : "surface"), fill: st.fill, stroke: st.stroke || G.P.muted, strokeWidth: 1.4, weight: i === stages.length - 1 ? "strong" : "medium", seed: seed + i * 19 }));
+    } else {
+      const splitGap = 6;
+      for (let c = 0; c < cols; c++) {
+        const u0 = c / cols, u1 = (c + 1) / cols;
+        const tx0 = L.cx - L.topW * 0.5 + L.topW * u0 + (c > 0 ? splitGap * 0.5 : 0);
+        const tx1 = L.cx - L.topW * 0.5 + L.topW * u1 - (c < cols - 1 ? splitGap * 0.5 : 0);
+        const bx0 = L.cx - curBotW * 0.5 + curBotW * u0 + (c > 0 ? splitGap * 0.5 : 0);
+        const bx1 = L.cx - curBotW * 0.5 + curBotW * u1 - (c < cols - 1 ? splitGap * 0.5 : 0);
+        out.push(...buildRegionSpec([[tx0, L.y0], [tx1, L.y0], [bx1, yEnd], [bx0, yEnd]], G, { role: st.role || "primary", stroke: G.P.muted, strokeWidth: 1.3, weight: "medium", seed: seed + i * 19 + c }));
+      }
+    }
+  }
+  return out;
+}
+
+export function buildWhiskerSpec(x, yLow, yHigh, G, opts = {}) {
+  const sc = opts.scale || null;
+  const pLo = sc ? sc.pt(x, yLow) : [x, yLow];
+  const pHi = sc ? sc.pt(x, yHigh) : [x, yHigh];
+  const cap = Number(opts.capWidth ?? 7) * 0.5;
+  const col = opts.stroke || resolveRoleColor(G, opts.role || "primary");
+  const sw = Number(opts.strokeWidth ?? 1.6);
+  const seed = hashSeed(opts.seed ?? anchorSeed3(0x77686b, pLo[0], pLo[1], pHi[1]));
+  const out = [
+    ...buildCurveSpec([pLo, pHi], G, { stroke: col, strokeWidth: sw, seed }),
+    ...buildCurveSpec([[pLo[0] - cap, pLo[1]], [pLo[0] + cap, pLo[1]]], G, { stroke: col, strokeWidth: sw, seed: seed + 1 }),
+    ...buildCurveSpec([[pHi[0] - cap, pHi[1]], [pHi[0] + cap, pHi[1]]], G, { stroke: col, strokeWidth: sw, seed: seed + 2 }),
+  ];
+  if (opts.yMid != null) {
+    const pMid = sc ? sc.pt(x, opts.yMid) : [x, opts.yMid];
+    out.push(...buildDotSpec(pMid[0], pMid[1], Number(opts.r ?? 4.6), G, { role: opts.role || "primary", fill: opts.hollow ? G.P.bg : col, stroke: col, strokeWidth: sw, hollow: opts.hollow !== false, seed: seed + 3 }));
+  }
+  return out;
+}
+
+export function buildBox2dSpec(xRange, yRange, G, opts = {}) {
+  const sc = opts.scale || null;
+  const p0 = sc ? sc.pt(xRange[0], yRange[0]) : [xRange[0], yRange[0]];
+  const p1 = sc ? sc.pt(xRange[1], yRange[1]) : [xRange[1], yRange[1]];
+  const rx = Math.min(p0[0], p1[0]), ry = Math.min(p0[1], p1[1]);
+  const rw = Math.abs(p1[0] - p0[0]), rh = Math.abs(p1[1] - p0[1]);
+  const role = opts.role || "primary";
+  const col = opts.stroke || resolveRoleColor(G, role);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x627832, rx, ry, rw, rh));
+  const out = [
+    ...buildRegionSpec([[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]], G, {
+      role,
+      fill: opts.fill,
+      weight: opts.weight || "subtle",
+      fillOpacity: opts.fillOpacity ?? 0.48,
+      stroke: col,
+      strokeWidth: opts.strokeWidth ?? 1.5,
+      dash: opts.dashed ? "4 3" : "",
+      seed,
+    }),
+  ];
+  if (opts.capY != null) {
+    const cy = sc ? sc.y(opts.capY) : opts.capY;
+    out.push(...buildCurveSpec([[rx - 4, cy], [rx + rw + 4, cy]], G, { role: opts.capRole || "caveat", strokeWidth: 2.1, seed: seed + 5 }));
+  }
+  return out;
+}
+
+export function buildOctantRoomSpec(octant, G, opts = {}) {
+  const P3 = octant.project;
+  const ticks = Math.max(0, Math.min(12, Math.floor(Number(opts.ticks ?? 3))));
+  const seed = hashSeed(opts.seed ?? 901);
+  const out = [];
+  const wallLeft = [P3(0, 0, 0), P3(0, 1, 0), P3(0, 1, 1), P3(0, 0, 1)];
+  const wallRight = [P3(0, 0, 0), P3(1, 0, 0), P3(1, 0, 1), P3(0, 0, 1)];
+  const floorPoly = [P3(0, 0, 0), P3(1, 0, 0), P3(1, 1, 0), P3(0, 1, 0)];
+
+  out.push(...buildRegionSpec(wallLeft, G, { role: "surface", weight: "subtle", stroke: G.P.grid, strokeWidth: 1, fillOpacity: 0.45, seed }));
+  out.push(...buildRegionSpec(wallRight, G, { role: "surface", weight: "subtle", stroke: G.P.grid, strokeWidth: 1, fillOpacity: 0.35, seed: seed + 1 }));
+  out.push(...buildRegionSpec(floorPoly, G, { role: "surface", weight: "medium", stroke: G.P.grid, strokeWidth: 1.1, fillOpacity: 0.55, seed: seed + 2 }));
+
+  for (let i = 1; i <= ticks; i++) {
+    const u = i / (ticks + 1);
+    out.push({ tag: "line", attrs: { x1: f2(P3(u, 0, 0)[0]), y1: f2(P3(u, 0, 0)[1]), x2: f2(P3(u, 1, 0)[0]), y2: f2(P3(u, 1, 0)[1]), stroke: G.P.grid, "stroke-width": "1", opacity: "0.55" } });
+    out.push({ tag: "line", attrs: { x1: f2(P3(0, u, 0)[0]), y1: f2(P3(0, u, 0)[1]), x2: f2(P3(1, u, 0)[0]), y2: f2(P3(1, u, 0)[1]), stroke: G.P.grid, "stroke-width": "1", opacity: "0.55" } });
+    out.push({ tag: "line", attrs: { x1: f2(P3(0, 1, u)[0]), y1: f2(P3(0, 1, u)[1]), x2: f2(P3(0, 0, u)[0]), y2: f2(P3(0, 0, u)[1]), stroke: G.P.grid, "stroke-width": "1", opacity: "0.45" } });
+    out.push({ tag: "line", attrs: { x1: f2(P3(0, 0, u)[0]), y1: f2(P3(0, 0, u)[1]), x2: f2(P3(1, 0, u)[0]), y2: f2(P3(1, 0, u)[1]), stroke: G.P.grid, "stroke-width": "1", opacity: "0.45" } });
+  }
+
+  if (Array.isArray(opts.subbox) && opts.subbox.length >= 3) {
+    const [gx, gy, gz] = opts.subbox;
+    const sRole = opts.subboxRole || "primary";
+    const sCol = resolveRoleColor(G, sRole);
+    const faces = [
+      [P3(0, gy, 0), P3(gx, gy, 0), P3(gx, gy, gz), P3(0, gy, gz)],
+      [P3(gx, 0, 0), P3(gx, gy, 0), P3(gx, gy, gz), P3(gx, 0, gz)],
+      [P3(0, 0, gz), P3(gx, 0, gz), P3(gx, gy, gz), P3(0, gy, gz)],
+    ];
+    for (let f = 0; f < 3; f++) {
+      out.push(...buildRegionSpec(faces[f], G, { role: sRole, weight: "subtle", stroke: sCol, strokeWidth: 1.5, dash: opts.subboxDashed ? "4 3" : "", fillOpacity: 0.5, seed: seed + 20 + f }));
+    }
+  }
+
+  const O = P3(0, 0, 0);
+  for (const tip of [P3(1.05, 0, 0), P3(0, 1.05, 0), P3(0, 0, 1.05)]) {
+    out.push(...buildAxisSpec(O[0], O[1], tip[0], tip[1], G, { role: "ink", strokeWidth: 2 }));
+  }
+  return out;
+}
+
+export function buildPin3dSpec(octant, pt3, G, opts = {}) {
+  const [x, y, z] = pt3;
+  const P3 = octant.project;
+  const top = P3(x, y, z);
+  const flr = P3(x, y, 0);
+  const role = opts.role || "primary";
+  const col = opts.stroke || opts.fill || resolveRoleColor(G, role);
+  const r = Number(opts.r ?? 6);
+  const seed = hashSeed(opts.seed ?? anchorSeed3(0x706e33, top[0], top[1], r));
+  const out = [];
+
+  if (opts.dropWalls) {
+    const wx = P3(x, 0, 0), wy = P3(0, y, 0);
+    out.push(...buildCurveSpec([flr, wx], G, { stroke: col, strokeWidth: 1.1, dash: "3 3", opacity: 0.36, seed }));
+    out.push(...buildCurveSpec([flr, wy], G, { stroke: col, strokeWidth: 1.1, dash: "3 3", opacity: 0.36, seed: seed + 1 }));
+  }
+  if (opts.dropFloor !== false) {
+    out.push(...buildDotSpec(flr[0], flr[1], r * 0.65, G, { fill: col, stroke: "none", opacity: 0.28, seed: seed + 2 }));
+    out.push(...buildCurveSpec([flr, top], G, { stroke: col, strokeWidth: 1.8, dash: opts.solidStem ? "" : "4 3", opacity: 0.78, seed: seed + 3 }));
+  }
+  out.push(...buildDotSpec(top[0], top[1], r, G, { role, fill: col, stroke: G.P.bg, strokeWidth: 1.5, seed: seed + 4 }));
+  return out;
+}
+
+export function buildLatticeSpec(scale, G, opts = {}) {
+  const [x0, x1] = opts.xRange || [0, 4];
+  const [y0, y1] = opts.yRange || [0, 4];
+  const step = Math.max(0.25, Number(opts.step ?? 1));
+  const poly = opts.insidePoly || null;
+  const r = Number(opts.r ?? 3.4);
+  const out = [];
+
+  const ptInConvex = (vx, vy) => {
+    if (!poly || poly.length < 3) return true;
+    let pos = 0, neg = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const cross = (b[0] - a[0]) * (vy - a[1]) - (b[1] - a[1]) * (vx - a[0]);
+      if (cross > 1e-6) pos++;
+      else if (cross < -1e-6) neg++;
+      if (pos && neg) return false;
+    }
+    return true;
+  };
+
+  let idx = 0;
+  for (let vx = x0; vx <= x1 + 1e-9; vx += step) {
+    for (let vy = y0; vy <= y1 + 1e-9; vy += step) {
+      const inside = ptInConvex(vx, vy);
+      if (!inside && opts.hideOutside) continue;
+      const [px, py] = scale ? scale.pt(vx, vy) : [vx, vy];
+      out.push(...buildDotSpec(px, py, r, G, {
+        role: inside ? (opts.role || "ink") : "muted",
+        opacity: inside ? 1 : 0.28,
+        seed: 1200 + idx++,
+      }));
+    }
+  }
+  return out;
+}
+
+export function buildHalfspaceCutSpec(scale, a, b, G, opts = {}) {
+  const box = opts.box || (scale ? [scale.domainX[0], scale.domainX[1], scale.domainY[0], scale.domainY[1]] : [0, 1, 0, 1]);
+  const segPts = lineInBox(a, b, box);
+  if (!segPts) return [];
+  const p0 = scale ? scale.pt(segPts[0][0], segPts[0][1]) : segPts[0];
+  const p1 = scale ? scale.pt(segPts[1][0], segPts[1][1]) : segPts[1];
+  const role = opts.role || "caveat";
+  const col = opts.stroke || resolveRoleColor(G, role);
+  const prog = clamp(opts.progress ?? 1, 0, 1);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x637574, p0[0], p0[1], p1[0], p1[1]));
+  const out = [...buildCurveSpec([p0, p1], G, {
+    role,
+    stroke: col,
+    strokeWidth: opts.strokeWidth ?? 2.2,
+    dash: opts.dashed === false ? "" : "6 4",
+    progress: prog,
+    seed,
+  })];
+  if (opts.showNormal && prog > 0.5) {
+    const mx = (segPts[0][0] + segPts[1][0]) * 0.5;
+    const my = (segPts[0][1] + segPts[1][1]) * 0.5;
+    const nL = hypot2(a[0], a[1]) || 1;
+    const nScale = Number(opts.normalLength ?? (box[1] - box[0]) * 0.12);
+    const tipData = [mx - (a[0] / nL) * nScale, my - (a[1] / nL) * nScale];
+    const mPx = scale ? scale.pt(mx, my) : [mx, my];
+    const tPx = scale ? scale.pt(tipData[0], tipData[1]) : tipData;
+    out.push(...buildArrowSpecsInline([mPx, tPx], G, { role, stroke: col, strokeWidth: 1.6, headSize: 6.5 }, seed + 7));
+  }
+  return out;
 }
 
 // ============================================================================
@@ -3080,8 +3898,332 @@ function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
     const curG = getG();
     const [rx0, rx1] = scale.rangeX;
     const [ry0, ry1] = scale.rangeY;
-    const gk = `gd|${curG.id}|${f2(rx0)},${f2(rx1)},${f2(ry0)},${f2(ry1)}|${opts.ticksX ?? 4}|${opts.ticksY ?? 4}|${opts.axes === false ? 0 : 1}|${opts.role || ""}`;
+    const xtKey = Array.isArray(opts.xTicks) ? opts.xTicks.map(f2).join(",") : String(opts.ticksX ?? 4);
+    const ytKey = Array.isArray(opts.yTicks) ? opts.yTicks.map(f2).join(",") : String(opts.ticksY ?? 4);
+    const gk = `gd|${curG.id}|${f2(rx0)},${f2(rx1)},${f2(ry0)},${f2(ry1)}|${xtKey}|${ytKey}|${opts.axes === false ? 0 : 1}|${opts.role || ""}`;
     return emitFn(gk, opts.opacity, opts.className, () => buildGridSpec(scale, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  const resolveColOrRole = (G, c) => {
+    if (!c) return G.P.slate;
+    const s = String(c);
+    if (s.charCodeAt(0) === 35 || s.startsWith("rgb") || s.startsWith("var(")) return s;
+    return resolveRoleColor(G, s);
+  };
+
+  api.mixColor = function mixCol(colA, colB, p) {
+    const curG = getG();
+    return mixColor(resolveColOrRole(curG, colA), resolveColOrRole(curG, colB), p);
+  };
+
+  api.band = function band(fnLow, fnHigh, domain, opts = {}) {
+    const prog = clamp(opts.progress ?? 1, 0, 1);
+    if (prog < 0.002) return api.region([], { ...opts, opacity: 0 });
+    const subDom = [domain[0], lerp(domain[0], domain[1], prog)];
+    const samples = Math.max(4, Math.min(256, Math.floor(Number(opts.samples ?? 48))));
+    const sc = opts.scale || null;
+    const upper = new Array(samples + 1);
+    const lower = new Array(samples + 1);
+    for (let i = 0; i <= samples; i++) {
+      const vx = lerp(subDom[0], subDom[1], i / samples);
+      const lo = fnLow(vx);
+      let hi = fnHigh(vx);
+      if (opts.clampCrossings && hi < lo) hi = lo;
+      upper[i] = sc ? sc.pt(vx, hi) : [vx, hi];
+      lower[samples - i] = sc ? sc.pt(vx, lo) : [vx, lo];
+    }
+    const poly = upper.concat(lower);
+    const reg = api.region(poly, { stroke: "none", weight: opts.weight || "subtle", ...opts });
+    if (opts.strokeEdges) {
+      const edgeOpts = { role: opts.role || "primary", stroke: opts.edgeStroke || opts.stroke, strokeWidth: opts.edgeWidth ?? 1.2, dash: opts.edgeDash || "", opacity: opts.opacity };
+      api.curve(upper, edgeOpts);
+      api.curve(lower.slice().reverse(), edgeOpts);
+    }
+    return reg;
+  };
+
+  api.whisker = function whisker(x, yLow, yHigh, opts = {}) {
+    const curG = getG();
+    const sc = opts.scale || null;
+    const pLo = sc ? sc.pt(x, yLow) : [x, yLow];
+    const pHi = sc ? sc.pt(x, yHigh) : [x, yHigh];
+    const midKey = opts.yMid != null ? f2(sc ? sc.y(opts.yMid) : opts.yMid) : "";
+    const gk = `wh|${curG.id}|${f2(pLo[0])},${f2(pLo[1])},${f2(pHi[1])}|${midKey}|${opts.capWidth ?? 7}|${opts.role || ""}|${opts.hollow === false ? 0 : 1}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildWhiskerSpec(x, yLow, yHigh, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.box2d = function box2d(xRange, yRange, opts = {}) {
+    const curG = getG();
+    const sc = opts.scale || null;
+    const p0 = sc ? sc.pt(xRange[0], yRange[0]) : [xRange[0], yRange[0]];
+    const p1 = sc ? sc.pt(xRange[1], yRange[1]) : [xRange[1], yRange[1]];
+    const capKey = opts.capY != null ? f2(sc ? sc.y(opts.capY) : opts.capY) : "";
+    const gk = `bx2|${curG.id}|${f2(p0[0])},${f2(p0[1])},${f2(p1[0])},${f2(p1[1])}|${capKey}|${opts.dashed ? 1 : 0}|${opts.role || ""}|${opts.weight || ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildBox2dSpec(xRange, yRange, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.frontier = function frontier(points, opts = {}) {
+    const front = opts.precomputed ? points : paretoFrontier(points, opts);
+    if (!front.length) return undefined;
+    const sc = opts.scale || null;
+    const pxPts = sc ? front.map((p) => sc.pt(p[0], p[1])) : front.slice();
+    let curvePts = pxPts;
+    if (opts.step === "hv" || opts.step === "vh") {
+      curvePts = [pxPts[0]];
+      for (let i = 1; i < pxPts.length; i++) {
+        const a = pxPts[i - 1], b = pxPts[i];
+        curvePts.push(opts.step === "hv" ? [b[0], a[1]] : [a[0], b[1]], b);
+      }
+      if (opts.extendX != null) {
+        const ex = sc ? sc.x(opts.extendX) : opts.extendX;
+        const last = curvePts[curvePts.length - 1];
+        curvePts.push([ex, last[1]]);
+      }
+    }
+    const res = curvePts.length >= 2 ? api.curve(curvePts, opts) : undefined;
+    if (opts.showPoints) {
+      const r = Number(opts.pointRadius ?? 4.2);
+      for (let i = 0; i < pxPts.length; i++) {
+        api.dot(pxPts[i][0], pxPts[i][1], r, { role: opts.role || "primary", opacity: opts.opacity });
+      }
+    }
+    return res;
+  };
+
+  api.histogram = function histogram(scale, bins = [], opts = {}) {
+    const baseVal = opts.baseline ?? (scale ? scale.domainY[0] : 0);
+    const gap = Number(opts.gap ?? 1.5);
+    const baseY = scale ? scale.y(baseVal) : baseVal;
+    let last;
+    for (let i = 0; i < bins.length; i++) {
+      const b = bins[i];
+      const x0 = Array.isArray(b) ? b[0] : b.x0;
+      const x1 = Array.isArray(b) ? b[1] : b.x1;
+      const yv = Array.isArray(b) ? b[2] : b.y;
+      const px0 = scale ? scale.x(x0) : x0;
+      const px1 = scale ? scale.x(x1) : x1;
+      const py = scale ? scale.y(yv) : yv;
+      const rx = Math.min(px0, px1) + gap * 0.5;
+      const rw = Math.max(1, Math.abs(px1 - px0) - gap);
+      const ry = Math.min(py, baseY);
+      const rh = Math.max(0.5, Math.abs(baseY - py));
+      last = api.bar(rx, ry, rw, rh, {
+        role: (!Array.isArray(b) && b.role) || opts.role || "primary",
+        weight: (!Array.isArray(b) && b.weight) || opts.weight || "medium",
+        stroke: opts.stroke,
+        opacity: (!Array.isArray(b) && b.opacity != null ? b.opacity : 1) * (opts.opacity ?? 1),
+      });
+    }
+    return last;
+  };
+
+  api.graph = function graph(graphSpec, opts = {}) {
+    const curG = getG();
+    const ns = graphSpec.nodes || [];
+    const es = graphSpec.edges || [];
+    const hs = graphSpec.highlights || [];
+    let k = `gr|${curG.id}|${graphSpec.directed === false ? 0 : 1}|`;
+    for (let i = 0; i < ns.length; i++) {
+      const n = ns[i];
+      k += `${n.id}:${f1(n.x)},${f1(n.y)},${n.r ?? 8},${n.w ?? 0},${n.role || ""},${n.status || ""},${Math.round((n.opacity ?? 1) * 100)};`;
+    }
+    k += "|";
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      k += `${e.from}>${e.to},${e.role || ""},${f2(e.bend ?? 0)},${e.dashed ? 1 : 0},${Math.round((e.progress ?? 1) * 200)},${Math.round((e.opacity ?? 1) * 100)};`;
+    }
+    for (let i = 0; i < hs.length; i++) {
+      const h = hs[i];
+      k += `|h:${h.kind || ""},${(h.nodes || []).join(",")},${h.role || ""},${h.fill ? 1 : 0},${Math.round((h.progress ?? 1) * 200)},${Math.round((h.opacity ?? 1) * 100)}`;
+    }
+    return emitFn(k, opts.opacity, opts.className, () => buildGraphSpec(graphSpec, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.tape = function tape(x, y, cells = [], opts = {}) {
+    const curG = getG();
+    const cKey = cells.map((c) => `${c?.state || "e"}:${c?.role || ""}`).join(",");
+    const wKey = Array.isArray(opts.window) ? opts.window.join("-") : "";
+    const hKey = opts.head ? `${f2(opts.head.index)}:${opts.head.side || ""}` : "";
+    const gk = `tp|${curG.id}|${f2(x)},${f2(y)}|${opts.cellW ?? opts.size ?? 28},${opts.cellH ?? ""}|${cKey}|${wKey}|${hKey}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildTapeSpec(x, y, cells, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.matrix = function matrix(x, y, grid = [], opts = {}) {
+    const curG = getG();
+    const gKey = grid.map((r) => r.map((v) => (v === true ? 1 : v === false ? 0 : v ?? "_")).join("")).join("/");
+    const aKey = opts.activeRows ? opts.activeRows.join(",") : "";
+    const pKey = opts.prunedRows ? opts.prunedRows.join(",") : "";
+    const swQ = opts.sweepProgress != null ? Math.round(clamp(opts.sweepProgress, 0, 1) * 250) : -1;
+    const gk = `mx|${curG.id}|${f2(x)},${f2(y)}|${opts.cellW ?? 26},${opts.cellH ?? ""}|${opts.shape || "cell"}|${gKey}|${aKey}|${pKey}|${swQ}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildMatrixSpec(x, y, grid, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.lanes = function lanes(x, y, w, h, rows = [], opts = {}) {
+    const curG = getG();
+    const rKey = rows.map((r) => (r?.intervals || r || []).map((iv) => `${f2(iv.start)}-${f2(iv.end)}:${iv.role || ""}:${Math.round((iv.progress ?? 1) * 200)}`).join(",")).join("/");
+    const curQ = opts.cursor != null ? f2(opts.cursor) : "";
+    const gk = `ln|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${rKey}|${curQ}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildLanesSpec(x, y, w, h, rows, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.stackBar = function stackBar(x, y, w, h, segments = [], opts = {}) {
+    const curG = getG();
+    const sKey = segments.map((s) => `${f2(s.value)}:${s.role || ""}:${s.weight || ""}:${s.dashed ? 1 : 0}`).join(",");
+    const gk = `sb|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.orientation || "h"}|${sKey}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildStackBarSpec(x, y, w, h, segments, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.gauge = function gauge(x, y, w, h, fraction, opts = {}) {
+    const curG = getG();
+    const fQ = Math.round(clamp(fraction ?? 0, 0, 1) * 500);
+    const thQ = opts.threshold != null ? f2(opts.threshold) : "";
+    const gk = `gg|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${fQ}|${thQ}|${opts.orientation || "h"}|${opts.role || ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildGaugeSpec(x, y, w, h, fraction, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.funnel = function funnel(x, y, w, h, stages = [], opts = {}) {
+    const curG = getG();
+    const stKey = stages.map((s) => `${f2(s.topWidthRatio ?? s.widthRatio ?? 1)}-${f2(s.bottomWidthRatio ?? -1)}:${s.role || ""}:${Math.round((s.fillProgress ?? 1) * 200)}:${s.splitCols ?? 1}`).join(",");
+    const gk = `fn|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${stKey}`;
+    const node = emitFn(gk, opts.opacity, opts.className, () => buildFunnelSpec(x, y, w, h, stages, curG, { ...opts, opacity: 1 }), true);
+    const layout = computeFunnelLayout(x, y, w, h, stages, opts);
+    if (node && typeof node === "object") node.stages = layout;
+    return node || layout;
+  };
+
+  const PATH_SAMPLE_CACHE = new WeakMap();
+  api.flowToken = function flowToken(pathOrSampled, u, opts = {}) {
+    let sp = pathOrSampled && typeof pathOrSampled.at === "function" ? pathOrSampled : null;
+    if (!sp) {
+      if (Array.isArray(pathOrSampled)) {
+        sp = PATH_SAMPLE_CACHE.get(pathOrSampled);
+        if (!sp) {
+          sp = samplePath(pathOrSampled);
+          PATH_SAMPLE_CACHE.set(pathOrSampled, sp);
+        }
+      } else {
+        sp = samplePath(pathOrSampled);
+      }
+    }
+    const r = Number(opts.r ?? 4.8);
+    const role = opts.role || "primary";
+    const baseOp = clamp(opts.opacity ?? 1, 0, 1);
+    const repeat = Math.max(1, Math.min(16, Math.floor(Number(opts.repeat ?? 1))));
+    const trail = Math.max(0, Math.min(8, Math.floor(Number(opts.trail ?? 0))));
+    const trailSpan = Number(opts.trailSpan ?? 0.08);
+    let headPos = sp.at(clamp(u, 0, 1));
+    for (let k = 0; k < repeat; k++) {
+      const uk = repeat === 1 ? clamp(u, 0, 1) : (((u + k / repeat) % 1) + 1) % 1;
+      for (let t = trail; t >= 1; t--) {
+        const ut = uk - (t / trail) * trailSpan;
+        if (ut < 0) continue;
+        const tp = sp.at(ut);
+        const fade = 1 - t / (trail + 1);
+        api.dot(tp.x, tp.y, Math.max(1.2, r * (0.45 + 0.45 * fade)), { role, fill: opts.fill, stroke: "none", opacity: baseOp * fade * 0.55 });
+      }
+      const hp = sp.at(uk);
+      if (k === 0) headPos = hp;
+      api.dot(hp.x, hp.y, r, { role, fill: opts.fill, stroke: opts.stroke, opacity: baseOp });
+    }
+    return headPos;
+  };
+
+  api.plaque = function plaque(x, y, w, h, opts = {}) {
+    const curG = getG();
+    const gk = `plq|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.accentSide || "left"}|${opts.accentRole || opts.role || ""}|${opts.accent ?? ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildPlaqueSpec(x, y, w, h, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.docCard = function docCard(x, y, w, h, opts = {}) {
+    const curG = getG();
+    const rKey = Array.isArray(opts.ruledLines) ? opts.ruledLines.join(",") : String(opts.ruledLines ?? 0);
+    const gk = `dc|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.stackDepth ?? 0}|${opts.foldedCorner ? 1 : 0}|${rKey}|${opts.role || ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildDocCardSpec(x, y, w, h, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.glyph = function glyph(kind, x, y, opts = {}) {
+    const curG = getG();
+    const gk = `gly|${curG.id}|${kind}|${f2(x)},${f2(y)}|${opts.size ?? 10}|${opts.badge || ""}|${opts.role || ""}|${opts.stroke ?? ""}|${Math.round((opts.angle ?? 0) * 100)}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildGlyphSpec(kind, x, y, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.octantRoom = function octantRoom(octant, opts = {}) {
+    const curG = getG();
+    const o = octant.origin;
+    const subKey = Array.isArray(opts.subbox) ? opts.subbox.map(f2).join(",") : "";
+    const gk = `oct|${curG.id}|${f1(o[0])},${f1(o[1])}|${opts.ticks ?? 3}|${subKey}|${opts.subboxRole || ""}|${opts.subboxDashed ? 1 : 0}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildOctantRoomSpec(octant, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.pin3d = function pin3d(octant, pt3, opts = {}) {
+    const curG = getG();
+    const top = octant.project(pt3[0], pt3[1], pt3[2]);
+    const flr = octant.project(pt3[0], pt3[1], 0);
+    const gk = `p3d|${curG.id}|${f2(top[0])},${f2(top[1])},${f2(flr[0])},${f2(flr[1])}|${opts.r ?? 6}|${opts.role || ""}|${opts.dropWalls ? 1 : 0}|${opts.dropFloor === false ? 0 : 1}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildPin3dSpec(octant, pt3, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.curve3d = function curve3d(octant, pts3 = [], opts = {}) {
+    if (!pts3.length) return undefined;
+    if (opts.floorShadow) {
+      const shPts = pts3.map((p) => octant.project(p[0], p[1], 0));
+      api.curve(shPts, {
+        role: opts.role || "muted",
+        strokeWidth: 1.2,
+        dash: "4 3",
+        progress: opts.progress,
+        opacity: (opts.opacity ?? 1) * 0.38,
+      });
+    }
+    const pts2 = pts3.map((p) => octant.project(p[0], p[1], p[2]));
+    return opts.arrow ? api.arrow(pts2, opts) : api.curve(pts2, opts);
+  };
+
+  api.lattice = function lattice(scale, opts = {}) {
+    const curG = getG();
+    const [rx0, rx1] = scale ? scale.rangeX : [0, 1];
+    const [ry0, ry1] = scale ? scale.rangeY : [0, 1];
+    const xr = (opts.xRange || [0, 4]).join(",");
+    const yr = (opts.yRange || [0, 4]).join(",");
+    const pKey = opts.insidePoly ? serializePointsKey(opts.insidePoly) : "";
+    const gk = `lat|${curG.id}|${f1(rx0)},${f1(rx1)},${f1(ry0)},${f1(ry1)}|${xr}|${yr}|${opts.step ?? 1}|${pKey}|${opts.hideOutside ? 1 : 0}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildLatticeSpec(scale, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.halfspaceCut = function halfspaceCut(scale, a, b, opts = {}) {
+    const curG = getG();
+    const [rx0, rx1] = scale ? scale.rangeX : [0, 1];
+    const [ry0, ry1] = scale ? scale.rangeY : [0, 1];
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 500) : 500;
+    const gk = `hsc|${curG.id}|${f1(rx0)},${f1(rx1)},${f1(ry0)},${f1(ry1)}|${f2(a[0])},${f2(a[1])},${f2(b)}|${opts.role || ""}|${opts.showNormal ? 1 : 0}|${progQ}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildHalfspaceCutSpec(scale, a, b, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  api.tangentLine = function tangentLine(fn, x0, domain, opts = {}) {
+    const y0 = fn(x0);
+    const slope = opts.deriv != null
+      ? (typeof opts.deriv === "function" ? opts.deriv(x0) : Number(opts.deriv))
+      : (fn(x0 + 1e-4) - fn(x0 - 1e-4)) / 2e-4;
+    const sc = opts.scale || null;
+    const box = opts.yClamp
+      ? [domain[0], domain[1], opts.yClamp[0], opts.yClamp[1]]
+      : sc
+        ? [domain[0], domain[1], Math.min(sc.domainY[0], sc.domainY[1]), Math.max(sc.domainY[0], sc.domainY[1])]
+        : null;
+    let segData;
+    if (box) {
+      segData = lineInBox([-slope, 1], y0 - slope * x0, box);
+    } else {
+      segData = [[domain[0], y0 + slope * (domain[0] - x0)], [domain[1], y0 + slope * (domain[1] - x0)]];
+    }
+    if (!segData) return undefined;
+    const segPx = sc ? [sc.pt(segData[0][0], segData[0][1]), sc.pt(segData[1][0], segData[1][1])] : segData;
+    const lineNode = api.curve(segPx, { role: opts.role || "caveat", dash: opts.dash ?? "5 4", strokeWidth: opts.strokeWidth ?? 1.8, ...opts });
+    if (opts.markPoint !== false) {
+      const p0 = sc ? sc.pt(x0, y0) : [x0, y0];
+      api.dot(p0[0], p0[1], Number(opts.r ?? 4.5), { role: opts.role || "caveat", opacity: opts.opacity });
+    }
+    return lineNode;
   };
 
   return api;
