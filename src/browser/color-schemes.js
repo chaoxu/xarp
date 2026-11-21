@@ -44,27 +44,95 @@ function showToast(scheme) {
   toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 1500);
 }
 
-function syncSlideFrames(selected) {
-  for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
-    try {
-      if (frame.contentDocument?.documentElement) {
-        if (selected === 'default') {
-          delete frame.contentDocument.documentElement.dataset.xarpColorScheme;
-          delete frame.contentDocument.documentElement.dataset.pfStyle;
-        } else {
-          frame.contentDocument.documentElement.dataset.xarpColorScheme = selected;
-          frame.contentDocument.documentElement.dataset.pfStyle = selected;
-        }
+const pendingFrames = new Set();
+let frameIdleHandle = 0;
+let frameIdleIsRic = false;
+let frameObserverInstalled = false;
+
+function applyFrameScheme(frame, selected) {
+  delete frame.__xarpPendingScheme;
+  pendingFrames.delete(frame);
+  try {
+    if (frame.contentDocument?.documentElement) {
+      if (selected === 'default') {
+        delete frame.contentDocument.documentElement.dataset.xarpColorScheme;
+        delete frame.contentDocument.documentElement.dataset.pfStyle;
+      } else {
+        frame.contentDocument.documentElement.dataset.xarpColorScheme = selected;
+        frame.contentDocument.documentElement.dataset.pfStyle = selected;
       }
-      if (typeof frame.contentWindow?.__setXarpColorScheme === 'function') {
-        frame.contentWindow.__setXarpColorScheme(selected);
-      }
-      if (typeof frame.contentWindow?.__setHrsStyle === 'function') {
-        frame.contentWindow.__setHrsStyle(selected);
-      }
-      frame.contentWindow?.dispatchEvent(new CustomEvent('chao-theme-change', { detail: { scheme: selected } }));
-    } catch { /* Cross-origin embeds keep their own document state. */ }
+    }
+    if (typeof frame.contentWindow?.__setXarpColorScheme === 'function') {
+      frame.contentWindow.__setXarpColorScheme(selected);
+    }
+    if (typeof frame.contentWindow?.__setHrsStyle === 'function') {
+      frame.contentWindow.__setHrsStyle(selected);
+    }
+    frame.contentWindow?.dispatchEvent(new CustomEvent('chao-theme-change', { detail: { scheme: selected } }));
+  } catch { /* Cross-origin embeds keep their own document state. */ }
+}
+
+function cancelFrameIdle() {
+  if (!frameIdleHandle) return;
+  if (frameIdleIsRic && typeof cancelIdleCallback === 'function') cancelIdleCallback(frameIdleHandle);
+  else clearTimeout(frameIdleHandle);
+  frameIdleHandle = 0;
+}
+
+function scheduleFrameIdle() {
+  if (frameIdleHandle || pendingFrames.size === 0) return;
+  const step = (deadline) => {
+    frameIdleHandle = 0;
+    let count = 0;
+    for (const frame of pendingFrames) {
+      const pending = frame.__xarpPendingScheme;
+      pendingFrames.delete(frame);
+      if (pending !== undefined && frame.isConnected) applyFrameScheme(frame, pending);
+      count++;
+      if (count >= 2 && (!deadline || deadline.timeRemaining() < 4)) break;
+    }
+    if (pendingFrames.size > 0) scheduleFrameIdle();
+  };
+  if (typeof requestIdleCallback === 'function') {
+    frameIdleIsRic = true;
+    frameIdleHandle = requestIdleCallback(step, { timeout: 220 });
+  } else {
+    frameIdleIsRic = false;
+    frameIdleHandle = setTimeout(step, 16);
   }
+}
+
+function installFrameSlideObserver() {
+  if (frameObserverInstalled || typeof MutationObserver === 'undefined') return;
+  const slides = document.querySelectorAll('svg[data-marpit-svg]');
+  if (!slides.length) return;
+  frameObserverInstalled = true;
+  const obs = new MutationObserver((records) => {
+    for (const rec of records) {
+      const slide = rec.target;
+      if (!slide.classList?.contains('bespoke-marp-active')) continue;
+      for (const frame of slide.querySelectorAll('iframe')) {
+        if (frame.__xarpPendingScheme !== undefined) applyFrameScheme(frame, frame.__xarpPendingScheme);
+      }
+    }
+  });
+  for (const slide of slides) obs.observe(slide, { attributes: true, attributeFilter: ['class'] });
+}
+
+function syncSlideFrames(selected) {
+  cancelFrameIdle();
+  pendingFrames.clear();
+  installFrameSlideObserver();
+  const hasActive = Boolean(document.querySelector('svg.bespoke-marp-active'));
+  for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
+    if (!hasActive || frame.closest('svg.bespoke-marp-active')) {
+      applyFrameScheme(frame, selected);
+    } else {
+      frame.__xarpPendingScheme = selected;
+      pendingFrames.add(frame);
+    }
+  }
+  scheduleFrameIdle();
 }
 
 function currentSelected() {
@@ -122,7 +190,17 @@ function setDefault(scheme) {
 setDefault(authored);
 
 for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
-  frame.addEventListener('load', () => syncSlideFrames(currentSelected()));
+  frame.addEventListener('load', () => {
+    const sel = currentSelected();
+    const hasActive = Boolean(document.querySelector('svg.bespoke-marp-active'));
+    if (!hasActive || frame.closest('svg.bespoke-marp-active')) {
+      applyFrameScheme(frame, sel);
+    } else {
+      frame.__xarpPendingScheme = sel;
+      pendingFrames.add(frame);
+      scheduleFrameIdle();
+    }
+  });
 }
 
 select.addEventListener('change', () => {

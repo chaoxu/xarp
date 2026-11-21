@@ -52,20 +52,35 @@ function parseColorMixArg(raw) {
   return { color: raw.trim(), pct: null };
 }
 
+const rgbCache = new Map();
+
+function cacheRgb(key, tuple) {
+  if (rgbCache.size >= 512) rgbCache.clear();
+  rgbCache.set(key, tuple);
+  return tuple;
+}
+
 export function parseRgb(str, fallback = [31, 29, 26]) {
-  const s = String(str || "").trim();
+  if (!str) return fallback;
+  const hit = rgbCache.get(str);
+  if (hit !== undefined) return hit;
+  const s = String(str).trim();
   if (!s || s === "none" || s === "transparent") return fallback;
-  if (s.startsWith("#")) {
+  const hitTrim = rgbCache.get(s);
+  if (hitTrim !== undefined) return hitTrim;
+  if (s.charCodeAt(0) === 35 /* '#' */) {
     const hex = s.slice(1);
     if (hex.length === 3 || hex.length === 4) {
-      return hex.slice(0, 3).split("").map((c) => parseInt(c + c, 16));
+      const r = parseInt(hex[0] + hex[0], 16);
+      const g = parseInt(hex[1] + hex[1], 16);
+      const b = parseInt(hex[2] + hex[2], 16);
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return cacheRgb(s, [r, g, b]);
     }
     if (hex.length >= 6) {
-      return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-      ];
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return cacheRgb(s, [r, g, b]);
     }
   }
   if (/^color-mix\(/i.test(s) && s.endsWith(")")) {
@@ -74,8 +89,8 @@ export function parseRgb(str, fallback = [31, 29, 26]) {
     if (parts.length >= 3) {
       const a1 = parseColorMixArg(parts[1]);
       const a2 = parseColorMixArg(parts[2]);
-      if (a1.color.toLowerCase() === "transparent") return parseRgb(a2.color, fallback);
-      if (a2.color.toLowerCase() === "transparent") return parseRgb(a1.color, fallback);
+      if (a1.color.toLowerCase() === "transparent") return cacheRgb(s, parseRgb(a2.color, fallback));
+      if (a2.color.toLowerCase() === "transparent") return cacheRgb(s, parseRgb(a1.color, fallback));
       let w1 = 0.5;
       let w2 = 0.5;
       if (a1.pct != null && a2.pct != null) {
@@ -93,18 +108,18 @@ export function parseRgb(str, fallback = [31, 29, 26]) {
       }
       const c1 = parseRgb(a1.color, fallback);
       const c2 = parseRgb(a2.color, fallback);
-      return [
+      return cacheRgb(s, [
         c1[0] * w1 + c2[0] * w2,
         c1[1] * w1 + c2[1] * w2,
         c1[2] * w1 + c2[2] * w2,
-      ];
+      ]);
     }
   }
   const m = s.match(/^rgba?\(\s*([^\s,/)]+%?)\s*[\s,]\s*([^\s,/)]+%?)\s*[\s,]\s*([^\s,/)]+%?)/i);
   if (m) {
     const chan = (v) => (v.endsWith("%") ? clamp((Number(v.slice(0, -1)) * 255) / 100, 0, 255) : clamp(Number(v), 0, 255));
     const r = chan(m[1]), g = chan(m[2]), b = chan(m[3]);
-    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return [r, g, b];
+    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return cacheRgb(s, [r, g, b]);
   }
   return fallback;
 }

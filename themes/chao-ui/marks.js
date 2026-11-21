@@ -7,16 +7,18 @@
    1. Programmatic & 60fps animated <svg> stages  -> createSvgMarks(svg, host)
    2. Declarative inline <svg> figures            -> hydrateSvgMarks(svg, host)
    3. HTML5 <canvas> analytical figures           -> createCanvasMarks(ctx, host)
+                                                  -> mountMarkedDiagram(canvas, spec)
    ========================================================================== */
 
 import rough from "./vendor/roughjs/rough.esm.js";
 import { getStroke } from "./vendor/perfect-freehand/index.mjs";
-import { clamp, lerp, mixRgb, palette, parseRgb, rgba } from "./diagrams.js";
+import { clamp, lerp, mixRgb, mountDiagram, palette, parseRgb, rgba } from "./diagrams.js";
 
 export { palette, parseRgb, rgba };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const roughGen = rough.generator();
+const f2 = (n) => Math.round(n * 100) / 100;
 
 /**
  * Canonical Material Grammar parameter bundles keyed by visual profile name.
@@ -30,8 +32,8 @@ export const STYLE_GRAMMARS = {
   shuimo:         { node: "dab",     fill: "wash",       stroke: "brush",  arrow: "flick",    panel: "scroll",    roughness: 0.22, gap: 8.2, multiply: true,  scanAngle: -34 },
   manga:          { node: "nib",     fill: "screentone", stroke: "gpen",   arrow: "barb",     panel: "comic",     roughness: 0.14, gap: 5.5, multiply: false, scanAngle: -35 },
   "han-rubbing":  { node: "chisel",  fill: "stipple",    stroke: "chisel", arrow: "chisel",   panel: "stone",     roughness: 0.58, gap: 8,   multiply: false, scanAngle: -40 },
-  "song-scroll":  { node: "dab",     fill: "wash",       stroke: "gpen",   arrow: "flick",    panel: "inlay",     roughness: 0.14, gap: 7.2, multiply: true,  scanAngle: -42 },
-  qinglu:         { node: "shippo",  fill: "wash",       stroke: "brush",  arrow: "flick",    panel: "inlay",     roughness: 0.18, gap: 6.8, multiply: false, scanAngle: -45 },
+  "song-scroll":  { node: "dab",     fill: "wash",       stroke: "gpen",   arrow: "flick",    panel: "cartouche", roughness: 0.14, gap: 7.2, multiply: true,  scanAngle: -42 },
+  qinglu:         { node: "shippo",  fill: "wash",       stroke: "brush",  arrow: "flick",    panel: "cartouche", roughness: 0.18, gap: 6.8, multiply: false, scanAngle: -45 },
   // II. Japanese Wagara & Craft
   washi:          { node: "dab",     fill: "wash",       stroke: "gpen",   arrow: "flick",    panel: "scroll",    roughness: 0.18, gap: 7.5, multiply: true,  scanAngle: -40 },
   shippo:         { node: "shippo",  fill: "weave",      stroke: "crisp",  arrow: "barb",     panel: "inlay",     roughness: 0,    gap: 7.5, multiply: true,  scanAngle: -45 },
@@ -41,17 +43,17 @@ export const STYLE_GRAMMARS = {
   hanami:         { node: "shippo",  fill: "wash",       stroke: "crisp",  arrow: "flick",    panel: "scroll",    roughness: 0.10, gap: 7.5, multiply: true,  scanAngle: -60 },
   "wabi-sabi":    { node: "dab",     fill: "stipple",    stroke: "brush",  arrow: "flick",    panel: "stone",     roughness: 0.42, gap: 8.5, multiply: true,  scanAngle: -32 },
   "ukiyo-e":      { node: "nib",     fill: "wash",       stroke: "gpen",   arrow: "barb",     panel: "inlay",     roughness: 0.24, gap: 6.8, multiply: true,  scanAngle: -40 },
-  urushi:         { node: "shippo",  fill: "stipple",    stroke: "gpen",   arrow: "flick",    panel: "inlay",     roughness: 0.15, gap: 7.4, multiply: false, scanAngle: -45 },
+  urushi:         { node: "shippo",  fill: "stipple",    stroke: "gpen",   arrow: "flick",    panel: "cartouche", roughness: 0.15, gap: 7.4, multiply: false, scanAngle: -45 },
   // III. Wood Mosaic, Kumiko & Mosque Tilework
   yosegi:         { node: "diamond", fill: "weave",      stroke: "crisp",  arrow: "vee",      panel: "inlay",     roughness: 0,    gap: 6.6, multiply: true,  scanAngle: -45 },
   kumiko:         { node: "star8",   fill: "weave",      stroke: "crisp",  arrow: "vee",      panel: "inlay",     roughness: 0,    gap: 7.2, multiply: true,  scanAngle: -60 },
-  zellij:         { node: "star8",   fill: "weave",      stroke: "crisp",  arrow: "barb",     panel: "inlay",     roughness: 0,    gap: 6.8, multiply: true,  scanAngle: -45 },
-  isfahan:        { node: "star8",   fill: "weave",      stroke: "gpen",   arrow: "barb",     panel: "inlay",     roughness: 0.10, gap: 7.2, multiply: false, scanAngle: -60 },
+  zellij:         { node: "star8",   fill: "weave",      stroke: "crisp",  arrow: "barb",     panel: "cartouche", roughness: 0,    gap: 6.8, multiply: true,  scanAngle: -45 },
+  isfahan:        { node: "star8",   fill: "weave",      stroke: "gpen",   arrow: "barb",     panel: "cartouche", roughness: 0.10, gap: 7.2, multiply: false, scanAngle: -60 },
   // IV. Pelican 6000 · Art History
   sahara:         { node: "chisel",  fill: "stipple",    stroke: "chisel", arrow: "chisel",   panel: "stone",     roughness: 0.65, gap: 8.2, multiply: true,  scanAngle: -34 },
   egypt:          { node: "diamond", fill: "hachure",    stroke: "gpen",   arrow: "barb",     panel: "inlay",     roughness: 0.20, gap: 7.2, multiply: true,  scanAngle: -45 },
   maya:           { node: "chisel",  fill: "hachure",    stroke: "chisel", arrow: "chisel",   panel: "stone",     roughness: 0.48, gap: 7.0, multiply: true,  scanAngle: -40 },
-  mughal:         { node: "star8",   fill: "weave",      stroke: "gpen",   arrow: "barb",     panel: "inlay",     roughness: 0.12, gap: 7,   multiply: true,  scanAngle: -45 },
+  mughal:         { node: "star8",   fill: "weave",      stroke: "gpen",   arrow: "barb",     panel: "cartouche", roughness: 0.12, gap: 7,   multiply: true,  scanAngle: -45 },
   wayang:         { node: "diamond", fill: "stipple",    stroke: "gpen",   arrow: "barb",     panel: "inlay",     roughness: 0.24, gap: 7.5, multiply: false, scanAngle: -42 },
   starry:         { node: "dab",     fill: "stipple",    stroke: "brush",  arrow: "flick",    panel: "inlay",     roughness: 0.50, gap: 6.2, multiply: false, scanAngle: -28 },
   scream:         { node: "dab",     fill: "hachure",    stroke: "brush",  arrow: "flick",    panel: "stone",     roughness: 0.56, gap: 6.6, multiply: false, scanAngle: -22 },
@@ -204,9 +206,12 @@ export function markGrammar(el = null, overrides = null) {
 
   const bgRgb = parseRgb(P.bg, [255, 255, 255]);
   const isDark = (bgRgb[0] * 0.299 + bgRgb[1] * 0.587 + bgRgb[2] * 0.114) < 115;
+  const multiply = overrides && overrides.multiply != null ? Boolean(overrides.multiply) : Boolean(base.multiply && !isDark);
+  const effScheme = scheme || "default";
+  const key = `${effScheme}|${node}|${fill}|${stroke}|${arrow}|${panel}|${roughness}|${gap}|${scanAngle}|${multiply ? 1 : 0}|${isDark ? 1 : 0}|${P.bg}|${P.fg}|${P.slate}|${P.terracotta}|${P.ochre}|${P.stone}|${P.surface}|${P.grid}|${P.muted}`;
 
   return {
-    scheme: scheme || "default",
+    scheme: effScheme,
     isSwiss:
       node === "circle" &&
       fill === "tint" &&
@@ -222,9 +227,10 @@ export function markGrammar(el = null, overrides = null) {
     panel,
     roughness,
     gap,
-    multiply: overrides && overrides.multiply != null ? Boolean(overrides.multiply) : Boolean(base.multiply && !isDark),
+    multiply,
     scanAngle,
     P,
+    key,
   };
 }
 
@@ -262,19 +268,20 @@ function colorDist(c1, c2) {
 export function strokeOutlineToSvgPath(points, closed = true) {
   const len = points.length;
   if (len < 3) return "";
-  const f = (n) => n.toFixed(2);
-  let d = `M ${f(points[0][0])} ${f(points[0][1])} Q ${f(points[1][0])} ${f(points[1][1])} ${f((points[1][0] + points[2][0]) / 2)} ${f((points[1][1] + points[2][1]) / 2)}`;
+  const parts = [
+    `M ${f2(points[0][0])} ${f2(points[0][1])} Q ${f2(points[1][0])} ${f2(points[1][1])} ${f2((points[1][0] + points[2][0]) * 0.5)} ${f2((points[1][1] + points[2][1]) * 0.5)}`,
+  ];
   for (let i = 2; i < len - 1; i++) {
     const p0 = points[i];
     const p1 = points[i + 1];
-    d += ` T ${f((p0[0] + p1[0]) / 2)} ${f((p0[1] + p1[1]) / 2)}`;
+    parts.push(`T ${f2((p0[0] + p1[0]) * 0.5)} ${f2((p0[1] + p1[1]) * 0.5)}`);
   }
   if (closed) {
     const last = points[len - 1];
     const first = points[0];
-    d += ` T ${f((last[0] + first[0]) / 2)} ${f((last[1] + first[1]) / 2)} Z`;
+    parts.push(`T ${f2((last[0] + first[0]) * 0.5)} ${f2((last[1] + first[1]) * 0.5)} Z`);
   }
-  return d;
+  return parts.join(" ");
 }
 
 function slicePolyline(pts, progress) {
@@ -383,12 +390,19 @@ function sampleSvgArc(x1, y1, rxIn, ryIn, phiDeg, largeArc, sweep, x2, y2, sampl
   return out;
 }
 
+const SUBPATH_CACHE = new Map();
+
 /**
  * Sample all subpaths of an SVG path `d` into an array of polylines.
  * Supports absolute & relative M, L, H, V, C, S, Q, T, A, Z commands and packed decimals.
  */
 export function sampleSvgSubpaths(d, samplesPerCurve = 12) {
-  const tokens = String(d || "").match(/([A-Za-z])|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g);
+  const raw = String(d || "");
+  const cacheable = raw.length > 0 && raw.length <= 420;
+  const cKey = cacheable ? `${samplesPerCurve}|${raw}` : "";
+  if (cacheable && SUBPATH_CACHE.has(cKey)) return SUBPATH_CACHE.get(cKey);
+
+  const tokens = raw.match(/([A-Za-z])|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g);
   if (!tokens || tokens.length < 3) return null;
   const needMap = {
     M: 2, m: 2, L: 2, l: 2, H: 1, h: 1, V: 1, v: 1,
@@ -516,7 +530,12 @@ export function sampleSvgSubpaths(d, samplesPerCurve = 12) {
     prevCmd = upper;
   }
   const valid = subpaths.filter((sp) => sp.length >= 2);
-  return valid.length ? valid : null;
+  const res = valid.length ? valid : null;
+  if (cacheable) {
+    if (SUBPATH_CACHE.size >= 512) SUBPATH_CACHE.clear();
+    SUBPATH_CACHE.set(cKey, res);
+  }
+  return res;
 }
 
 /**
@@ -528,22 +547,51 @@ export function sampleSimpleSvgPath(d, samplesPerCurve = 12) {
   return subs && subs.length === 1 ? subs[0] : null;
 }
 
+const ANCHOR_SEED_CACHE = new Map();
+
 function polylineAnchorSeed(prefix, ptsOrPath, explicitSeed) {
   if (explicitSeed != null) return explicitSeed;
+  const isStr = typeof ptsOrPath === "string" && ptsOrPath.length <= 420;
+  const cKey = isStr ? `${prefix}|${ptsOrPath}` : "";
+  if (isStr) {
+    const hit = ANCHOR_SEED_CACHE.get(cKey);
+    if (hit !== undefined) return hit;
+  }
   const subs = typeof ptsOrPath === "string" ? sampleSvgSubpaths(ptsOrPath, 4) : (Array.isArray(ptsOrPath) ? [ptsOrPath] : null);
   const pts = subs && subs[0];
-  if (!pts || pts.length === 0) return fnv1aSeed(`${prefix}:${String(ptsOrPath || "")}`);
-  const [x0, y0] = pts[0];
-  let angQ = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const dx = pts[i][0] - x0;
-    const dy = pts[i][1] - y0;
-    if (Math.hypot(dx, dy) > 0.5) {
-      angQ = Math.round(Math.atan2(dy, dx) * 32);
-      break;
+  let out;
+  if (!pts || pts.length === 0) {
+    out = fnv1aSeed(`${prefix}:${String(ptsOrPath || "")}`);
+  } else {
+    const [x0, y0] = pts[0];
+    let angQ = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i][0] - x0;
+      const dy = pts[i][1] - y0;
+      if (Math.hypot(dx, dy) > 0.5) {
+        angQ = Math.round(Math.atan2(dy, dx) * 32);
+        break;
+      }
     }
+    out = fnv1aSeed(`${prefix}:${Math.round(x0)}:${Math.round(y0)}:${angQ}:${subs.length}`);
   }
-  return fnv1aSeed(`${prefix}:${Math.round(x0)}:${Math.round(y0)}:${angQ}:${subs.length}`);
+  if (isStr) {
+    if (ANCHOR_SEED_CACHE.size >= 512) ANCHOR_SEED_CACHE.clear();
+    ANCHOR_SEED_CACHE.set(cKey, out);
+  }
+  return out;
+}
+
+function serializePointsKey(ptsOrPath) {
+  if (typeof ptsOrPath === "string") return ptsOrPath;
+  if (!Array.isArray(ptsOrPath)) return "";
+  let s = "";
+  for (let i = 0; i < ptsOrPath.length; i++) {
+    const p = ptsOrPath[i];
+    if (i > 0) s += ";";
+    s += `${f2(p[0])},${f2(p[1])}`;
+  }
+  return s;
 }
 
 function polygonBounds(pts) {
@@ -563,7 +611,7 @@ function regularStarPath(cx, cy, outerR, innerR, points, rotRad = 0) {
   for (let i = 0; i < total; i++) {
     const r = i % 2 === 0 ? outerR : innerR;
     const a = rotRad + (i * Math.PI) / points;
-    parts.push(`${i === 0 ? "M" : "L"} ${(cx + Math.cos(a) * r).toFixed(2)} ${(cy + Math.sin(a) * r).toFixed(2)}`);
+    parts.push(`${i === 0 ? "M" : "L"} ${f2(cx + Math.cos(a) * r)} ${f2(cy + Math.sin(a) * r)}`);
   }
   parts.push("Z");
   return parts.join(" ");
@@ -583,8 +631,8 @@ function shippoFloretPath(cx, cy, r, lobes = 4) {
     const ym = cy + Math.sin(am) * peakR;
     const x1 = cx + Math.cos(a1) * valleyR;
     const y1 = cy + Math.sin(a1) * valleyR;
-    if (i === 0) parts.push(`M ${x0.toFixed(2)} ${y0.toFixed(2)}`);
-    parts.push(`Q ${xm.toFixed(2)} ${ym.toFixed(2)} ${x1.toFixed(2)} ${y1.toFixed(2)}`);
+    if (i === 0) parts.push(`M ${f2(x0)} ${f2(y0)}`);
+    parts.push(`Q ${f2(xm)} ${f2(ym)} ${f2(x1)} ${f2(y1)}`);
   }
   parts.push("Z");
   return parts.join(" ");
@@ -598,10 +646,32 @@ function chiseledNodePath(cx, cy, r, seed) {
   for (let i = 0; i < facets; i++) {
     const a = rot + (i * 2 * Math.PI) / facets + (rand() - 0.5) * 0.14;
     const rf = r * (0.94 + (rand() - 0.5) * 0.16);
-    parts.push(`${i === 0 ? "M" : "L"} ${(cx + Math.cos(a) * rf).toFixed(2)} ${(cy + Math.sin(a) * rf).toFixed(2)}`);
+    parts.push(`${i === 0 ? "M" : "L"} ${f2(cx + Math.cos(a) * rf)} ${f2(cy + Math.sin(a) * rf)}`);
   }
   parts.push("Z");
   return parts.join(" ");
+}
+
+function ensoRingOutlinePath(cx, cy, r, sw, ang) {
+  const steps = 20;
+  const arcPts = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const a = ang + u * Math.PI * 1.96;
+    const rr = r * (1 + 0.025 * Math.sin(u * Math.PI * 3));
+    const p = 0.42 + 0.46 * Math.sin(Math.min(1, u * 1.1) * Math.PI * 0.88);
+    arcPts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, p]);
+  }
+  const ringOutline = getStroke(arcPts, {
+    size: Math.max(2.0, (sw || 1.8) * 1.42),
+    thinning: 0.44,
+    smoothing: 0.45,
+    streamline: 0.3,
+    simulatePressure: false,
+    start: { taper: Math.min(6, r * 0.28), cap: true },
+    end: { taper: Math.min(9, r * 0.45), cap: true },
+  });
+  return strokeOutlineToSvgPath(ringOutline, true);
 }
 
 // ============================================================================
@@ -624,12 +694,11 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   const isHollow = Boolean(opts.hollow || fill === "none" || isPaperFill);
   const keepOpenInterior = Boolean(opts.labelInside || r >= 24);
 
-  // Tiny micro-dots (keyholes, punctuation dots) stay crisp circles
   if (r <= 3.1 || G.node === "circle") {
-    const a = { cx: cx.toFixed(2), cy: cy.toFixed(2), r: r.toFixed(2), fill };
+    const a = { cx: f2(cx), cy: f2(cy), r: f2(r), fill };
     if (stroke && stroke !== "none" && sw > 0) {
       a.stroke = stroke;
-      a["stroke-width"] = sw.toFixed(2);
+      a["stroke-width"] = f2(sw);
     }
     if (op < 0.999) a.opacity = op.toFixed(3);
     return [{ tag: "circle", attrs: a }];
@@ -640,7 +709,7 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
     attrs.fill = fCol;
     if (sCol && sCol !== "none" && sWidth > 0) {
       attrs.stroke = sCol;
-      attrs["stroke-width"] = sWidth.toFixed(2);
+      attrs["stroke-width"] = f2(sWidth);
     }
     if (op < 0.999) attrs.opacity = op.toFixed(3);
     return attrs;
@@ -651,9 +720,8 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
     const ang = -0.48 + (rand() - 0.5) * 0.36;
     const hasExplicitRim = Boolean(stroke && stroke !== "none" && sw > 0);
     if (!isHollow && !hasExplicitRim && r < 22) {
-      // Plump calligraphic ten (点) ink drop: rounded brush belly + subtle harai tip
       const c = Math.cos(ang), s = Math.sin(ang);
-      const rot = (lx, ly) => `${(cx + lx * c - ly * s).toFixed(2)} ${(cy + lx * s + ly * c).toFixed(2)}`;
+      const rot = (lx, ly) => `${f2(cx + lx * c - ly * s)} ${f2(cy + lx * s + ly * c)}`;
       const tip = keepOpenInterior || r >= 11 ? 1.08 : 1.22;
       const belly = keepOpenInterior || r >= 11 ? 1.02 : 0.96;
       const heel = keepOpenInterior || r >= 11 ? 1.00 : 0.90;
@@ -667,31 +735,11 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
       out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
       return out;
     }
-    // Ensō (円相) calligraphic brush ring over paper/wash ground
     if (fill && fill !== "none") {
-      out.push({ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: (r * 0.95).toFixed(2) }, fill, "none", 0) });
+      out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r * 0.95) }, fill, "none", 0) });
     }
     const ringCol = hasExplicitRim ? stroke : fill;
-    const steps = 20;
-    const startA = ang;
-    const arcPts = [];
-    for (let i = 0; i <= steps; i++) {
-      const u = i / steps;
-      const a = startA + u * Math.PI * 1.98;
-      const rr = r * (1 + 0.025 * Math.sin(u * Math.PI * 3));
-      const p = 0.42 + 0.46 * Math.sin(Math.min(1, u * 1.1) * Math.PI * 0.88);
-      arcPts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, p]);
-    }
-    const ringOutline = getStroke(arcPts, {
-      size: Math.max(2.0, (sw || 1.8) * 1.42),
-      thinning: 0.44,
-      smoothing: 0.45,
-      streamline: 0.3,
-      simulatePressure: false,
-      start: { taper: Math.min(6, r * 0.28), cap: true },
-      end: { taper: Math.min(9, r * 0.45), cap: true },
-    });
-    const rd = strokeOutlineToSvgPath(ringOutline, true);
+    const rd = ensoRingOutlinePath(cx, cy, r, sw, ang);
     if (rd) out.push({ tag: "path", attrs: addCommon({ d: rd }, ringCol, "none", 0) });
     return out;
   }
@@ -699,9 +747,9 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   if (G.node === "nib") {
     const swBoost = sw > 0 ? sw * 1.28 : 0;
     if (!isHollow && G.scheme === "manga" && r >= 4.5 && r < 22) {
-      out.push({ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: (r + 1.5).toFixed(2) }, G.P.bg, "none", 0) });
+      out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r + 1.5) }, G.P.bg, "none", 0) });
     }
-    out.push({ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: r.toFixed(2) }, fill, stroke, swBoost) });
+    out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r) }, fill, stroke, swBoost) });
     return out;
   }
 
@@ -722,7 +770,7 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   if (G.node === "diamond") {
     const d = keepOpenInterior
       ? regularStarPath(cx, cy, r * 1.04, r * 1.04, 4, Math.PI / 8)
-      : `M ${cx.toFixed(2)} ${(cy - r * 1.18).toFixed(2)} L ${(cx + r * 1.18).toFixed(2)} ${cy.toFixed(2)} L ${cx.toFixed(2)} ${(cy + r * 1.18).toFixed(2)} L ${(cx - r * 1.18).toFixed(2)} ${cy.toFixed(2)} Z`;
+      : `M ${f2(cx)} ${f2(cy - r * 1.18)} L ${f2(cx + r * 1.18)} ${f2(cy)} L ${f2(cx)} ${f2(cy + r * 1.18)} L ${f2(cx - r * 1.18)} ${f2(cy)} Z`;
     out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
     return out;
   }
@@ -736,16 +784,16 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   if (G.node === "reticle") {
     const tickCol = stroke && stroke !== "none" ? stroke : fill;
     if (keepOpenInterior) {
-      out.push({ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: r.toFixed(2) }, fill, stroke, sw) });
+      out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r) }, fill, stroke, sw) });
       const tIn = r >= 24 ? r * 0.84 : r * 0.98;
       const tOut = r >= 24 ? r * 1.0 : r + 3.0;
-      const td = `M ${cx.toFixed(2)} ${(cy - tOut).toFixed(2)} L ${cx.toFixed(2)} ${(cy - tIn).toFixed(2)} M ${cx.toFixed(2)} ${(cy + tIn).toFixed(2)} L ${cx.toFixed(2)} ${(cy + tOut).toFixed(2)} M ${(cx - tOut).toFixed(2)} ${cy.toFixed(2)} L ${(cx - tIn).toFixed(2)} ${cy.toFixed(2)} M ${(cx + tIn).toFixed(2)} ${cy.toFixed(2)} L ${(cx + tOut).toFixed(2)} ${cy.toFixed(2)}`;
+      const td = `M ${f2(cx)} ${f2(cy - tOut)} L ${f2(cx)} ${f2(cy - tIn)} M ${f2(cx)} ${f2(cy + tIn)} L ${f2(cx)} ${f2(cy + tOut)} M ${f2(cx - tOut)} ${f2(cy)} L ${f2(cx - tIn)} ${f2(cy)} M ${f2(cx + tIn)} ${f2(cy)} L ${f2(cx + tOut)} ${f2(cy)}`;
       out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.35) });
     } else {
-      out.push({ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: (r * 0.78).toFixed(2) }, fill, stroke, sw) });
+      out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r * 0.78) }, fill, stroke, sw) });
       const arm = Math.max(r * 1.48, r + 3.2);
       const gapR = r * 0.42;
-      const td = `M ${(cx - arm).toFixed(2)} ${cy.toFixed(2)} L ${(cx - gapR).toFixed(2)} ${cy.toFixed(2)} M ${(cx + gapR).toFixed(2)} ${cy.toFixed(2)} L ${(cx + arm).toFixed(2)} ${cy.toFixed(2)} M ${cx.toFixed(2)} ${(cy - arm).toFixed(2)} L ${cx.toFixed(2)} ${(cy - gapR).toFixed(2)} M ${cx.toFixed(2)} ${(cy + gapR).toFixed(2)} L ${cx.toFixed(2)} ${(cy + arm).toFixed(2)}`;
+      const td = `M ${f2(cx - arm)} ${f2(cy)} L ${f2(cx - gapR)} ${f2(cy)} M ${f2(cx + gapR)} ${f2(cy)} L ${f2(cx + arm)} ${f2(cy)} M ${f2(cx)} ${f2(cy - arm)} L ${f2(cx)} ${f2(cy - gapR)} M ${f2(cx)} ${f2(cy + gapR)} L ${f2(cx)} ${f2(cy + arm)}`;
       out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.25) });
     }
     return out;
@@ -773,7 +821,7 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
     return out;
   }
 
-  return [{ tag: "circle", attrs: addCommon({ cx: cx.toFixed(2), cy: cy.toFixed(2), r: r.toFixed(2) }) }];
+  return [{ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r) }) }];
 }
 
 /**
@@ -783,14 +831,44 @@ export function buildRingSpec(cx, cy, r, G, opts = {}) {
   if (!(r > 0)) return [];
   const op = clamp(opts.opacity ?? 1, 0, 1);
   if (op < 0.002) return [];
+  const seed = hashSeed(opts.seed ?? 7);
   const stroke = opts.stroke || resolveRoleColor(G, opts.role || "primary");
   const sw = Number(opts.strokeWidth ?? 1.8);
-  const base = { fill: "none", stroke, "stroke-width": sw.toFixed(2) };
-  if (opts.dash) base["stroke-dasharray"] = opts.dash;
+  const dashed = opts.dash || "";
+  const base = { fill: "none", stroke, "stroke-width": f2(sw) };
+  if (dashed) base["stroke-dasharray"] = dashed;
   if (op < 0.999) base.opacity = op.toFixed(3);
 
+  if (!dashed && G.node === "dab" && r >= 6) {
+    const rand = seededRand(seed);
+    const rd = ensoRingOutlinePath(cx, cy, r, sw * 0.92, -0.4 + (rand() - 0.5) * 0.4);
+    if (rd) {
+      const pa = { d: rd, fill: stroke };
+      if (op < 0.999) pa.opacity = op.toFixed(3);
+      return [{ tag: "path", attrs: pa }];
+    }
+  }
+  if (G.node === "star8" && r >= 6) {
+    return [{ tag: "path", attrs: { ...base, d: regularStarPath(cx, cy, r * 1.06, r * 0.90, 8, -Math.PI / 8) } }];
+  }
+  if (G.node === "shippo" && r >= 6) {
+    return [{ tag: "path", attrs: { ...base, d: shippoFloretPath(cx, cy, r, r >= 22 ? 8 : 4) } }];
+  }
+  if (!dashed && G.node === "reticle" && r >= 7) {
+    const q = f2((2 * Math.PI * r) / 4);
+    const arcLen = f2(q * 0.76);
+    const gapLen = f2(q * 0.24);
+    const tOut = r + 2.6;
+    const td = `M ${f2(cx)} ${f2(cy - tOut)} L ${f2(cx)} ${f2(cy - r)} M ${f2(cx)} ${f2(cy + r)} L ${f2(cx)} ${f2(cy + tOut)} M ${f2(cx - tOut)} ${f2(cy)} L ${f2(cx - r)} ${f2(cy)} M ${f2(cx + r)} ${f2(cy)} L ${f2(cx + tOut)} ${f2(cy)}`;
+    const tickAttrs = { d: td, fill: "none", stroke, "stroke-width": f2(Math.max(1.1, sw * 0.75)) };
+    if (op < 0.999) tickAttrs.opacity = op.toFixed(3);
+    return [
+      { tag: "circle", attrs: { ...base, cx: f2(cx), cy: f2(cy), r: f2(r), "stroke-dasharray": `${arcLen} ${gapLen}`, "stroke-dashoffset": f2(-gapLen * 0.5) } },
+      { tag: "path", attrs: tickAttrs },
+    ];
+  }
   if (G.node === "diamond") {
-    const d = `M ${cx.toFixed(2)} ${(cy - r * 1.1).toFixed(2)} L ${(cx + r * 1.1).toFixed(2)} ${cy.toFixed(2)} L ${cx.toFixed(2)} ${(cy + r * 1.1).toFixed(2)} L ${(cx - r * 1.1).toFixed(2)} ${cy.toFixed(2)} Z`;
+    const d = `M ${f2(cx)} ${f2(cy - r * 1.1)} L ${f2(cx + r * 1.1)} ${f2(cy)} L ${f2(cx)} ${f2(cy + r * 1.1)} L ${f2(cx - r * 1.1)} ${f2(cy)} Z`;
     return [{ tag: "path", attrs: { ...base, d } }];
   }
   if (G.node === "pixel") {
@@ -798,9 +876,9 @@ export function buildRingSpec(cx, cy, r, G, opts = {}) {
     return [{ tag: "rect", attrs: { ...base, x: Math.round(cx - r), y: Math.round(cy - r), width: s, height: s, "shape-rendering": "crispEdges" } }];
   }
   if (G.node === "chisel") {
-    return [{ tag: "path", attrs: { ...base, d: chiseledNodePath(cx, cy, r, opts.seed ?? 7) } }];
+    return [{ tag: "path", attrs: { ...base, d: chiseledNodePath(cx, cy, r, seed) } }];
   }
-  return [{ tag: "circle", attrs: { ...base, cx: cx.toFixed(2), cy: cy.toFixed(2), r: r.toFixed(2) } }];
+  return [{ tag: "circle", attrs: { ...base, cx: f2(cx), cy: f2(cy), r: f2(r) } }];
 }
 
 /**
@@ -813,7 +891,7 @@ export function buildArrowHeadSpec(x, y, angle, G, opts = {}) {
   const s = Number(opts.size ?? 8.5);
   const c = Math.cos(angle);
   const n = Math.sin(angle);
-  const pt = (back, side) => `${(x - c * back - n * side).toFixed(2)} ${(y - n * back + c * side).toFixed(2)}`;
+  const pt = (back, side) => `${f2(x - c * back - n * side)} ${f2(y - n * back + c * side)}`;
 
   const wrap = (attrs) => {
     if (op < 0.999) attrs.opacity = op.toFixed(3);
@@ -821,22 +899,20 @@ export function buildArrowHeadSpec(x, y, angle, G, opts = {}) {
   };
 
   if (G.arrow === "flick") {
-    // Asymmetric calligraphic harai brush flick
-    const d = `M ${(x + c * 0.6).toFixed(2)} ${(y + n * 0.6).toFixed(2)} Q ${pt(s * 0.45, s * 0.58)} ${pt(s * 1.18, s * 0.66)} L ${pt(s * 0.66, s * 0.06)} L ${pt(s * 0.92, -s * 0.46)} Q ${pt(s * 0.38, -s * 0.36)} ${(x + c * 0.6).toFixed(2)} ${(y + n * 0.6).toFixed(2)} Z`;
+    const tx = f2(x + c * 0.6), ty = f2(y + n * 0.6);
+    const d = `M ${tx} ${ty} Q ${pt(s * 0.45, s * 0.58)} ${pt(s * 1.18, s * 0.66)} L ${pt(s * 0.66, s * 0.06)} L ${pt(s * 0.92, -s * 0.46)} Q ${pt(s * 0.38, -s * 0.36)} ${tx} ${ty} Z`;
     return wrap({ d, fill: col });
   }
   if (G.arrow === "barb") {
-    // Swept spear / manga / girih barb with notched heel
-    const d = `M ${(x + c * 0.8).toFixed(2)} ${(y + n * 0.8).toFixed(2)} L ${pt(s * 1.12, s * 0.62)} L ${pt(s * 0.64, 0)} L ${pt(s * 1.12, -s * 0.62)} Z`;
+    const d = `M ${f2(x + c * 0.8)} ${f2(y + n * 0.8)} L ${pt(s * 1.12, s * 0.62)} L ${pt(s * 0.64, 0)} L ${pt(s * 1.12, -s * 0.62)} Z`;
     return wrap({ d, fill: col });
   }
   if (G.arrow === "vee") {
-    // Crisp open technical chevron + inner stem connector so shaft always meets vertex cleanly
-    const d = `M ${pt(s * 0.88, 0)} L ${x.toFixed(2)} ${y.toFixed(2)} M ${pt(s * 0.96, s * 0.56)} L ${x.toFixed(2)} ${y.toFixed(2)} L ${pt(s * 0.96, -s * 0.56)}`;
-    return wrap({ d, fill: "none", stroke: col, "stroke-width": Math.max(1.75, s * 0.22).toFixed(2), "stroke-linecap": "round", "stroke-linejoin": "round" });
+    const d = `M ${pt(s * 0.88, 0)} L ${f2(x)} ${f2(y)} M ${pt(s * 0.96, s * 0.56)} L ${f2(x)} ${f2(y)} L ${pt(s * 0.96, -s * 0.56)}`;
+    return wrap({ d, fill: "none", stroke: col, "stroke-width": f2(Math.max(1.75, s * 0.22)), "stroke-linecap": "round", "stroke-linejoin": "round" });
   }
   if (G.arrow === "chisel") {
-    const d = `M ${x.toFixed(2)} ${y.toFixed(2)} L ${pt(s * 0.95, s * 0.68)} L ${pt(s * 1.12, s * 0.28)} L ${pt(s * 1.12, -s * 0.28)} L ${pt(s * 0.95, -s * 0.68)} Z`;
+    const d = `M ${f2(x)} ${f2(y)} L ${pt(s * 0.95, s * 0.68)} L ${pt(s * 1.12, s * 0.28)} L ${pt(s * 1.12, -s * 0.28)} L ${pt(s * 0.95, -s * 0.68)} Z`;
     return wrap({ d, fill: col });
   }
   if (G.arrow === "pixel") {
@@ -847,7 +923,7 @@ export function buildArrowHeadSpec(x, y, angle, G, opts = {}) {
   }
 
   const w = s * 0.56;
-  const d = `M ${x.toFixed(2)} ${y.toFixed(2)} L ${pt(s, w)} L ${pt(s, -w)} Z`;
+  const d = `M ${f2(x)} ${f2(y)} L ${pt(s, w)} L ${pt(s, -w)} Z`;
   return wrap({ d, fill: col });
 }
 
@@ -891,7 +967,7 @@ function prepareArrowGeometry(pointsOrPath, G, opts) {
 /**
  * 4. Semantic Panel / Card / Token Cell (`panel`)
  * Keeps interiors calm & high-contrast behind labels while expressing each
- * profile's architectural joinery, scroll mounting, bevel, or panel frame.
+ * profile's architectural joinery, scroll mounting, cartouche, bevel, or frame.
  */
 export function buildPanelSpec(x, y, w, h, G, opts = {}) {
   if (!(w > 0 && h > 0)) return [];
@@ -911,22 +987,25 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
   const hasStroke = stroke && stroke !== "none" && sw > 0 && progress > 0.002;
   const isSolidAccent = hasFill && luminance(fill) < 140 && !G.isDark;
 
+  const mkFillRect = (rx, ry, rw, rh, extra = {}, alphaMult = 1) => {
+    const fa = { x: rx, y: ry, width: rw, height: rh, fill, ...extra };
+    if (fillP < 0.999) fa["fill-opacity"] = fillP.toFixed(3);
+    const effOp = op * alphaMult;
+    if (effOp < 0.999) fa.opacity = effOp.toFixed(3);
+    return { tag: "rect", attrs: fa };
+  };
+
   if (G.panel === "comic") {
     if (hasFill && hasStroke && !dashed && progress > 0.85 && (w >= 80 || isSolidAccent)) {
       const off = isCell ? 2 : 3.2;
       out.push({
         tag: "rect",
-        attrs: { x: (x + off).toFixed(2), y: (y + off).toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill: G.P.fg, opacity: (op * 0.88).toFixed(3) },
+        attrs: { x: f2(x + off), y: f2(y + off), width: f2(w), height: f2(h), fill: G.P.fg, opacity: (op * 0.88).toFixed(3) },
       });
     }
-    if (hasFill) {
-      out.push({
-        tag: "rect",
-        attrs: { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP).toFixed(3) },
-      });
-    }
+    if (hasFill) out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h)));
     if (hasStroke) {
-      const sa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill: "none", stroke, "stroke-width": (sw * 1.32).toFixed(2) };
+      const sa = { x: f2(x), y: f2(y), width: f2(w), height: f2(h), fill: "none", stroke, "stroke-width": f2(sw * 1.32) };
       if (dashed) sa["stroke-dasharray"] = dashed;
       else if (progress < 0.999) {
         sa.pathLength = "1"; sa["stroke-dasharray"] = "1 1"; sa["stroke-dashoffset"] = (1 - progress).toFixed(4);
@@ -938,27 +1017,23 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
   }
 
   if (G.panel === "bevel") {
-    if (hasFill) {
-      out.push({
-        tag: "rect",
-        attrs: { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h), fill, "fill-opacity": (op * fillP).toFixed(3), "shape-rendering": "crispEdges" },
-      });
-    }
+    if (hasFill) out.push(mkFillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h), { "shape-rendering": "crispEdges" }));
     if (hasStroke) {
       if (dashed) {
-        out.push({
-          tag: "rect",
-          attrs: { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h), fill: "none", stroke, "stroke-width": "1", "stroke-dasharray": dashed, opacity: op.toFixed(3), "shape-rendering": "crispEdges" },
-        });
+        const sa = { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h), fill: "none", stroke, "stroke-width": "1", "stroke-dasharray": dashed, "shape-rendering": "crispEdges" };
+        if (op < 0.999) sa.opacity = op.toFixed(3);
+        out.push({ tag: "rect", attrs: sa });
       } else {
         const baseRgb = parseRgb(hasFill ? fill : G.P.surface, G.isDark ? [26, 32, 44] : [224, 224, 224]);
         const hiCol = G.isDark ? rgba(mixRgb(baseRgb, [255, 255, 255], 0.34), 1) : "#ffffff";
         const loCol = G.isDark ? rgba(mixRgb(baseRgb, [0, 0, 0], 0.68), 1) : "#404040";
         const x0 = Math.round(x) + 0.5, y0 = Math.round(y) + 0.5, x1 = Math.round(x + w) - 0.5, y1 = Math.round(y + h) - 0.5;
-        out.push({ tag: "path", attrs: { d: `M ${x0} ${y1} V ${y0} H ${x1}`, fill: "none", stroke: hiCol, "stroke-width": "1.4", opacity: op.toFixed(3), "shape-rendering": "crispEdges" } });
-        out.push({ tag: "path", attrs: { d: `M ${x0} ${y1} H ${x1} V ${y0}`, fill: "none", stroke: loCol, "stroke-width": "1.5", opacity: op.toFixed(3), "shape-rendering": "crispEdges" } });
+        const p1 = { d: `M ${x0} ${y1} V ${y0} H ${x1}`, fill: "none", stroke: hiCol, "stroke-width": "1.4", "shape-rendering": "crispEdges" };
+        const p2 = { d: `M ${x0} ${y1} H ${x1} V ${y0}`, fill: "none", stroke: loCol, "stroke-width": "1.5", "shape-rendering": "crispEdges" };
+        if (op < 0.999) { p1.opacity = op.toFixed(3); p2.opacity = op.toFixed(3); }
+        out.push({ tag: "path", attrs: p1 }, { tag: "path", attrs: p2 });
         if (w >= 28 && h >= 22) {
-          out.push({ tag: "path", attrs: { d: `M ${x0 + 1.2} ${y1 - 1.2} H ${x1 - 1.2} V ${y0 + 1.2}`, fill: "none", stroke, "stroke-width": "1", opacity: (op * 0.85).toFixed(3), "shape-rendering": "crispEdges" } });
+          out.push({ tag: "path", attrs: { d: `M ${f2(x0 + 1.2)} ${f2(y1 - 1.2)} H ${f2(x1 - 1.2)} V ${f2(y0 + 1.2)}`, fill: "none", stroke, "stroke-width": "1", opacity: (op * 0.85).toFixed(3), "shape-rendering": "crispEdges" } });
         }
       }
     }
@@ -972,9 +1047,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
       const shOp = G.isDark ? op * 0.28 : op * 0.65;
       out.push({ tag: "rect", attrs: { x: rx + 3, y: ry + 3, width: rw, height: rh, fill: shCol, opacity: shOp.toFixed(3), "shape-rendering": "crispEdges" } });
     }
-    if (hasFill) {
-      out.push({ tag: "rect", attrs: { x: rx, y: ry, width: rw, height: rh, fill, "fill-opacity": (op * fillP).toFixed(3), "shape-rendering": "crispEdges" } });
-    }
+    if (hasFill) out.push(mkFillRect(rx, ry, rw, rh, { "shape-rendering": "crispEdges" }));
     if (hasStroke) {
       const sa = { x: rx, y: ry, width: rw, height: rh, fill: "none", stroke, "stroke-width": Math.max(2, Math.round(sw)), "shape-rendering": "crispEdges" };
       if (dashed) sa["stroke-dasharray"] = dashed;
@@ -986,61 +1059,80 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 
   if (G.panel === "scroll" && !isCell && !dashed && w >= 72 && h >= 36) {
     if (hasFill) {
-      const fa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP * 0.85).toFixed(3) };
-      if (G.multiply && !isSolidAccent) fa.style = "mix-blend-mode:multiply";
-      out.push({ tag: "rect", attrs: fa });
+      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : {};
+      out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra, 0.85));
     }
     if (hasStroke) {
       const ext = Math.min(5, w * 0.02);
       const wVis = w * progress;
-      out.push({ tag: "line", attrs: { x1: (x - ext).toFixed(2), y1: y.toFixed(2), x2: (x + wVis + ext).toFixed(2), y2: y.toFixed(2), stroke, "stroke-width": (sw * 1.12).toFixed(2), opacity: op.toFixed(3) } });
-      out.push({ tag: "line", attrs: { x1: (x - ext).toFixed(2), y1: (y + h).toFixed(2), x2: (x + wVis + ext).toFixed(2), y2: (y + h).toFixed(2), stroke, "stroke-width": (sw * 1.12).toFixed(2), opacity: op.toFixed(3) } });
-      out.push({ tag: "line", attrs: { x1: x.toFixed(2), y1: y.toFixed(2), x2: x.toFixed(2), y2: (y + h * progress).toFixed(2), stroke, "stroke-width": (sw * 0.65).toFixed(2), opacity: (op * 0.52).toFixed(3) } });
-      out.push({ tag: "line", attrs: { x1: (x + w).toFixed(2), y1: y.toFixed(2), x2: (x + w).toFixed(2), y2: (y + h * progress).toFixed(2), stroke, "stroke-width": (sw * 0.65).toFixed(2), opacity: (op * 0.52).toFixed(3) } });
+      const topA = { x1: f2(x - ext), y1: f2(y), x2: f2(x + wVis + ext), y2: f2(y), stroke, "stroke-width": f2(sw * 1.12) };
+      const botA = { x1: f2(x - ext), y1: f2(y + h), x2: f2(x + wVis + ext), y2: f2(y + h), stroke, "stroke-width": f2(sw * 1.12) };
+      if (op < 0.999) { topA.opacity = op.toFixed(3); botA.opacity = op.toFixed(3); }
+      out.push({ tag: "line", attrs: topA }, { tag: "line", attrs: botA });
+      out.push({ tag: "line", attrs: { x1: f2(x), y1: f2(y), x2: f2(x), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
+      out.push({ tag: "line", attrs: { x1: f2(x + w), y1: f2(y), x2: f2(x + w), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
     }
     return out;
   }
 
-  if (G.panel === "inlay" && !isCell && !dashed && w >= 76 && h >= 36) {
+  if ((G.panel === "cartouche" || G.panel === "inlay") && !isCell && !dashed && w >= 76 && h >= 36) {
     if (hasFill) {
-      const fa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP).toFixed(3) };
-      if (G.multiply && !isSolidAccent) fa.style = "mix-blend-mode:multiply";
-      out.push({ tag: "rect", attrs: fa });
+      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : {};
+      out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra));
     }
     if (hasStroke) {
-      const sa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill: "none", stroke, "stroke-width": sw.toFixed(2) };
+      const sa = { x: f2(x), y: f2(y), width: f2(w), height: f2(h), fill: "none", stroke, "stroke-width": f2(sw) };
       if (progress < 0.999) { sa.pathLength = "1"; sa["stroke-dasharray"] = "1 1"; sa["stroke-dashoffset"] = (1 - progress).toFixed(4); }
       if (op < 0.999) sa.opacity = op.toFixed(3);
       out.push({ tag: "rect", attrs: sa });
       if (progress > 0.7) {
         const ins = 3.5;
-        out.push({
-          tag: "rect",
-          attrs: { x: (x + ins).toFixed(2), y: (y + ins).toFixed(2), width: (w - ins * 2).toFixed(2), height: (h - ins * 2).toFixed(2), fill: "none", stroke, "stroke-width": Math.max(0.75, sw * 0.45).toFixed(2), opacity: (op * 0.55).toFixed(3) },
-        });
+        const innerSw = f2(Math.max(0.75, sw * 0.45));
+        if (G.panel === "cartouche") {
+          // Palace / manuscript / mosque stepped corner-notch jadval frame
+          const k = f2(Math.min(7.5, w * 0.05, h * 0.14));
+          const x0 = x + ins, y0 = y + ins, x1 = x + w - ins, y1 = y + h - ins;
+          const cd = [
+            `M ${f2(x0 + k)} ${f2(y0)} H ${f2(x1 - k)} V ${f2(y0 + k)} H ${f2(x1)} V ${f2(y1 - k)} H ${f2(x1 - k)} V ${f2(y1)} H ${f2(x0 + k)} V ${f2(y1 - k)} H ${f2(x0)} V ${f2(y0 + k)} H ${f2(x0 + k)} Z`,
+          ].join(" ");
+          out.push({
+            tag: "path",
+            attrs: { d: cd, fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.58).toFixed(3) },
+          });
+        } else {
+          // Yosegi / Kumiko mitered wood-joinery double frame + 4 corner miter hairlines
+          const x0 = f2(x + ins), y0 = f2(y + ins), x1 = f2(x + w - ins), y1 = f2(y + h - ins);
+          const md = `M ${f2(x)} ${f2(y)} L ${x0} ${y0} M ${f2(x + w)} ${f2(y)} L ${x1} ${y0} M ${f2(x)} ${f2(y + h)} L ${x0} ${y1} M ${f2(x + w)} ${f2(y + h)} L ${x1} ${y1}`;
+          out.push({
+            tag: "rect",
+            attrs: { x: x0, y: y0, width: f2(w - ins * 2), height: f2(h - ins * 2), fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.55).toFixed(3) },
+          });
+          out.push({
+            tag: "path",
+            attrs: { d: md, fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.45).toFixed(3) },
+          });
+        }
       }
     }
     return out;
   }
 
   if (G.panel === "graticule" && !isCell && !dashed && w >= 64 && h >= 32) {
-    if (hasFill) {
-      out.push({ tag: "rect", attrs: { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP).toFixed(3) } });
-    }
+    if (hasFill) out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h)));
     if (hasStroke) {
-      out.push({ tag: "rect", attrs: { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill: "none", stroke, "stroke-width": (sw * 0.65).toFixed(2), opacity: (op * 0.42).toFixed(3) } });
+      out.push({ tag: "rect", attrs: { x: f2(x), y: f2(y), width: f2(w), height: f2(h), fill: "none", stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.42).toFixed(3) } });
       const b = Math.min(10, w * 0.12, h * 0.24);
       const x1 = x + w, y1 = y + h;
-      const d = `M ${x.toFixed(2)} ${(y + b).toFixed(2)} V ${y.toFixed(2)} H ${(x + b).toFixed(2)} M ${(x1 - b).toFixed(2)} ${y.toFixed(2)} H ${x1.toFixed(2)} V ${(y + b).toFixed(2)} M ${x.toFixed(2)} ${(y1 - b).toFixed(2)} V ${y1.toFixed(2)} H ${(x + b).toFixed(2)} M ${(x1 - b).toFixed(2)} ${y1.toFixed(2)} H ${x1.toFixed(2)} V ${(y1 - b).toFixed(2)}`;
-      out.push({ tag: "path", attrs: { d, fill: "none", stroke, "stroke-width": (sw * 1.25).toFixed(2), opacity: op.toFixed(3) } });
+      const d = `M ${f2(x)} ${f2(y + b)} V ${f2(y)} H ${f2(x + b)} M ${f2(x1 - b)} ${f2(y)} H ${f2(x1)} V ${f2(y + b)} M ${f2(x)} ${f2(y1 - b)} V ${f2(y1)} H ${f2(x + b)} M ${f2(x1 - b)} ${f2(y1)} H ${f2(x1)} V ${f2(y1 - b)}`;
+      const ca = { d, fill: "none", stroke, "stroke-width": f2(sw * 1.25) };
+      if (op < 0.999) ca.opacity = op.toFixed(3);
+      out.push({ tag: "path", attrs: ca });
     }
     return out;
   }
 
   if (G.panel === "stone" && !dashed && w >= 12 && h >= 12) {
-    if (hasFill) {
-      out.push({ tag: "rect", attrs: { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP).toFixed(3) } });
-    }
+    if (hasFill) out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h)));
     if (hasStroke) {
       const drawable = roughGen.rectangle(x, y, w, h, {
         stroke,
@@ -1051,7 +1143,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
         seed,
       });
       for (const p of roughGen.toPaths(drawable)) {
-        const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": Number(p.strokeWidth || sw).toFixed(2) };
+        const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": f2(Number(p.strokeWidth || sw)) };
         if (progress < 0.999) {
           pa.pathLength = "1";
           pa["stroke-dasharray"] = "1 1";
@@ -1066,12 +1158,11 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 
   // Default hairline / scroll cell / dashed panel
   if (hasFill) {
-    const fa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill, "fill-opacity": (op * fillP).toFixed(3) };
-    if (G.multiply && !isSolidAccent && colorDist(fill, G.P.bg) > 8) fa.style = "mix-blend-mode:multiply";
-    out.push({ tag: "rect", attrs: fa });
+    const extra = G.multiply && !isSolidAccent && colorDist(fill, G.P.bg) > 8 ? { style: "mix-blend-mode:multiply" } : {};
+    out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra));
   }
   if (hasStroke) {
-    const sa = { x: x.toFixed(2), y: y.toFixed(2), width: w.toFixed(2), height: h.toFixed(2), fill: "none", stroke, "stroke-width": sw.toFixed(2) };
+    const sa = { x: f2(x), y: f2(y), width: f2(w), height: f2(h), fill: "none", stroke, "stroke-width": f2(sw) };
     if (dashed) sa["stroke-dasharray"] = dashed;
     else if (progress < 0.999) {
       sa.pathLength = "1"; sa["stroke-dasharray"] = "1 1"; sa["stroke-dashoffset"] = (1 - progress).toFixed(4);
@@ -1085,7 +1176,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 /**
  * 5. Semantic Shaded Region / Polygon / Bar (`region`)
  * Materializes fills according to --pf-mark-fill using Rough.js hachures,
- * yunran washes, manga screentones, CRT scanlines, stipples, and 8-bit dithers.
+ * directional yunran washes, manga screentones, CRT scanlines, stipples, and 8-bit dithers.
  */
 export function buildRegionSpec(points, G, opts = {}) {
   if (!Array.isArray(points) || points.length < 3) return [];
@@ -1102,19 +1193,18 @@ export function buildRegionSpec(points, G, opts = {}) {
   const sw = Number(opts.strokeWidth ?? (stroke !== "none" ? 1.5 : 0));
   const dashed = opts.dash || "";
 
-  const ptsAttr = points.map(([px, py]) => `${px.toFixed(2)},${py.toFixed(2)}`).join(" ");
+  const ptsAttr = points.map(([px, py]) => `${f2(px)},${f2(py)}`).join(" ");
   const out = [];
 
   if (!fill || fill === "none" || fill.startsWith("url(")) {
     const a = { points: ptsAttr, fill: fill || "none" };
-    if (stroke && stroke !== "none" && sw > 0) { a.stroke = stroke; a["stroke-width"] = sw.toFixed(2); }
+    if (stroke && stroke !== "none" && sw > 0) { a.stroke = stroke; a["stroke-width"] = f2(sw); }
     if (dashed) a["stroke-dasharray"] = dashed;
     if (op * fillP < 0.999) a.opacity = (op * fillP).toFixed(3);
     out.push({ tag: "polygon", attrs: a });
     return out;
   }
 
-  // Classify semantic weight from fill contrast against paper background
   const distBg = colorDist(fill, G.P.bg);
   const distFg = colorDist(fill, G.P.fg);
   const isNearInk = (role === "ink" && distFg < 45) || (!G.isDark && luminance(fill) < 48 && distFg < 45);
@@ -1136,16 +1226,20 @@ export function buildRegionSpec(points, G, opts = {}) {
     if (op * fillP < 0.999) a.opacity = (op * fillP).toFixed(3);
     out.push({ tag: "polygon", attrs: a });
   }
-  // Fill Mode B: Graded Yunran (晕染) / Bokashi ink & mineral wash fading into paper breath
+  // Fill Mode B: Directional Yunran (晕染) / Bokashi ink & mineral wash
+  // Horizontal bars pool ink toward the right tome (止め) endpoint for crisp quantitative reading;
+  // vertical / mountain regions pool ink at the crest and breathe into paper below.
   else if (G.fill === "wash") {
     if (weight === "solid") {
       out.push({ tag: "polygon", attrs: { points: ptsAttr, fill, opacity: (op * fillP * 0.92).toFixed(3) } });
     } else {
       const washInk = isCaveat ? G.P.terracotta : weight === "subtle" ? G.P.muted : (distBg > 125 ? fill : G.P.slate);
       const darkScale = G.isDark ? 0.62 : 1.0;
-      const topAlpha = (weight === "strong" ? 0.68 : weight === "medium" ? 0.36 : 0.20) * darkScale;
-      const midAlpha = (weight === "strong" ? 0.38 : weight === "medium" ? 0.18 : 0.10) * darkScale;
-      const botAlpha = (weight === "strong" ? 0.12 : 0.03) * darkScale;
+      const isHorizBar = bounds.w > bounds.h * 2.1 && points.length <= 6;
+      const hiA = (weight === "strong" ? 0.72 : weight === "medium" ? 0.40 : 0.22) * darkScale;
+      const midA = (weight === "strong" ? 0.42 : weight === "medium" ? 0.22 : 0.12) * darkScale;
+      const loA = (weight === "strong" ? 0.18 : 0.06) * darkScale;
+      const stops = isHorizBar ? [loA * 1.15, midA, hiA] : [hiA, midA, loA];
       const effOp = weight === "strong" ? op * fillP : op * clamp(fillP * 1.35, 0, 1);
       const a = {
         points: ptsAttr,
@@ -1153,15 +1247,19 @@ export function buildRegionSpec(points, G, opts = {}) {
         opacity: effOp.toFixed(3),
       };
       if (G.multiply) a.style = "mix-blend-mode:multiply";
-      out.push({ tag: "polygon", attrs: a, wash: { color: washInk, stops: [topAlpha, midAlpha, botAlpha], bounds } });
+      out.push({ tag: "polygon", attrs: a, wash: { color: washInk, dir: isHorizBar ? "h" : "v", stops, bounds } });
     }
   }
   // Fill Mode C: Manga 45-deg halftone screentone + slash hachure on caveats
   else if (G.fill === "screentone") {
     if (weight === "solid") {
-      out.push({ tag: "polygon", attrs: { points: ptsAttr, fill: G.P.fg, opacity: (op * fillP).toFixed(3) } });
+      const sa = { points: ptsAttr, fill: G.P.fg };
+      if (op * fillP < 0.999) sa.opacity = (op * fillP).toFixed(3);
+      out.push({ tag: "polygon", attrs: sa });
     } else if (isCaveat) {
-      out.push({ tag: "polygon", attrs: { points: ptsAttr, fill: G.P.bg, opacity: (op * fillP).toFixed(3) } });
+      const ba = { points: ptsAttr, fill: G.P.bg };
+      if (op * fillP < 0.999) ba.opacity = (op * fillP).toFixed(3);
+      out.push({ tag: "polygon", attrs: ba });
       const d = roughGen.polygon(points, {
         stroke: "none",
         fill: G.P.terracotta,
@@ -1175,18 +1273,17 @@ export function buildRegionSpec(points, G, opts = {}) {
       });
       for (const p of roughGen.toPaths(d)) {
         if (p.stroke && p.stroke !== "none") {
-          out.push({ tag: "path", attrs: { d: p.d, fill: "none", stroke: p.stroke, "stroke-width": Number(p.strokeWidth || 1.1).toFixed(2), opacity: (op * clamp(fillP * 1.25, 0, 1) * 0.85).toFixed(3) } });
+          out.push({ tag: "path", attrs: { d: p.d, fill: "none", stroke: p.stroke, "stroke-width": f2(Number(p.strokeWidth || 1.1)), opacity: (op * clamp(fillP * 1.25, 0, 1) * 0.85).toFixed(3) } });
         }
       }
     } else {
       const density = weight === "strong" ? 34 : weight === "medium" ? 22 : 12;
+      const pa = { points: ptsAttr, fill };
+      const pOp = op * clamp(fillP * 1.35, 0, 1);
+      if (pOp < 0.999) pa.opacity = pOp.toFixed(3);
       out.push({
         tag: "polygon",
-        attrs: {
-          points: ptsAttr,
-          fill,
-          opacity: (op * clamp(fillP * 1.35, 0, 1)).toFixed(3),
-        },
+        attrs: pa,
         pattern: { kind: "screentone", density, fg: G.P.fg, bg: G.P.bg },
       });
     }
@@ -1194,18 +1291,18 @@ export function buildRegionSpec(points, G, opts = {}) {
   // Fill Mode D: Pixel Bayer Dither (pixel-8bit, win2000) across strong/medium/subtle
   else if (G.fill === "dither") {
     if (weight === "solid") {
-      out.push({ tag: "polygon", attrs: { points: ptsAttr, fill, opacity: (op * fillP).toFixed(3), "shape-rendering": "crispEdges" } });
+      const sa = { points: ptsAttr, fill, "shape-rendering": "crispEdges" };
+      if (op * fillP < 0.999) sa.opacity = (op * fillP).toFixed(3);
+      out.push({ tag: "polygon", attrs: sa });
     } else {
       const density = weight === "strong" ? 50 : weight === "medium" ? 25 : 12;
       const fgCol = isCaveat ? G.P.terracotta : distBg > 85 ? fill : G.P.slate;
+      const pa = { points: ptsAttr, fill, "shape-rendering": "crispEdges" };
+      const pOp = op * clamp(fillP * (weight === "strong" ? 1.0 : 1.25), 0, 1);
+      if (pOp < 0.999) pa.opacity = pOp.toFixed(3);
       out.push({
         tag: "polygon",
-        attrs: {
-          points: ptsAttr,
-          fill,
-          opacity: (op * clamp(fillP * (weight === "strong" ? 1.0 : 1.25), 0, 1)).toFixed(3),
-          "shape-rendering": "crispEdges",
-        },
+        attrs: pa,
         pattern: { kind: "dither", density, fg: fgCol, bg: G.P.bg },
       });
     }
@@ -1258,7 +1355,6 @@ export function buildRegionSpec(points, G, opts = {}) {
         lineCol = weight === "solid" ? fill : inkLineCol;
         lineAlpha = weight === "solid" ? 0.85 : weight === "strong" ? 0.62 : 0.42;
       } else {
-        // hachure (woodblock, etching, blueprint, expressionist)
         gap = weight === "strong" ? G.gap * 0.85 : weight === "subtle" ? G.gap * 1.35 : G.gap;
         fw = weight === "strong" ? 1.1 : 0.9;
         lineAlpha = weight === "subtle" ? 0.26 : 0.46;
@@ -1284,7 +1380,7 @@ export function buildRegionSpec(points, G, opts = {}) {
             d: p.d,
             fill: "none",
             stroke: p.stroke,
-            "stroke-width": Number(p.strokeWidth || fw).toFixed(2),
+            "stroke-width": f2(Number(p.strokeWidth || fw)),
             opacity: (op * fillP * lineAlpha).toFixed(3),
           };
           if (extraDash) {
@@ -1297,7 +1393,6 @@ export function buildRegionSpec(points, G, opts = {}) {
     }
   }
 
-  // Optional region boundary stroke
   if (stroke && stroke !== "none" && sw > 0) {
     const closedPts = points.concat([points[0]]);
     out.push(...buildCurveSpec(closedPts, G, { stroke, strokeWidth: sw, dash: dashed, opacity: op, seed: seed + 3 }));
@@ -1308,8 +1403,6 @@ export function buildRegionSpec(points, G, opts = {}) {
 
 /**
  * 6. Semantic Curve / Trajectory / Connector / Segment (`curve`)
- * Uses perfect-freehand for calligraphic brush & G-pen ink modulation and
- * Rough.js for chiseled / stone-cut paths, while preserving dashed lines & draw-in.
  */
 export function buildCurveSpec(pointsOrPath, G, opts = {}) {
   const op = clamp(opts.opacity ?? 1, 0, 1);
@@ -1326,7 +1419,6 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
   const isStringPath = typeof pointsOrPath === "string";
   const subpaths = isStringPath && !dashed ? sampleSvgSubpaths(pointsOrPath) : null;
 
-  // Multi-subpath SVG string (e.g. curly braces / compound glyphs): materialize each subpath smoothly
   if (subpaths && subpaths.length > 1) {
     const lengths = subpaths.map((sp) => {
       let L = 0;
@@ -1349,9 +1441,8 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
 
   const rawPts = isStringPath ? (subpaths ? subpaths[0] : sampleSimpleSvgPath(pointsOrPath)) : pointsOrPath;
 
-  // Dashed curves keep explicit stroke-dasharray so mathematical semantics stay exact
   if (dashed || (!rawPts && isStringPath)) {
-    const attrs = { fill: "none", stroke, "stroke-width": sw.toFixed(2) };
+    const attrs = { fill: "none", stroke, "stroke-width": f2(sw) };
     if (dashed) attrs["stroke-dasharray"] = dashed;
     else if (progress < 0.999) {
       attrs.pathLength = "1"; attrs["stroke-dasharray"] = "1 1"; attrs["stroke-dashoffset"] = (1 - progress).toFixed(4);
@@ -1363,9 +1454,9 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     if (isStringPath) return [{ tag: "path", attrs: { d: pointsOrPath, ...attrs } }];
     if (!rawPts || rawPts.length < 2) return [];
     if (rawPts.length === 2) {
-      return [{ tag: "line", attrs: { x1: rawPts[0][0].toFixed(2), y1: rawPts[0][1].toFixed(2), x2: rawPts[1][0].toFixed(2), y2: rawPts[1][1].toFixed(2), ...attrs } }];
+      return [{ tag: "line", attrs: { x1: f2(rawPts[0][0]), y1: f2(rawPts[0][1]), x2: f2(rawPts[1][0]), y2: f2(rawPts[1][1]), ...attrs } }];
     }
-    return [{ tag: "polyline", attrs: { points: rawPts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "), ...attrs } }];
+    return [{ tag: "polyline", attrs: { points: rawPts.map(([x, y]) => `${f2(x)},${f2(y)}`).join(" "), ...attrs } }];
   }
 
   const pts = slicePolyline(rawPts, progress);
@@ -1377,7 +1468,6 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
   }
   if (totalLen < 0.5) return [];
 
-  // Calligraphic Brush or G-Pen (min 26px protects tiny '×' crosses, ticks & serifs)
   const minBrushLen = opts.forceBrush ? 8 : 26;
   if ((G.stroke === "brush" || G.stroke === "gpen") && totalLen >= minBrushLen && sw >= 1.35) {
     const isBrush = G.stroke === "brush";
@@ -1422,7 +1512,6 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     }
   }
 
-  // Stone Chisel / Textured Stroke via Rough.js (min 24px keeps small glyphs clean)
   if (G.stroke === "chisel" && totalLen >= 24) {
     const drawable = roughGen.linearPath(pts, {
       stroke,
@@ -1434,14 +1523,13 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     });
     const out = [];
     for (const p of roughGen.toPaths(drawable)) {
-      const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": Number(p.strokeWidth || sw).toFixed(2) };
+      const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": f2(Number(p.strokeWidth || sw)) };
       if (op < 0.999) pa.opacity = op.toFixed(3);
       out.push({ tag: "path", attrs: pa });
     }
     if (out.length) return out;
   }
 
-  // Pixel-quantized crisp stroke
   if (G.stroke === "pixel") {
     const q = (v) => Math.round(v);
     if (pts.length === 2) {
@@ -1454,25 +1542,120 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     return [{ tag: "polyline", attrs: a }];
   }
 
-  // Crisp analytical stroke (Swiss, geometric, oscilloscope, win2000)
   if (isStringPath && progress >= 0.999) {
-    const a = { d: pointsOrPath, fill: "none", stroke, "stroke-width": sw.toFixed(2) };
+    const a = { d: pointsOrPath, fill: "none", stroke, "stroke-width": f2(sw) };
     if (opts.lineCap) a["stroke-linecap"] = opts.lineCap;
     if (opts.lineJoin) a["stroke-linejoin"] = opts.lineJoin;
     if (op < 0.999) a.opacity = op.toFixed(3);
     return [{ tag: "path", attrs: a }];
   }
   if (pts.length === 2) {
-    const a = { x1: pts[0][0].toFixed(2), y1: pts[0][1].toFixed(2), x2: pts[1][0].toFixed(2), y2: pts[1][1].toFixed(2), stroke, "stroke-width": sw.toFixed(2) };
+    const a = { x1: f2(pts[0][0]), y1: f2(pts[0][1]), x2: f2(pts[1][0]), y2: f2(pts[1][1]), stroke, "stroke-width": f2(sw) };
     if (opts.lineCap) a["stroke-linecap"] = opts.lineCap;
     if (op < 0.999) a.opacity = op.toFixed(3);
     return [{ tag: "line", attrs: a }];
   }
-  const a = { points: pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "), fill: "none", stroke, "stroke-width": sw.toFixed(2) };
+  const a = { points: pts.map(([x, y]) => `${f2(x)},${f2(y)}`).join(" "), fill: "none", stroke, "stroke-width": f2(sw) };
   if (opts.lineCap) a["stroke-linecap"] = opts.lineCap;
   if (opts.lineJoin) a["stroke-linejoin"] = opts.lineJoin;
   if (op < 0.999) a.opacity = op.toFixed(3);
   return [{ tag: "polyline", attrs: a }];
+}
+
+/**
+ * 7. Semantic Coordinate Axis (`axis`)
+ * Combines shaft, style-matched terminal arrowhead, and optional perpendicular ticks.
+ */
+export function buildAxisSpec(x1, y1, x2, y2, G, opts = {}) {
+  const op = clamp(opts.opacity ?? 1, 0, 1);
+  if (op < 0.002) return [];
+  const role = opts.role || "ink";
+  const stroke = opts.stroke || resolveRoleColor(G, role);
+  const sw = Number(opts.strokeWidth ?? 1.8);
+  const seed = hashSeed(opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`));
+  const out = [];
+
+  const withArrow = opts.arrow !== false;
+  if (withArrow) {
+    const prep = prepareArrowGeometry([[x1, y1], [x2, y2]], G, { ...opts, stroke, strokeWidth: sw });
+    if (prep.shaftInput) {
+      out.push(...buildCurveSpec(prep.shaftInput, G, { ...opts, role, stroke, strokeWidth: sw, progress: prep.shaftProgress, seed }));
+    }
+    if (prep.head) {
+      out.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, G, { role, fill: stroke, size: prep.head.size, opacity: op }));
+    }
+  } else {
+    out.push(...buildCurveSpec([[x1, y1], [x2, y2]], G, { ...opts, role, stroke, strokeWidth: sw, seed }));
+  }
+
+  const ticks = opts.ticks;
+  if (ticks) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len > 1) {
+      const nx = -dy / len, ny = dx / len;
+      const tSize = Number(opts.tickSize ?? 4.5);
+      const uList = Array.isArray(ticks)
+        ? ticks
+        : (() => {
+            const cnt = Math.max(1, Math.min(32, Math.floor(Number(ticks))));
+            const arr = [];
+            for (let i = 1; i <= cnt; i++) arr.push(i / (cnt + 1));
+            return arr;
+          })();
+      for (const u of uList) {
+        if (!(u >= 0 && u <= 1)) continue;
+        const tx = lerp(x1, x2, u), ty = lerp(y1, y2, u);
+        const ta = {
+          x1: f2(tx - nx * tSize * 0.5),
+          y1: f2(ty - ny * tSize * 0.5),
+          x2: f2(tx + nx * tSize * 0.5),
+          y2: f2(ty + ny * tSize * 0.5),
+          stroke,
+          "stroke-width": f2(Math.max(1.1, sw * 0.72)),
+        };
+        if (op < 0.999) ta.opacity = op.toFixed(3);
+        out.push({ tag: "line", attrs: ta });
+      }
+    }
+  }
+  return out;
+}
+
+// ============================================================================
+// Shared Opacity-Invariant Geometry Spec Cache (SVG + Canvas)
+// ============================================================================
+
+const SPEC_CACHE = new Map();
+
+function getCachedUnitSpecs(geomKey, buildUnitFn) {
+  let unit = SPEC_CACHE.get(geomKey);
+  if (unit !== undefined) return unit;
+  const raw = buildUnitFn();
+  unit = raw.map((sp) => {
+    const baseOp = sp.attrs.opacity != null ? Number(sp.attrs.opacity) : 1;
+    const cleanAttrs = { ...sp.attrs };
+    delete cleanAttrs.opacity;
+    return {
+      tag: sp.tag,
+      attrs: cleanAttrs,
+      baseOp,
+      wash: sp.wash || null,
+      pattern: sp.pattern || null,
+      __path2d: null,
+      __nums: null,
+      __perim: -1,
+    };
+  });
+  if (SPEC_CACHE.size >= 1536) {
+    let n = 0;
+    for (const k of SPEC_CACHE.keys()) {
+      SPEC_CACHE.delete(k);
+      if (++n >= 384) break;
+    }
+  }
+  SPEC_CACHE.set(geomKey, unit);
+  return unit;
 }
 
 // ============================================================================
@@ -1530,25 +1713,27 @@ function sweepDefsPool(svgEl) {
   pool.active.clear();
 }
 
-function ensureWashGradient(svgEl, washSpec) {
-  const { color, stops } = washSpec;
+function ensureWashGradient(svgEl, washSpec, defIdsOut) {
+  const { color, dir, stops } = washSpec;
+  const orient = dir === "h" ? "h" : "v";
   const cKey = quantColorKey(color);
   const qRgb = cKey.split("_").map(Number);
   const qColor = `rgb(${qRgb[0]},${qRgb[1]},${qRgb[2]})`;
-  const id = `pf-wash-${cKey}-${stops.map((s) => Math.round(s * 100)).join("-")}`;
+  const id = `pf-wash-${orient}-${cKey}-${stops.map((s) => Math.round(s * 100)).join("-")}`;
   const pool = getDefsPool(svgEl);
   pool.active.add(id);
+  if (defIdsOut) defIdsOut.push(id);
   if (!pool.map.has(id)) {
     const doc = svgEl.ownerDocument;
     const lg = doc.createElementNS(SVG_NS, "linearGradient");
     lg.setAttribute("id", id);
     lg.setAttribute("x1", "0");
     lg.setAttribute("y1", "0");
-    lg.setAttribute("x2", "0");
-    lg.setAttribute("y2", "1");
+    lg.setAttribute("x2", orient === "h" ? "1" : "0");
+    lg.setAttribute("y2", orient === "h" ? "0" : "1");
     [
       ["0%", stops[0]],
-      ["52%", stops[1]],
+      [orient === "h" ? "58%" : "52%", stops[1]],
       ["100%", stops[2]],
     ].forEach(([off, alpha]) => {
       const st = doc.createElementNS(SVG_NS, "stop");
@@ -1564,19 +1749,19 @@ function ensureWashGradient(svgEl, washSpec) {
 }
 
 function getDitherCells(density) {
-  // 3-step Bayer progression on a 4x4 macro tile: 50% -> 25% -> 12.5%
   if (density >= 45) return [[0, 0, 2, 2], [2, 2, 2, 2]];
   if (density >= 20) return [[0, 0, 2, 2]];
   return [[0, 0, 1, 1], [2, 2, 1, 1]];
 }
 
-function ensurePatternDef(svgEl, patSpec) {
+function ensurePatternDef(svgEl, patSpec, defIdsOut) {
   const { kind, density, fg, bg } = patSpec;
   const fgKey = quantColorKey(fg);
   const bgKey = quantColorKey(bg);
   const id = `pf-pat-${kind}-${density}-${fgKey}-${bgKey}`;
   const pool = getDefsPool(svgEl);
   pool.active.add(id);
+  if (defIdsOut) defIdsOut.push(id);
   if (!pool.map.has(id)) {
     const doc = svgEl.ownerDocument;
     const pat = doc.createElementNS(SVG_NS, "pattern");
@@ -1635,8 +1820,25 @@ function hostSignature(el) {
   return `${s1}|${s2}|${t1}|${t2}`;
 }
 
+function applyRecycledAlpha(node, alpha) {
+  const targets = node.__pfAlphaTargets;
+  if (!targets) return;
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    const eff = alpha * t.baseOp;
+    if (eff < 0.999) {
+      t.el.setAttribute("opacity", eff.toFixed(3));
+    } else if (t.hadOp) {
+      t.el.removeAttribute("opacity");
+    }
+    t.hadOp = eff < 0.999;
+  }
+}
+
 /**
  * Create a semantic SVG mark emitter bound to `svgEl` and theme tokens on `hostEl`.
+ * Automatically recycles detached SVG DOM nodes across `beginFrame()` ticks so
+ * unchanged and opacity-fading marks perform zero path generation or DOM allocation.
  */
 export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   const doc = svgEl.ownerDocument;
@@ -1644,6 +1846,9 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   let cachedG = null;
   let lastOverrides = undefined;
   let lastSig = "";
+  let inFrame = false;
+  let prevPool = new Map();
+  let activePool = new Map();
 
   function syncGrammar(overrides = grammarOverrides) {
     cachedG = markGrammar(target, overrides);
@@ -1653,6 +1858,9 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   }
 
   function beginFrame(overrides = grammarOverrides) {
+    inFrame = true;
+    prevPool = activePool;
+    activePool = new Map();
     sweepDefsPool(svgEl);
     const sig = hostSignature(target);
     if (cachedG && overrides === lastOverrides && sig === lastSig) {
@@ -1661,27 +1869,81 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     return syncGrammar(overrides);
   }
 
-  function materializeSpecs(specs, className) {
-    if (!specs || specs.length === 0) {
+  function storeActive(poolKey, node) {
+    let bucket = activePool.get(poolKey);
+    if (!bucket) {
+      bucket = [];
+      activePool.set(poolKey, bucket);
+    }
+    bucket.push(node);
+  }
+
+  function materializeUnitSpecs(unitSpecs, className, forceGroup = false) {
+    if (!unitSpecs || unitSpecs.length === 0) {
       return doc.createElementNS(SVG_NS, "g");
     }
+    const alphaTargets = [];
+    const defIds = [];
     const mkNode = (sp) => {
       const node = doc.createElementNS(SVG_NS, sp.tag);
       for (const [k, v] of Object.entries(sp.attrs)) {
         node.setAttribute(k, String(v));
       }
       if (sp.wash) {
-        node.setAttribute("fill", ensureWashGradient(svgEl, sp.wash));
+        node.setAttribute("fill", ensureWashGradient(svgEl, sp.wash, defIds));
       } else if (sp.pattern) {
-        node.setAttribute("fill", ensurePatternDef(svgEl, sp.pattern));
+        node.setAttribute("fill", ensurePatternDef(svgEl, sp.pattern, defIds));
       }
+      alphaTargets.push({ el: node, baseOp: sp.baseOp, hadOp: false });
       return node;
     };
-    if (specs.length === 1 && !className) return mkNode(specs[0]);
-    const g = doc.createElementNS(SVG_NS, "g");
-    if (className) g.setAttribute("class", className);
-    for (const sp of specs) g.appendChild(mkNode(sp));
-    return g;
+    let rootNode;
+    if (unitSpecs.length === 1 && !className && !forceGroup) {
+      rootNode = mkNode(unitSpecs[0]);
+    } else {
+      const g = doc.createElementNS(SVG_NS, "g");
+      if (className) g.setAttribute("class", className);
+      for (let i = 0; i < unitSpecs.length; i++) g.appendChild(mkNode(unitSpecs[i]));
+      rootNode = g;
+    }
+    rootNode.__pfAlphaTargets = alphaTargets;
+    rootNode.__pfDefIds = defIds.length ? defIds : null;
+    rootNode.__pfQOp = -1;
+    return rootNode;
+  }
+
+  function emit(geomKey, rawOp, className, buildUnitFn, forceGroup = false) {
+    const alpha = clamp(rawOp ?? 1, 0, 1);
+    if (alpha < 0.002) return doc.createElementNS(SVG_NS, "g");
+    const qOp = Math.round(alpha * 1000);
+    const poolKey = className || forceGroup ? `${geomKey}|c:${className || ""}|g:${forceGroup ? 1 : 0}` : geomKey;
+
+    if (inFrame) {
+      const bucket = prevPool.get(poolKey);
+      while (bucket && bucket.length > 0) {
+        const cand = bucket.pop();
+        if (!cand.parentNode) {
+          if (cand.__pfDefIds) {
+            const dp = getDefsPool(svgEl);
+            for (let i = 0; i < cand.__pfDefIds.length; i++) dp.active.add(cand.__pfDefIds[i]);
+          }
+          if (cand.__pfQOp !== qOp) {
+            applyRecycledAlpha(cand, alpha);
+            cand.__pfQOp = qOp;
+          }
+          storeActive(poolKey, cand);
+          return cand;
+        }
+      }
+    }
+
+    const unitSpecs = getCachedUnitSpecs(geomKey, buildUnitFn);
+    if (!unitSpecs.length) return doc.createElementNS(SVG_NS, "g");
+    const node = materializeUnitSpecs(unitSpecs, className, forceGroup);
+    applyRecycledAlpha(node, alpha);
+    node.__pfQOp = qOp;
+    if (inFrame) storeActive(poolKey, node);
+    return node;
   }
 
   const G = () => cachedG || syncGrammar();
@@ -1691,63 +1953,97 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     beginFrame,
     syncGrammar,
     dot(cx, cy, r, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? fnv1aSeed(`dot:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      return materializeSpecs(buildDotSpec(cx, cy, r, G(), { ...opts, seed }), opts.className);
+      const gk = `dot|${curG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildDotSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }));
     },
     ring(cx, cy, r, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? fnv1aSeed(`ring:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      return materializeSpecs(buildRingSpec(cx, cy, r, G(), { ...opts, seed }), opts.className);
+      const gk = `ring|${curG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildRingSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }));
     },
     arrowHead(x, y, angle, opts = {}) {
-      return materializeSpecs(buildArrowHeadSpec(x, y, angle, G(), opts), opts.className);
+      const curG = G();
+      const gk = `ah|${curG.key}|${f2(x)},${f2(y)},${Math.round(angle * 1000)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.size ?? ""}`;
+      return emit(gk, opts.opacity, opts.className, () => buildArrowHeadSpec(x, y, angle, curG, { ...opts, opacity: 1 }));
     },
     panel(x, y, w, h, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? fnv1aSeed(`panel:${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}`);
-      return materializeSpecs(buildPanelSpec(x, y, w, h, G(), { ...opts, seed }), opts.className);
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `pan|${curG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.isCell ? 1 : 0}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, w, h, curG, { ...opts, opacity: 1, seed }));
     },
     cell(x, y, size, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? fnv1aSeed(`cell:${Math.round(x)}:${Math.round(y)}:${Math.round(size)}`);
-      return materializeSpecs(buildPanelSpec(x, y, size, size, G(), { ...opts, isCell: true, seed }), opts.className);
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `cell|${curG.key}|${f2(x)},${f2(y)},${f2(size)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, size, size, curG, { ...opts, isCell: true, opacity: 1, seed }));
     },
     region(points, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? (Array.isArray(points) && points.length
         ? fnv1aSeed(`reg:${Math.round(points[0][0])}:${Math.round(points[0][1])}:${points.length}:${opts.role || ""}`)
         : 29);
-      return materializeSpecs(buildRegionSpec(points, G(), { ...opts, seed }), opts.className);
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `reg|${curG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildRegionSpec(points, curG, { ...opts, opacity: 1, seed }));
     },
     bar(x, y, w, h, opts = {}) {
+      const curG = G();
       const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
       const seed = opts.seed ?? fnv1aSeed(`bar:${Math.round(x)}:${Math.round(y + h)}:${opts.role || ""}`);
-      return materializeSpecs(buildRegionSpec(pts, G(), { ...opts, seed }), opts.className);
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `bar|${curG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildRegionSpec(pts, curG, { ...opts, opacity: 1, seed }));
     },
     curve(pointsOrPath, opts = {}) {
+      const curG = G();
       const seed = polylineAnchorSeed("crv", pointsOrPath, opts.seed);
-      return materializeSpecs(buildCurveSpec(pointsOrPath, G(), { ...opts, seed }), opts.className);
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `crv|${curG.key}|${serializePointsKey(pointsOrPath)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${opts.lineJoin || ""}|${opts.forceBrush ? 1 : 0}|${progQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildCurveSpec(pointsOrPath, curG, { ...opts, opacity: 1, seed }));
     },
     segment(x1, y1, x2, y2, opts = {}) {
+      const curG = G();
       const seed = opts.seed ?? fnv1aSeed(`seg:${Math.round(x1)}:${Math.round(y1)}:${Math.round(Math.atan2(y2 - y1, x2 - x1) * 32)}`);
-      return materializeSpecs(buildCurveSpec([[x1, y1], [x2, y2]], G(), { ...opts, seed }), opts.className);
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `seg|${curG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${progQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildCurveSpec([[x1, y1], [x2, y2]], curG, { ...opts, opacity: 1, seed }));
     },
     arrow(points, opts = {}) {
-      const g = doc.createElementNS(SVG_NS, "g");
-      if (opts.className) g.setAttribute("class", opts.className);
       const curG = G();
       const seed = polylineAnchorSeed("arr", points, opts.seed);
-      const prep = prepareArrowGeometry(points, curG, opts);
-      if (prep.shaftInput) {
-        const shaft = buildCurveSpec(prep.shaftInput, curG, { ...opts, progress: prep.shaftProgress, seed });
-        for (const sp of shaft) g.appendChild(materializeSpecs([sp]));
-      }
-      if (prep.head) {
-        const headSpecs = buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, curG, {
-          role: opts.role,
-          fill: opts.stroke,
-          size: prep.head.size,
-          opacity: opts.opacity,
-        });
-        for (const sp of headSpecs) g.appendChild(materializeSpecs([sp]));
-      }
-      return g;
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `arr|${curG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.headSize ?? ""}|${progQ}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => {
+        const prep = prepareArrowGeometry(points, curG, opts);
+        const specs = [];
+        if (prep.shaftInput) {
+          specs.push(...buildCurveSpec(prep.shaftInput, curG, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
+        }
+        if (prep.head) {
+          specs.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, curG, {
+            role: opts.role,
+            fill: opts.stroke,
+            size: prep.head.size,
+            opacity: 1,
+          }));
+        }
+        return specs;
+      }, true);
+    },
+    axis(x1, y1, x2, y2, opts = {}) {
+      const curG = G();
+      const seed = opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`);
+      const tKey = Array.isArray(opts.ticks) ? opts.ticks.join(",") : String(opts.ticks ?? "");
+      const gk = `axis|${curG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.arrow === false ? 0 : 1}|${tKey}|${opts.tickSize ?? ""}|${seed}`;
+      return emit(gk, opts.opacity, opts.className, () => buildAxisSpec(x1, y1, x2, y2, curG, { ...opts, opacity: 1, seed }), true);
     },
   };
 }
@@ -1789,7 +2085,7 @@ function copyPassthroughAttrs(attrs, node) {
 }
 
 /**
- * Hydrate declarative `<svg>` elements carrying `data-pf-mark="dot|ring|bar|region|panel|cell|curve|segment|arrow"`
+ * Hydrate declarative `<svg>` elements carrying `data-pf-mark="dot|ring|bar|region|panel|cell|curve|segment|arrow|axis"`
  * so static Markdown / Marp figures rematerialize cleanly across themes and palettes.
  */
 export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
@@ -1812,7 +2108,6 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   const G = marks.syncGrammar(grammarOverrides);
   const hasCustomColorMap = Boolean(grammarOverrides && grammarOverrides.mapColor);
 
-  // Lossless original DOM restore in default Swiss light mode when cloneNode is available
   if (G.isSwiss && !G.isDark && !hasCustomColorMap && svgEl.__pfMarkSnapshots.every((s) => s.origClone)) {
     for (const snap of svgEl.__pfMarkSnapshots) {
       const restored = snap.origClone.cloneNode(true);
@@ -1878,6 +2173,9 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     } else if (kind === "arrow") {
       const src = a.d || (a.points ? parsePointsAttr(a.points) : [[Number(a.x1 || 0), Number(a.y1 || 0)], [Number(a.x2 || 0), Number(a.y2 || 0)]]);
       replacement = marks.arrow(src, common);
+    } else if (kind === "axis") {
+      const ticks = a["data-pf-ticks"] != null ? Number(a["data-pf-ticks"]) : undefined;
+      replacement = marks.axis(Number(a.x1 || 0), Number(a.y1 || 0), Number(a.x2 || 0), Number(a.y2 || 0), { ...common, ticks });
     } else if (kind === "curve" || kind === "segment") {
       const src = a.d || (a.points ? parsePointsAttr(a.points) : [[Number(a.x1 || 0), Number(a.y1 || 0)], [Number(a.x2 || 0), Number(a.y2 || 0)]]);
       replacement = marks.curve(src, common);
@@ -1893,7 +2191,7 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
 }
 
 // ============================================================================
-// HTML5 <canvas> Renderer (`createCanvasMarks`)
+// HTML5 <canvas> Renderer (`createCanvasMarks` + `mountMarkedDiagram`)
 // ============================================================================
 
 const canvasPatternCache = new Map();
@@ -1945,6 +2243,7 @@ function getCanvasPattern(ctx, patSpec) {
 
 /**
  * Create a semantic Canvas 2D mark renderer compatible with `chao-ui/diagrams.js`.
+ * Reuses cached `SPEC_CACHE` geometry, `Path2D` instances, and `Float64Array` polylines across frames.
  */
 export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
   const target = hostEl || (ctx && ctx.canvas) || null;
@@ -1981,11 +2280,17 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
     }
   }
 
-  function drawSpecs(specs) {
-    for (const sp of specs) {
+  function drawUnitSpecs(unitSpecs, rawOp) {
+    const alpha = clamp(rawOp ?? 1, 0, 1);
+    if (alpha < 0.002 || !unitSpecs.length) return;
+
+    for (let sIdx = 0; sIdx < unitSpecs.length; sIdx++) {
+      const sp = unitSpecs[sIdx];
       const a = sp.attrs;
+      const op = alpha * sp.baseOp;
+      if (op < 0.002) continue;
+
       ctx.save();
-      const op = a.opacity != null ? Number(a.opacity) : 1;
       const fillOp = a["fill-opacity"] != null ? Number(a["fill-opacity"]) : 1;
       if (a.style && String(a.style).includes("multiply") && "globalCompositeOperation" in ctx) {
         ctx.globalCompositeOperation = "multiply";
@@ -1998,11 +2303,13 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
 
       let fillStyle = a.fill;
       if (sp.wash && typeof ctx.createLinearGradient === "function") {
-        const { color, stops, bounds } = sp.wash;
+        const { color, dir, stops, bounds } = sp.wash;
         const rgb = parseRgb(color, [79, 125, 150]);
-        const grad = ctx.createLinearGradient(0, bounds.minY, 0, bounds.maxY);
+        const grad = dir === "h"
+          ? ctx.createLinearGradient(bounds.minX, 0, bounds.maxX, 0)
+          : ctx.createLinearGradient(0, bounds.minY, 0, bounds.maxY);
         grad.addColorStop(0, rgba(rgb, stops[0]));
-        grad.addColorStop(0.52, rgba(rgb, stops[1]));
+        grad.addColorStop(dir === "h" ? 0.58 : 0.52, rgba(rgb, stops[1]));
         grad.addColorStop(1, rgba(rgb, stops[2]));
         fillStyle = grad;
       } else if (sp.pattern) {
@@ -2046,11 +2353,16 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
           ctx.stroke();
         }, Math.hypot(x2 - x1, y2 - y1));
       } else if (sp.tag === "polyline" || sp.tag === "polygon") {
-        const nums = String(a.points || "").trim().split(/[\s,]+/).map(Number);
-        let perim = 0;
-        for (let i = 2; i + 1 < nums.length; i += 2) {
-          perim += Math.hypot(nums[i] - nums[i - 2], nums[i + 1] - nums[i - 1]);
+        if (!sp.__nums) {
+          const parsed = String(a.points || "").trim().split(/[\s,]+/).map(Number);
+          sp.__nums = new Float64Array(parsed);
+          let p = 0;
+          for (let i = 2; i + 1 < sp.__nums.length; i += 2) {
+            p += Math.hypot(sp.__nums[i] - sp.__nums[i - 2], sp.__nums[i + 1] - sp.__nums[i - 1]);
+          }
+          sp.__perim = p;
         }
+        const nums = sp.__nums;
         doFillStroke((mode) => {
           ctx.beginPath();
           for (let i = 0; i + 1 < nums.length; i += 2) {
@@ -2058,10 +2370,10 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
           }
           if (sp.tag === "polygon") ctx.closePath();
           if (mode === "fill") ctx.fill(); else ctx.stroke();
-        }, perim);
+        }, sp.__perim);
       } else if (sp.tag === "path" && a.d) {
         if (typeof Path2D !== "undefined") {
-          const p2 = new Path2D(a.d);
+          const p2 = sp.__path2d || (sp.__path2d = new Path2D(a.d));
           doFillStroke((mode) => {
             if (mode === "fill") ctx.fill(p2); else ctx.stroke(p2);
           }, 0);
@@ -2084,61 +2396,112 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
     }
   }
 
+  function emitCanvas(geomKey, rawOp, buildUnitFn) {
+    const alpha = clamp(rawOp ?? 1, 0, 1);
+    if (alpha < 0.002) return;
+    drawUnitSpecs(getCachedUnitSpecs(geomKey, buildUnitFn), alpha);
+  }
+
   return {
     grammar: () => cachedG,
     beginFrame,
     syncGrammar,
     dot(cx, cy, r, opts = {}) {
       const seed = opts.seed ?? fnv1aSeed(`dot:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      drawSpecs(buildDotSpec(cx, cy, r, cachedG, { ...opts, seed }));
+      const gk = `dot|${cachedG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildDotSpec(cx, cy, r, cachedG, { ...opts, opacity: 1, seed }));
     },
     ring(cx, cy, r, opts = {}) {
       const seed = opts.seed ?? fnv1aSeed(`ring:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      drawSpecs(buildRingSpec(cx, cy, r, cachedG, { ...opts, seed }));
+      const gk = `ring|${cachedG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildRingSpec(cx, cy, r, cachedG, { ...opts, opacity: 1, seed }));
     },
     arrowHead(x, y, angle, opts = {}) {
-      drawSpecs(buildArrowHeadSpec(x, y, angle, cachedG, opts));
+      const gk = `ah|${cachedG.key}|${f2(x)},${f2(y)},${Math.round(angle * 1000)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.size ?? ""}`;
+      emitCanvas(gk, opts.opacity, () => buildArrowHeadSpec(x, y, angle, cachedG, { ...opts, opacity: 1 }));
     },
     panel(x, y, w, h, opts = {}) {
       const seed = opts.seed ?? fnv1aSeed(`panel:${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}`);
-      drawSpecs(buildPanelSpec(x, y, w, h, cachedG, { ...opts, seed }));
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `pan|${cachedG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.isCell ? 1 : 0}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildPanelSpec(x, y, w, h, cachedG, { ...opts, opacity: 1, seed }));
     },
     cell(x, y, size, opts = {}) {
       const seed = opts.seed ?? fnv1aSeed(`cell:${Math.round(x)}:${Math.round(y)}:${Math.round(size)}`);
-      drawSpecs(buildPanelSpec(x, y, size, size, cachedG, { ...opts, isCell: true, seed }));
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `cell|${cachedG.key}|${f2(x)},${f2(y)},${f2(size)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildPanelSpec(x, y, size, size, cachedG, { ...opts, isCell: true, opacity: 1, seed }));
     },
     region(points, opts = {}) {
       const seed = opts.seed ?? (Array.isArray(points) && points.length
         ? fnv1aSeed(`reg:${Math.round(points[0][0])}:${Math.round(points[0][1])}:${points.length}:${opts.role || ""}`)
         : 29);
-      drawSpecs(buildRegionSpec(points, cachedG, { ...opts, seed }));
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `reg|${cachedG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildRegionSpec(points, cachedG, { ...opts, opacity: 1, seed }));
     },
     bar(x, y, w, h, opts = {}) {
+      const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
       const seed = opts.seed ?? fnv1aSeed(`bar:${Math.round(x)}:${Math.round(y + h)}:${opts.role || ""}`);
-      drawSpecs(buildRegionSpec([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], cachedG, { ...opts, seed }));
+      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+      const gk = `bar|${cachedG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildRegionSpec(pts, cachedG, { ...opts, opacity: 1, seed }));
     },
     curve(pointsOrPath, opts = {}) {
       const seed = polylineAnchorSeed("crv", pointsOrPath, opts.seed);
-      drawSpecs(buildCurveSpec(pointsOrPath, cachedG, { ...opts, seed }));
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `crv|${cachedG.key}|${serializePointsKey(pointsOrPath)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${opts.lineJoin || ""}|${opts.forceBrush ? 1 : 0}|${progQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildCurveSpec(pointsOrPath, cachedG, { ...opts, opacity: 1, seed }));
     },
     segment(x1, y1, x2, y2, opts = {}) {
       const seed = opts.seed ?? fnv1aSeed(`seg:${Math.round(x1)}:${Math.round(y1)}:${Math.round(Math.atan2(y2 - y1, x2 - x1) * 32)}`);
-      drawSpecs(buildCurveSpec([[x1, y1], [x2, y2]], cachedG, { ...opts, seed }));
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `seg|${cachedG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${progQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildCurveSpec([[x1, y1], [x2, y2]], cachedG, { ...opts, opacity: 1, seed }));
     },
     arrow(points, opts = {}) {
       const seed = polylineAnchorSeed("arr", points, opts.seed);
-      const prep = prepareArrowGeometry(points, cachedG, opts);
-      if (prep.shaftInput) {
-        drawSpecs(buildCurveSpec(prep.shaftInput, cachedG, { ...opts, progress: prep.shaftProgress, seed }));
-      }
-      if (prep.head) {
-        drawSpecs(buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, cachedG, {
-          role: opts.role,
-          fill: opts.stroke,
-          size: prep.head.size,
-          opacity: opts.opacity,
-        }));
-      }
+      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+      const gk = `arr|${cachedG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.headSize ?? ""}|${progQ}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => {
+        const prep = prepareArrowGeometry(points, cachedG, opts);
+        const specs = [];
+        if (prep.shaftInput) {
+          specs.push(...buildCurveSpec(prep.shaftInput, cachedG, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
+        }
+        if (prep.head) {
+          specs.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, cachedG, {
+            role: opts.role,
+            fill: opts.stroke,
+            size: prep.head.size,
+            opacity: 1,
+          }));
+        }
+        return specs;
+      });
+    },
+    axis(x1, y1, x2, y2, opts = {}) {
+      const seed = opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`);
+      const tKey = Array.isArray(opts.ticks) ? opts.ticks.join(",") : String(opts.ticks ?? "");
+      const gk = `axis|${cachedG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.arrow === false ? 0 : 1}|${tKey}|${opts.tickSize ?? ""}|${seed}`;
+      emitCanvas(gk, opts.opacity, () => buildAxisSpec(x1, y1, x2, y2, cachedG, { ...opts, opacity: 1, seed }));
     },
   };
+}
+
+/**
+ * Mount a responsive HiDPI <canvas> diagram with pre-bound semantic `state.marks` and `state.G`.
+ */
+export function mountMarkedDiagram(canvas, spec, grammarOverrides = null) {
+  let marks = null;
+  return mountDiagram(canvas, {
+    ...spec,
+    draw(ctx, W, H, state) {
+      if (!marks) marks = createCanvasMarks(ctx, canvas, grammarOverrides);
+      const G = marks.beginFrame(grammarOverrides);
+      spec.draw(ctx, W, H, { ...state, marks, G });
+    },
+  });
 }
