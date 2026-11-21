@@ -1727,7 +1727,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
             const j2 = (rand() - 0.5) * 1.1, j3 = (rand() - 0.5) * 1.1;
             if (s0 > 0.02) pushBrushSeg(x - ov, y + j0, lerp(x - ov, x + w + ov, s0), y - j0 * 0.6, bsw, 0.95, 11);
             if (s1 > 0.02) pushBrushSeg(x + w + j1, y - ov * 0.7, x + w - j1 * 0.6, lerp(y - ov * 0.7, y + h + ov, s1), bsw * 0.94, 0.90, 17);
-            if (s2 > 0.02) pushBrushSeg(lerp(x + w + ov, x - ov, 1 - s2), y + h + j2, x + w + ov, y + h - j2 * 0.6, bsw * 0.96, 0.93, 23);
+            if (s2 > 0.02) pushBrushSeg(x + w + ov, y + h - j2 * 0.6, lerp(x + w + ov, x - ov, s2), y + h + j2, bsw * 0.96, 0.93, 23);
             if (s3 > 0.02) pushBrushSeg(x + j3, y + ov * 0.5, x - j3 * 0.6, lerp(y + ov * 0.5, y + h + ov * 0.8, s3), bsw * 0.92, 0.88, 29);
           }
         }
