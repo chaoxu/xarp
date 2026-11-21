@@ -1806,8 +1806,12 @@ export function buildRegionSpec(points, G, opts = {}) {
 
   // Fill Mode A: Crisp flat analytical tint (Swiss default)
   if (G.fill === "tint") {
+    const explicitWeightAlpha = (opts.fill === undefined && opts.fillOpacity === undefined && role !== "surface" && role !== "paper")
+      ? (opts.weight === "subtle" ? 0.22 : opts.weight === "medium" ? 0.50 : 1)
+      : 1;
+    const effOp = op * fillP * explicitWeightAlpha;
     const a = { points: ptsAttr, fill };
-    if (op * fillP < 0.999) a.opacity = (op * fillP).toFixed(3);
+    if (effOp < 0.999) a.opacity = effOp.toFixed(3);
     out.push({ tag: "polygon", attrs: a, nums: polyNums });
   }
   // Fill Mode B: Directional Yunran (晕染) / Bokashi ink & mineral wash
@@ -3891,7 +3895,7 @@ function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
     const endBase = sc ? sc.pt(subDom[1], baseVal) : [subDom[1], baseVal];
     const startBase = sc ? sc.pt(subDom[0], baseVal) : [subDom[0], baseVal];
     pts.push(endBase, startBase);
-    return api.region(pts, { stroke: "none", ...opts });
+    return api.region(pts, { stroke: "none", weight: opts.weight || "subtle", ...opts });
   };
 
   api.grid = function grid(scale, opts = {}) {
