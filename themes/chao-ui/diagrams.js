@@ -18,6 +18,51 @@ export const ease = (t) => {
 };
 export const seg = (t, a, b) => (b <= a ? (t >= b ? 1 : 0) : clamp((t - a) / (b - a), 0, 1));
 
+/** Cascade `count` items across `[a, b]` with overlap in `[0, 0.95]`, returning eased `[0..1]`. */
+export function stagger(t, index, count, a = 0, b = 1, overlap = 0.55) {
+  if (count <= 1 || b <= a) return ease(seg(t, a, b));
+  const ov = clamp(overlap, 0, 0.95);
+  const total = b - a;
+  const itemDur = total / (1 + (count - 1) * (1 - ov));
+  const step = itemDur * (1 - ov);
+  const start = a + clamp(index, 0, count - 1) * step;
+  return ease(seg(t, start, start + itemDur));
+}
+
+/** Deterministic, scrubbable analytical spring easing `[0..1] -> [0..1]` (`bounce = 0` is critically damped). */
+export function spring(u, bounce = 0.18) {
+  const x = clamp(u, 0, 1);
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const b = clamp(bounce, 0, 0.6);
+  const decay = 6.5 - b * 3.2;
+  const omega = 4 + b * 18;
+  const endErr = Math.exp(-decay) * Math.cos(omega);
+  const raw = 1 - Math.exp(-decay * x) * Math.cos(omega * x);
+  return raw / (1 - endErr);
+}
+
+/** Lightweight 2D affine coordinate mapper between data `[x0, x1] × [y0, y1]` and pixel `[rx0, rx1] × [ry0, ry1]`. */
+export function createPlotScale(domainX, domainY, rangeX, rangeY) {
+  const dx0 = domainX[0], dxSpan = (domainX[1] - dx0) || 1;
+  const dy0 = domainY[0], dySpan = (domainY[1] - dy0) || 1;
+  const rx0 = rangeX[0], rxSpan = rangeX[1] - rx0;
+  const ry0 = rangeY[0], rySpan = rangeY[1] - ry0;
+  const x = (vx) => rx0 + ((vx - dx0) / dxSpan) * rxSpan;
+  const y = (vy) => ry0 + ((vy - dy0) / dySpan) * rySpan;
+  return {
+    domainX,
+    domainY,
+    rangeX,
+    rangeY,
+    x,
+    y,
+    pt: (vx, vy) => [x(vx), y(vy)],
+    invX: (px) => dx0 + ((px - rx0) / (rxSpan || 1)) * dxSpan,
+    invY: (py) => dy0 + ((py - ry0) / (rySpan || 1)) * dySpan,
+  };
+}
+
 export const FONTS = {
   sans: '12px "IBM Plex Sans", system-ui, -apple-system, sans-serif',
   sansSmall: '11px "IBM Plex Sans", system-ui, -apple-system, sans-serif',
@@ -125,8 +170,10 @@ export function parseRgb(str, fallback = [31, 29, 26]) {
 }
 
 export function rgba(rgbTuple, a = 1) {
-  const [r, g, b] = rgbTuple;
-  return a >= 1 ? `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})` : `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
+  const r = (rgbTuple[0] + 0.5) | 0;
+  const g = (rgbTuple[1] + 0.5) | 0;
+  const b = (rgbTuple[2] + 0.5) | 0;
+  return a >= 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`;
 }
 
 export function mixRgb(c1, c2, t) {
@@ -341,6 +388,26 @@ export function mountDiagram(canvas, spec) {
 
   const pointer = { x: 0, y: 0, normX: 0.5, normY: 0.5, active: false };
 
+  let cachedP = null;
+  let cachedPSig = "";
+
+  function readThemeSig() {
+    const root = typeof document !== "undefined" ? document.documentElement : null;
+    const ds1 = canvas.dataset;
+    const ds2 = root && root.dataset;
+    const a1 = ds1 ? `${ds1.theme || ""}|${ds1.pfStyle || ""}|${ds1.colorScheme || ""}|${ds1.xarpColorScheme || ""}|${ds1.hrsStyle || ""}` : "";
+    const a2 = ds2 ? `${ds2.theme || ""}|${ds2.pfStyle || ""}|${ds2.colorScheme || ""}|${ds2.xarpColorScheme || ""}|${ds2.hrsStyle || ""}` : "";
+    return `${a1}||${a2}||${canvas.className || ""}||${(root && root.className) || ""}`;
+  }
+
+  function currentPalette() {
+    const sig = readThemeSig();
+    if (cachedP && sig === cachedPSig) return cachedP;
+    cachedPSig = sig;
+    cachedP = palette(canvas);
+    return cachedP;
+  }
+
   function syncToggleButton() {
     const fig = canvas.closest("figure");
     const btn = fig && fig.querySelector("[data-diagram-toggle]");
@@ -352,7 +419,7 @@ export function mountDiagram(canvas, spec) {
   function renderOnce() {
     if (W <= 0 || H <= 0) return;
     ctx.clearRect(0, 0, W, H);
-    const P = palette(canvas);
+    const P = currentPalette();
     const t = cycle > 0 ? (elapsedMs / 1000) % cycle : elapsedMs / 1000;
     spec.draw(ctx, W, H, { t, elapsedMs, cycle, paused, pointer, P });
   }
@@ -432,7 +499,10 @@ export function mountDiagram(canvas, spec) {
     });
   }
 
-  window.addEventListener("chao-theme-change", renderOnce);
+  window.addEventListener("chao-theme-change", () => {
+    cachedP = null;
+    renderOnce();
+  });
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(renderOnce).catch(() => {});
   }

@@ -1,24 +1,35 @@
 /* ==========================================================================
    Chao-UI Semantic Mark & Material Kit (marks.js)
-   Bridges chao-ui's semantic roles + CSS tokens (--pf-vis-*, --pf-mark-*) with
-   deterministic procedural geometry from Rough.js and perfect-freehand.
+   Zero-vendor-dependency semantic drawing & animation kit bridging chao-ui's
+   roles + CSS tokens (--pf-vis-*, --pf-mark-*) across 33 craft grammars.
 
    Works identically across:
-   1. Programmatic & 60fps animated <svg> stages  -> createSvgMarks(svg, host)
+   1. Programmatic & 60fps animated <svg> stages  -> createSvgMarks / mountMarkedSvg
    2. Declarative inline <svg> figures            -> hydrateSvgMarks(svg, host)
-   3. HTML5 <canvas> analytical figures           -> createCanvasMarks(ctx, host)
-                                                  -> mountMarkedDiagram(canvas, spec)
+   3. HTML5 <canvas> analytical figures           -> createCanvasMarks / mountMarkedDiagram
    ========================================================================== */
 
-import rough from "./vendor/roughjs/rough.esm.js";
-import { getStroke } from "./vendor/perfect-freehand/index.mjs";
-import { clamp, lerp, mixRgb, mountDiagram, palette, parseRgb, rgba } from "./diagrams.js";
+import {
+  clamp,
+  createPlotScale,
+  ease,
+  lerp,
+  mixRgb,
+  mountDiagram,
+  palette,
+  parseRgb,
+  rgba,
+  seg,
+  spring,
+  stagger,
+} from "./diagrams.js";
 
-export { palette, parseRgb, rgba };
+export { clamp, createPlotScale, ease, lerp, palette, parseRgb, rgba, seg, spring, stagger };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const roughGen = rough.generator();
+const f1 = (n) => Math.round(n * 10) / 10;
 const f2 = (n) => Math.round(n * 100) / 100;
+const hypot2 = (dx, dy) => Math.sqrt(dx * dx + dy * dy);
 
 /**
  * Canonical Material Grammar parameter bundles keyed by visual profile name.
@@ -96,6 +107,56 @@ function seededRand(seed) {
     s = (Math.imul(s, 48271) % 2147483647) & 0x7fffffff;
     return (s - 1) / 2147483646;
   };
+}
+
+const ROLE_CODES = {
+  "": 0, primary: 1, caveat: 2, auxiliary: 3, baseline: 4,
+  ink: 5, muted: 6, grid: 7, surface: 8, paper: 9,
+};
+
+function roleCode(role) {
+  if (!role) return 0;
+  const hit = ROLE_CODES[role];
+  return hit !== undefined ? hit : fnv1aSeed(role);
+}
+
+function anchorSeed2(tagHash, a, b, role) {
+  let h = tagHash | 0;
+  h = Math.imul(h ^ (Math.round(a) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(b) | 0), 0x01000193);
+  h = Math.imul(h ^ (roleCode(role) | 0), 0x01000193);
+  return hashSeed(h);
+}
+
+function anchorSeed3(tagHash, a, b, c, extra = 0) {
+  let h = tagHash | 0;
+  h = Math.imul(h ^ (Math.round(a) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(b) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(c) | 0), 0x01000193);
+  h = Math.imul(h ^ (extra | 0), 0x01000193);
+  return hashSeed(h);
+}
+
+function anchorSeed4(tagHash, a, b, c, d) {
+  let h = tagHash | 0;
+  h = Math.imul(h ^ (Math.round(a) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(b) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(c) | 0), 0x01000193);
+  h = Math.imul(h ^ (Math.round(d) | 0), 0x01000193);
+  return hashSeed(h);
+}
+
+const GRAMMAR_ID_MAP = new Map();
+let nextGrammarId = 1;
+
+function getGrammarId(key) {
+  let id = GRAMMAR_ID_MAP.get(key);
+  if (id === undefined) {
+    if (GRAMMAR_ID_MAP.size >= 1024) GRAMMAR_ID_MAP.clear();
+    id = nextGrammarId++;
+    GRAMMAR_ID_MAP.set(key, id);
+  }
+  return id;
 }
 
 function cleanToken(v) {
@@ -205,12 +266,16 @@ export function markGrammar(el = null, overrides = null) {
       : base.scanAngle;
 
   const bgRgb = parseRgb(P.bg, [255, 255, 255]);
+  const fgRgb = P.fgRgb || parseRgb(P.fg, [30, 28, 26]);
+  const slateRgb = P.slateRgb || parseRgb(P.slate, [79, 125, 150]);
+  const terraRgb = P.terraRgb || parseRgb(P.terracotta, [200, 90, 64]);
   const isDark = (bgRgb[0] * 0.299 + bgRgb[1] * 0.587 + bgRgb[2] * 0.114) < 115;
   const multiply = overrides && overrides.multiply != null ? Boolean(overrides.multiply) : Boolean(base.multiply && !isDark);
   const effScheme = scheme || "default";
   const key = `${effScheme}|${node}|${fill}|${stroke}|${arrow}|${panel}|${roughness}|${gap}|${scanAngle}|${multiply ? 1 : 0}|${isDark ? 1 : 0}|${P.bg}|${P.fg}|${P.slate}|${P.terracotta}|${P.ochre}|${P.stone}|${P.surface}|${P.grid}|${P.muted}`;
 
   return {
+    id: getGrammarId(key),
     scheme: effScheme,
     isSwiss:
       node === "circle" &&
@@ -230,6 +295,10 @@ export function markGrammar(el = null, overrides = null) {
     multiply,
     scanAngle,
     P,
+    bgRgb,
+    fgRgb,
+    slateRgb,
+    terraRgb,
     key,
   };
 }
@@ -251,15 +320,16 @@ export function resolveRoleColor(G, role = "primary") {
 }
 
 function luminance(col, fb = 128) {
-  if (!col || col === "none" || col.startsWith("url(")) return fb;
-  const [r, g, b] = parseRgb(col, [fb, fb, fb]);
-  return r * 0.299 + g * 0.587 + b * 0.114;
+  if (!col || col === "none" || col.charCodeAt(0) === 117 /* 'u' */) return fb;
+  const rgb = parseRgb(col, [fb, fb, fb]);
+  return rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114;
 }
 
-function colorDist(c1, c2) {
-  const a = parseRgb(c1, [128, 128, 128]);
-  const b = parseRgb(c2, [128, 128, 128]);
-  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+function colorDistSqRgb(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
 }
 
 /**
@@ -268,43 +338,45 @@ function colorDist(c1, c2) {
 export function strokeOutlineToSvgPath(points, closed = true) {
   const len = points.length;
   if (len < 3) return "";
-  const parts = [
-    `M ${f2(points[0][0])} ${f2(points[0][1])} Q ${f2(points[1][0])} ${f2(points[1][1])} ${f2((points[1][0] + points[2][0]) * 0.5)} ${f2((points[1][1] + points[2][1]) * 0.5)}`,
-  ];
+  let d = `M ${f1(points[0][0])} ${f1(points[0][1])} Q ${f1(points[1][0])} ${f1(points[1][1])} ${f1((points[1][0] + points[2][0]) * 0.5)} ${f1((points[1][1] + points[2][1]) * 0.5)}`;
   for (let i = 2; i < len - 1; i++) {
     const p0 = points[i];
     const p1 = points[i + 1];
-    parts.push(`T ${f2((p0[0] + p1[0]) * 0.5)} ${f2((p0[1] + p1[1]) * 0.5)}`);
+    d += ` T ${f1((p0[0] + p1[0]) * 0.5)} ${f1((p0[1] + p1[1]) * 0.5)}`;
   }
   if (closed) {
     const last = points[len - 1];
     const first = points[0];
-    parts.push(`T ${f2((last[0] + first[0]) * 0.5)} ${f2((last[1] + first[1]) * 0.5)} Z`);
+    d += ` T ${f1((last[0] + first[0]) * 0.5)} ${f1((last[1] + first[1]) * 0.5)} Z`;
   }
-  return parts.join(" ");
+  return d;
 }
+
+let SCRATCH_SEGS = new Float64Array(64);
 
 function slicePolyline(pts, progress) {
   const p = clamp(progress ?? 1, 0, 1);
-  if (p >= 0.999 || pts.length < 2) return pts;
+  const nSeg = pts.length - 1;
+  if (p >= 0.999 || nSeg < 1) return pts;
   if (p <= 0.001) return [];
-  const segs = [];
+  if (nSeg > SCRATCH_SEGS.length) SCRATCH_SEGS = new Float64Array(nSeg * 2);
   let total = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    segs.push(L);
+  for (let i = 0; i < nSeg; i++) {
+    const L = hypot2(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    SCRATCH_SEGS[i] = L;
     total += L;
   }
   if (total < 1e-6) return [pts[0]];
   let budget = total * p;
   const out = [pts[0]];
-  for (let i = 0; i < segs.length; i++) {
-    if (budget >= segs[i]) {
+  for (let i = 0; i < nSeg; i++) {
+    const segL = SCRATCH_SEGS[i];
+    if (budget >= segL) {
       out.push(pts[i + 1]);
-      budget -= segs[i];
+      budget -= segL;
     } else {
-      if (budget > 1e-4 && segs[i] > 1e-6) {
-        const u = budget / segs[i];
+      if (budget > 1e-4 && segL > 1e-6) {
+        const u = budget / segL;
         out.push([lerp(pts[i][0], pts[i + 1][0], u), lerp(pts[i][1], pts[i + 1][1], u)]);
       }
       break;
@@ -317,22 +389,22 @@ function trimPolylineEnd(pts, setback) {
   if (!pts || pts.length < 2 || !(setback > 0)) return pts;
   let total = 0;
   for (let i = 0; i < pts.length - 1; i++) {
-    total += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    total += hypot2(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
   }
   if (total <= setback * 1.35) return pts;
   let rem = setback;
   const copy = pts.slice();
   while (copy.length >= 2 && rem > 1e-4) {
     const n = copy.length;
-    const [x0, y0] = copy[n - 2];
-    const [x1, y1] = copy[n - 1];
-    const segLen = Math.hypot(x1 - x0, y1 - y0);
-    if (segLen <= rem + 1e-6 && copy.length > 2) {
+    const p0 = copy[n - 2];
+    const p1 = copy[n - 1];
+    const segLen = hypot2(p1[0] - p0[0], p1[1] - p0[1]);
+    if (segLen <= rem + 1e-6 && n > 2) {
       rem -= segLen;
       copy.pop();
     } else if (segLen > 1e-6) {
       const u = clamp(1 - rem / segLen, 0.05, 1);
-      copy[n - 1] = [lerp(x0, x1, u), lerp(y0, y1, u)];
+      copy[n - 1] = [lerp(p0[0], p1[0], u), lerp(p0[1], p1[1], u)];
       break;
     } else {
       copy.pop();
@@ -391,6 +463,57 @@ function sampleSvgArc(x1, y1, rxIn, ryIn, phiDeg, largeArc, sweep, x2, y2, sampl
 }
 
 const SUBPATH_CACHE = new Map();
+const SVG_CMD_NEED = {
+  M: 2, m: 2, L: 2, l: 2, H: 1, h: 1, V: 1, v: 1,
+  C: 6, c: 6, S: 4, s: 4, Q: 4, q: 4, T: 2, t: 2,
+  A: 7, a: 7, Z: 0, z: 0,
+};
+const SVG_NUM_ARGS = new Float64Array(8);
+const SVG_SCAN_POS = { i: 0 };
+
+function skipSvgSep(raw, len, idx) {
+  while (idx < len) {
+    const c = raw.charCodeAt(idx);
+    if (c === 32 || c === 9 || c === 10 || c === 13 || c === 44) idx++;
+    else break;
+  }
+  return idx;
+}
+
+function scanSvgNum(raw, len) {
+  let i = skipSvgSep(raw, len, SVG_SCAN_POS.i);
+  if (i >= len) { SVG_SCAN_POS.i = i; return NaN; }
+  const start = i;
+  let c = raw.charCodeAt(i);
+  if (c === 43 || c === 45) i++;
+  let hasDigits = false;
+  while (i < len) {
+    c = raw.charCodeAt(i);
+    if (c >= 48 && c <= 57) { hasDigits = true; i++; }
+    else break;
+  }
+  if (i < len && raw.charCodeAt(i) === 46) {
+    i++;
+    while (i < len) {
+      c = raw.charCodeAt(i);
+      if (c >= 48 && c <= 57) { hasDigits = true; i++; }
+      else break;
+    }
+  }
+  if (!hasDigits) { SVG_SCAN_POS.i = start; return NaN; }
+  if (i < len) {
+    c = raw.charCodeAt(i);
+    if (c === 101 || c === 69) {
+      let j = i + 1;
+      if (j < len && (raw.charCodeAt(j) === 43 || raw.charCodeAt(j) === 45)) j++;
+      let expDigits = false;
+      while (j < len && raw.charCodeAt(j) >= 48 && raw.charCodeAt(j) <= 57) { expDigits = true; j++; }
+      if (expDigits) i = j;
+    }
+  }
+  SVG_SCAN_POS.i = i;
+  return Number(raw.slice(start, i));
+}
 
 /**
  * Sample all subpaths of an SVG path `d` into an array of polylines.
@@ -398,54 +521,55 @@ const SUBPATH_CACHE = new Map();
  */
 export function sampleSvgSubpaths(d, samplesPerCurve = 12) {
   const raw = String(d || "");
-  const cacheable = raw.length > 0 && raw.length <= 420;
+  const len = raw.length;
+  if (len < 3) return null;
+  const cacheable = len <= 420;
   const cKey = cacheable ? `${samplesPerCurve}|${raw}` : "";
-  if (cacheable && SUBPATH_CACHE.has(cKey)) return SUBPATH_CACHE.get(cKey);
-
-  const tokens = raw.match(/([A-Za-z])|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g);
-  if (!tokens || tokens.length < 3) return null;
-  const needMap = {
-    M: 2, m: 2, L: 2, l: 2, H: 1, h: 1, V: 1, v: 1,
-    C: 6, c: 6, S: 4, s: 4, Q: 4, q: 4, T: 2, t: 2,
-    A: 7, a: 7, Z: 0, z: 0,
-  };
+  if (cacheable) {
+    const hit = SUBPATH_CACHE.get(cKey);
+    if (hit !== undefined) return hit;
+  }
 
   const subpaths = [];
   let cur = null;
-  let idx = 0;
   let cmd = "";
   let prevCmd = "";
   let cx = 0, cy = 0;
   let sx = 0, sy = 0;
   let lastCx = 0, lastCy = 0;
+  SVG_SCAN_POS.i = 0;
 
-  while (idx < tokens.length) {
-    const tk = tokens[idx];
-    if (/^[A-Za-z]$/.test(tk)) {
-      if (!(tk in needMap)) return null;
-      cmd = tk;
-      idx++;
+  while (true) {
+    const i = skipSvgSep(raw, len, SVG_SCAN_POS.i);
+    if (i >= len) break;
+    const cc = raw.charCodeAt(i);
+    if ((cc >= 65 && cc <= 90) || (cc >= 97 && cc <= 122)) {
+      const ch = raw[i];
+      if (!(ch in SVG_CMD_NEED)) return null;
+      cmd = ch;
+      SVG_SCAN_POS.i = i + 1;
       if (cmd === "Z" || cmd === "z") {
         if (cur && cur.length) {
-          if (Math.hypot(cx - sx, cy - sy) > 1e-5) cur.push([sx, sy]);
+          if (hypot2(cx - sx, cy - sy) > 1e-5) cur.push([sx, sy]);
           cx = sx;
           cy = sy;
         }
         prevCmd = cmd;
         continue;
       }
+    } else {
+      SVG_SCAN_POS.i = i;
     }
-    const need = needMap[cmd];
-    if (need == null || idx + need > tokens.length) return null;
-    const a = [];
+    const need = SVG_CMD_NEED[cmd];
+    if (need == null) return null;
     for (let k = 0; k < need; k++) {
-      const v = Number(tokens[idx + k]);
+      const v = scanSvgNum(raw, len);
       if (!Number.isFinite(v)) return null;
-      a.push(v);
+      SVG_NUM_ARGS[k] = v;
     }
-    idx += need;
-    const rel = cmd === cmd.toLowerCase();
-    const upper = cmd.toUpperCase();
+    const a = SVG_NUM_ARGS;
+    const rel = cmd.charCodeAt(0) >= 97;
+    const upper = rel ? cmd.toUpperCase() : cmd;
 
     if (upper === "M") {
       cx = rel ? cx + a[0] : a[0];
@@ -523,13 +647,16 @@ export function sampleSvgSubpaths(d, samplesPerCurve = 12) {
         const x2 = rel ? cx + a[5] : a[5];
         const y2 = rel ? cy + a[6] : a[6];
         const arcPts = sampleSvgArc(cx, cy, a[0], a[1], a[2], a[3] !== 0, a[4] !== 0, x2, y2, samplesPerCurve);
-        for (const p of arcPts) cur.push(p);
+        for (let k = 0; k < arcPts.length; k++) cur.push(arcPts[k]);
         cx = x2; cy = y2;
       }
     }
     prevCmd = upper;
   }
-  const valid = subpaths.filter((sp) => sp.length >= 2);
+  const valid = [];
+  for (let i = 0; i < subpaths.length; i++) {
+    if (subpaths[i].length >= 2) valid.push(subpaths[i]);
+  }
   const res = valid.length ? valid : null;
   if (cacheable) {
     if (SUBPATH_CACHE.size >= 512) SUBPATH_CACHE.clear();
@@ -549,31 +676,45 @@ export function sampleSimpleSvgPath(d, samplesPerCurve = 12) {
 
 const ANCHOR_SEED_CACHE = new Map();
 
-function polylineAnchorSeed(prefix, ptsOrPath, explicitSeed) {
+function polylineAnchorSeed(prefixHash, ptsOrPath, explicitSeed) {
   if (explicitSeed != null) return explicitSeed;
-  const isStr = typeof ptsOrPath === "string" && ptsOrPath.length <= 420;
-  const cKey = isStr ? `${prefix}|${ptsOrPath}` : "";
-  if (isStr) {
-    const hit = ANCHOR_SEED_CACHE.get(cKey);
-    if (hit !== undefined) return hit;
-  }
-  const subs = typeof ptsOrPath === "string" ? sampleSvgSubpaths(ptsOrPath, 4) : (Array.isArray(ptsOrPath) ? [ptsOrPath] : null);
-  const pts = subs && subs[0];
-  let out;
-  if (!pts || pts.length === 0) {
-    out = fnv1aSeed(`${prefix}:${String(ptsOrPath || "")}`);
-  } else {
-    const [x0, y0] = pts[0];
+  if (Array.isArray(ptsOrPath)) {
+    if (ptsOrPath.length === 0) return hashSeed(prefixHash);
+    const x0 = ptsOrPath[0][0], y0 = ptsOrPath[0][1];
     let angQ = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const dx = pts[i][0] - x0;
-      const dy = pts[i][1] - y0;
-      if (Math.hypot(dx, dy) > 0.5) {
+    for (let i = 1; i < ptsOrPath.length; i++) {
+      const dx = ptsOrPath[i][0] - x0;
+      const dy = ptsOrPath[i][1] - y0;
+      if (dx * dx + dy * dy > 0.25) {
         angQ = Math.round(Math.atan2(dy, dx) * 32);
         break;
       }
     }
-    out = fnv1aSeed(`${prefix}:${Math.round(x0)}:${Math.round(y0)}:${angQ}:${subs.length}`);
+    return anchorSeed4(prefixHash, x0, y0, angQ, 1);
+  }
+  const isStr = typeof ptsOrPath === "string" && ptsOrPath.length <= 420;
+  const cKey = isStr ? `${prefixHash}|${ptsOrPath}` : "";
+  if (isStr) {
+    const hit = ANCHOR_SEED_CACHE.get(cKey);
+    if (hit !== undefined) return hit;
+  }
+  const subs = typeof ptsOrPath === "string" ? sampleSvgSubpaths(ptsOrPath, 4) : null;
+  const pts = subs && subs[0];
+  let out;
+  if (!pts || pts.length === 0) {
+    out = fnv1aSeed(`${prefixHash}:${String(ptsOrPath || "")}`);
+  } else {
+    const x0 = pts[0][0], y0 = pts[0][1];
+    let angQ = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i][0] - x0;
+      const dy = pts[i][1] - y0;
+      if (dx * dx + dy * dy > 0.25) {
+        angQ = Math.round(Math.atan2(dy, dx) * 32);
+        break;
+      }
+    }
+    out = anchorSeed4(prefixHash, x0, y0, angQ, subs.length);
   }
   if (isStr) {
     if (ANCHOR_SEED_CACHE.size >= 512) ANCHOR_SEED_CACHE.clear();
@@ -596,7 +737,8 @@ function serializePointsKey(ptsOrPath) {
 
 function polygonBounds(pts) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const [x, y] of pts) {
+  for (let i = 0; i < pts.length; i++) {
+    const x = pts[i][0], y = pts[i][1];
     if (x < minX) minX = x;
     if (y < minY) minY = y;
     if (x > maxX) maxX = x;
@@ -605,73 +747,398 @@ function polygonBounds(pts) {
   return { minX, minY, maxX, maxY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
 }
 
-function regularStarPath(cx, cy, outerR, innerR, points, rotRad = 0) {
+function regularStarData(cx, cy, outerR, innerR, points, rotRad = 0) {
   const total = points * 2;
-  const parts = [];
+  const closedPts = new Float32Array(total * 2);
+  let d = "";
+  const step = Math.PI / points;
   for (let i = 0; i < total; i++) {
-    const r = i % 2 === 0 ? outerR : innerR;
-    const a = rotRad + (i * Math.PI) / points;
-    parts.push(`${i === 0 ? "M" : "L"} ${f2(cx + Math.cos(a) * r)} ${f2(cy + Math.sin(a) * r)}`);
+    const r = (i & 1) === 0 ? outerR : innerR;
+    const a = rotRad + i * step;
+    const px = f2(cx + Math.cos(a) * r);
+    const py = f2(cy + Math.sin(a) * r);
+    closedPts[i * 2] = px;
+    closedPts[i * 2 + 1] = py;
+    d += i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`;
   }
-  parts.push("Z");
-  return parts.join(" ");
+  d += " Z";
+  return { d, closedPts };
 }
 
-function shippoFloretPath(cx, cy, r, lobes = 4) {
-  const parts = [];
+function shippoFloretData(cx, cy, r, lobes = 4) {
+  const qsegs = new Float32Array(lobes * 6);
+  let d = "";
+  const valleyR = lobes === 4 ? r * 0.62 : r * 0.86;
+  const peakR = lobes === 4 ? r * 1.28 : r * 1.08;
+  const step = (2 * Math.PI) / lobes;
   for (let i = 0; i < lobes; i++) {
-    const a0 = (i * 2 * Math.PI) / lobes - Math.PI / 4;
-    const a1 = ((i + 1) * 2 * Math.PI) / lobes - Math.PI / 4;
-    const am = (a0 + a1) / 2;
-    const valleyR = lobes === 4 ? r * 0.62 : r * 0.86;
-    const peakR = lobes === 4 ? r * 1.28 : r * 1.08;
-    const x0 = cx + Math.cos(a0) * valleyR;
-    const y0 = cy + Math.sin(a0) * valleyR;
-    const xm = cx + Math.cos(am) * peakR;
-    const ym = cy + Math.sin(am) * peakR;
-    const x1 = cx + Math.cos(a1) * valleyR;
-    const y1 = cy + Math.sin(a1) * valleyR;
-    if (i === 0) parts.push(`M ${f2(x0)} ${f2(y0)}`);
-    parts.push(`Q ${f2(xm)} ${f2(ym)} ${f2(x1)} ${f2(y1)}`);
+    const a0 = i * step - Math.PI / 4;
+    const a1 = a0 + step;
+    const am = a0 + step * 0.5;
+    const x0 = f2(cx + Math.cos(a0) * valleyR);
+    const y0 = f2(cy + Math.sin(a0) * valleyR);
+    const xm = f2(cx + Math.cos(am) * peakR);
+    const ym = f2(cy + Math.sin(am) * peakR);
+    const x1 = f2(cx + Math.cos(a1) * valleyR);
+    const y1 = f2(cy + Math.sin(a1) * valleyR);
+    const base = i * 6;
+    qsegs[base] = x0; qsegs[base + 1] = y0;
+    qsegs[base + 2] = xm; qsegs[base + 3] = ym;
+    qsegs[base + 4] = x1; qsegs[base + 5] = y1;
+    if (i === 0) d = `M ${x0} ${y0}`;
+    d += ` Q ${xm} ${ym} ${x1} ${y1}`;
   }
-  parts.push("Z");
-  return parts.join(" ");
+  d += " Z";
+  return { d, qloop: qsegs };
 }
 
-function chiseledNodePath(cx, cy, r, seed) {
+function chiseledNodeData(cx, cy, r, seed) {
   const rand = seededRand(seed);
   const facets = r >= 18 ? 14 : 10;
   const rot = rand() * Math.PI * 2;
-  const parts = [];
+  const closedPts = new Float32Array(facets * 2);
+  let d = "";
+  const step = (2 * Math.PI) / facets;
   for (let i = 0; i < facets; i++) {
-    const a = rot + (i * 2 * Math.PI) / facets + (rand() - 0.5) * 0.14;
+    const a = rot + i * step + (rand() - 0.5) * 0.14;
     const rf = r * (0.94 + (rand() - 0.5) * 0.16);
-    parts.push(`${i === 0 ? "M" : "L"} ${f2(cx + Math.cos(a) * rf)} ${f2(cy + Math.sin(a) * rf)}`);
+    const px = f2(cx + Math.cos(a) * rf);
+    const py = f2(cy + Math.sin(a) * rf);
+    closedPts[i * 2] = px;
+    closedPts[i * 2 + 1] = py;
+    d += i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`;
   }
-  parts.push("Z");
-  return parts.join(" ");
+  d += " Z";
+  return { d, closedPts };
 }
 
-function ensoRingOutlinePath(cx, cy, r, sw, ang) {
-  const steps = 20;
-  const arcPts = [];
-  for (let i = 0; i <= steps; i++) {
-    const u = i / steps;
-    const a = ang + u * Math.PI * 1.96;
-    const rr = r * (1 + 0.025 * Math.sin(u * Math.PI * 3));
-    const p = 0.42 + 0.46 * Math.sin(Math.min(1, u * 1.1) * Math.PI * 0.88);
-    arcPts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, p]);
+function flatOutlineToSvgPath(flat) {
+  const nPts = flat.length >> 1;
+  if (nPts < 3) return "";
+  let d = `M ${f1(flat[0])} ${f1(flat[1])} Q ${f1(flat[2])} ${f1(flat[3])} ${f1((flat[2] + flat[4]) * 0.5)} ${f1((flat[3] + flat[5]) * 0.5)}`;
+  for (let i = 4; i < flat.length - 2; i += 2) {
+    d += ` T ${f1((flat[i] + flat[i + 2]) * 0.5)} ${f1((flat[i + 1] + flat[i + 3]) * 0.5)}`;
   }
-  const ringOutline = getStroke(arcPts, {
-    size: Math.max(2.0, (sw || 1.8) * 1.42),
-    thinning: 0.44,
-    smoothing: 0.45,
-    streamline: 0.3,
-    simulatePressure: false,
-    start: { taper: Math.min(6, r * 0.28), cap: true },
-    end: { taper: Math.min(9, r * 0.45), cap: true },
-  });
-  return strokeOutlineToSvgPath(ringOutline, true);
+  const lastIdx = flat.length - 2;
+  d += ` T ${f1((flat[lastIdx] + flat[0]) * 0.5)} ${f1((flat[lastIdx + 1] + flat[1]) * 0.5)} Z`;
+  return d;
+}
+
+function ensoRingData(cx, cy, r, sw, ang) {
+  const N = 14;
+  const maxHalfW = Math.max(0.95, (sw || 1.8) * 0.68);
+  const totalPts = (N + 1) * 2;
+  const flat = new Float32Array(totalPts * 2);
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const a = ang + u * Math.PI * 1.94;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const rr = r * (1 + 0.022 * Math.sin(u * Math.PI * 3));
+    const hw = maxHalfW * (0.22 + 0.88 * Math.sin(Math.pow(u, 0.82) * Math.PI));
+    const li = i * 2;
+    const ri = (totalPts - 1 - i) * 2;
+    flat[li] = cx + ca * (rr + hw);
+    flat[li + 1] = cy + sa * (rr + hw);
+    const inR = Math.max(0.5, rr - hw);
+    flat[ri] = cx + ca * inR;
+    flat[ri + 1] = cy + sa * inR;
+  }
+  return { d: flatOutlineToSvgPath(flat), smoothPoly: flat };
+}
+
+function taperedSegmentData(x0, y0, x1, y1, sw, isBrush, seed) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = hypot2(dx, dy);
+  if (len < 0.5) return null;
+  const tx = dx / len, ty = dy / len;
+  const nx = -ty, ny = tx;
+  const maxHw = sw * (isBrush ? 0.68 : 0.56);
+  const phase = (seed % 97) * 0.064;
+  const S = 6;
+  const totalPts = (S + 1) * 2;
+  const flat = new Float32Array(totalPts * 2);
+  for (let i = 0; i <= S; i++) {
+    const u = i / S;
+    const px = x0 + dx * u;
+    const py = y0 + dy * u;
+    const env = isBrush
+      ? 0.24 + 0.78 * Math.sin(Math.pow(u, 0.82) * Math.PI) + 0.07 * Math.sin(u * 6 + phase)
+      : 0.34 + 0.62 * Math.sin(u * Math.PI) + 0.04 * Math.cos(u * 5 + phase);
+    const hw = maxHw * clamp(env, 0.16, 1.05);
+    const li = i * 2;
+    const ri = (totalPts - 1 - i) * 2;
+    flat[li] = px + nx * hw;
+    flat[li + 1] = py + ny * hw;
+    flat[ri] = px - nx * hw;
+    flat[ri + 1] = py - ny * hw;
+  }
+  return { d: flatOutlineToSvgPath(flat), smoothPoly: flat };
+}
+
+let SPINE_X = new Float64Array(128);
+let SPINE_Y = new Float64Array(128);
+let SPINE_S = new Float64Array(128);
+
+function pushSpinePt(idx, x, y) {
+  if (idx >= SPINE_X.length) {
+    const n2 = SPINE_X.length * 2;
+    const gx = new Float64Array(n2); gx.set(SPINE_X); SPINE_X = gx;
+    const gy = new Float64Array(n2); gy.set(SPINE_Y); SPINE_Y = gy;
+    SPINE_S = new Float64Array(n2);
+  }
+  SPINE_X[idx] = x;
+  SPINE_Y[idx] = y;
+  return idx + 1;
+}
+
+function taperedPolylineData(pts, sw, isBrush, seed) {
+  const n = pts.length;
+  if (n < 2) return null;
+  if (n === 2) return taperedSegmentData(pts[0][0], pts[0][1], pts[1][0], pts[1][1], sw, isBrush, seed);
+
+  let cnt = pushSpinePt(0, pts[0][0], pts[0][1]);
+  let prevX = pts[0][0], prevY = pts[0][1];
+  const emitSpanTo = (tx, ty) => {
+    const segD = hypot2(tx - prevX, ty - prevY);
+    if (segD < 0.25) return;
+    if (segD > 42) {
+      cnt = pushSpinePt(cnt, (prevX + tx) * 0.5, (prevY + ty) * 0.5);
+    }
+    cnt = pushSpinePt(cnt, tx, ty);
+    prevX = tx;
+    prevY = ty;
+  };
+
+  for (let k = 1; k < n - 1; k++) {
+    const pkx = pts[k][0], pky = pts[k][1];
+    const dx0 = pkx - prevX, dy0 = pky - prevY;
+    const L0 = hypot2(dx0, dy0);
+    const dx1 = pts[k + 1][0] - pkx, dy1 = pts[k + 1][1] - pky;
+    const L1 = hypot2(dx1, dy1);
+    if (L0 < 0.3 || L1 < 0.3) continue;
+    const tx0 = dx0 / L0, ty0 = dy0 / L0;
+    const tx1 = dx1 / L1, ty1 = dy1 / L1;
+    const cosTurn = tx0 * tx1 + ty0 * ty1;
+    if (cosTurn < 0.88 && L0 > 2.5 && L1 > 2.5) {
+      const rc = Math.min(8, 0.32 * Math.min(L0, L1));
+      const ax = pkx - tx0 * rc, ay = pky - ty0 * rc;
+      const bx = pkx + tx1 * rc, by = pky + ty1 * rc;
+      emitSpanTo(ax, ay);
+      cnt = pushSpinePt(cnt, 0.25 * ax + 0.5 * pkx + 0.25 * bx, 0.25 * ay + 0.5 * pky + 0.25 * by);
+      cnt = pushSpinePt(cnt, bx, by);
+      prevX = bx;
+      prevY = by;
+    } else {
+      emitSpanTo(pkx, pky);
+    }
+  }
+  emitSpanTo(pts[n - 1][0], pts[n - 1][1]);
+  if (cnt < 2) return null;
+
+  SPINE_S[0] = 0;
+  for (let i = 1; i < cnt; i++) {
+    SPINE_S[i] = SPINE_S[i - 1] + hypot2(SPINE_X[i] - SPINE_X[i - 1], SPINE_Y[i] - SPINE_Y[i - 1]);
+  }
+  const sTot = SPINE_S[cnt - 1];
+  if (sTot < 0.5) return null;
+
+  const totalPts = cnt * 2;
+  const flat = new Float32Array(totalPts * 2);
+  const maxHw = sw * (isBrush ? 0.68 : 0.56);
+  const phase = (seed % 97) * 0.064;
+
+  for (let i = 0; i < cnt; i++) {
+    let tx, ty;
+    if (i === 0) {
+      const dx = SPINE_X[1] - SPINE_X[0], dy = SPINE_Y[1] - SPINE_Y[0];
+      const L = hypot2(dx, dy) || 1;
+      tx = dx / L; ty = dy / L;
+    } else if (i === cnt - 1) {
+      const dx = SPINE_X[cnt - 1] - SPINE_X[cnt - 2], dy = SPINE_Y[cnt - 1] - SPINE_Y[cnt - 2];
+      const L = hypot2(dx, dy) || 1;
+      tx = dx / L; ty = dy / L;
+    } else {
+      const dx0 = SPINE_X[i] - SPINE_X[i - 1], dy0 = SPINE_Y[i] - SPINE_Y[i - 1];
+      const L0 = hypot2(dx0, dy0) || 1;
+      const dx1 = SPINE_X[i + 1] - SPINE_X[i], dy1 = SPINE_Y[i + 1] - SPINE_Y[i];
+      const L1 = hypot2(dx1, dy1) || 1;
+      const sx = dx0 / L0 + dx1 / L1, sy = dy0 / L0 + dy1 / L1;
+      const sL = hypot2(sx, sy);
+      if (sL > 1e-4) { tx = sx / sL; ty = sy / sL; }
+      else { tx = dx0 / L0; ty = dy0 / L0; }
+    }
+    const nx = -ty, ny = tx;
+    const u = SPINE_S[i] / sTot;
+    const env = isBrush
+      ? 0.24 + 0.78 * Math.sin(Math.pow(u, 0.82) * Math.PI) + 0.07 * Math.sin(u * 9 + phase)
+      : 0.34 + 0.62 * Math.sin(u * Math.PI) + 0.04 * Math.cos(u * 7 + phase);
+    const hw = maxHw * clamp(env, 0.16, 1.05);
+    const px = SPINE_X[i], py = SPINE_Y[i];
+    const li = i * 2;
+    const ri = (totalPts - 1 - i) * 2;
+    flat[li] = px + nx * hw;
+    flat[li + 1] = py + ny * hw;
+    flat[ri] = px - nx * hw;
+    flat[ri + 1] = py - ny * hw;
+  }
+  return { d: flatOutlineToSvgPath(flat), smoothPoly: flat };
+}
+
+function chiseledPolylineData(pts, roughness, seed, closed = false) {
+  const rand = seededRand(seed);
+  const coords = [];
+  let d = "";
+  const rgh = clamp(roughness, 0.28, 0.72);
+  const nSeg = pts.length - 1;
+  for (let i = 0; i < nSeg; i++) {
+    const x0 = pts[i][0], y0 = pts[i][1];
+    const x1 = pts[i + 1][0], y1 = pts[i + 1][1];
+    const segLen = hypot2(x1 - x0, y1 - y0);
+    const steps = segLen > 32 ? Math.min(5, Math.ceil(segLen / 34)) : 1;
+    const amp = Math.min(rgh * 1.35, segLen * 0.055);
+    for (let s = 0; s < steps; s++) {
+      if (i > 0 && s === 0) continue;
+      const u = s / steps;
+      const jx = (s === 0 && i === 0) ? 0 : (rand() - 0.5) * amp * 2;
+      const jy = (s === 0 && i === 0) ? 0 : (rand() - 0.5) * amp * 2;
+      const px = f1(lerp(x0, x1, u) + jx);
+      const py = f1(lerp(y0, y1, u) + jy);
+      coords.push(px, py);
+      d += coords.length === 2 ? `M ${px} ${py}` : ` L ${px} ${py}`;
+    }
+  }
+  const last = pts[nSeg];
+  if (!closed) {
+    const lx = f1(last[0]), ly = f1(last[1]);
+    coords.push(lx, ly);
+    d += ` L ${lx} ${ly}`;
+    return { d, nums: new Float64Array(coords) };
+  }
+  d += " Z";
+  return { d, closedPts: new Float32Array(coords) };
+}
+
+let HACH_U = new Float64Array(64);
+let HACH_V = new Float64Array(64);
+let HACH_X = new Float64Array(64);
+let HACH_OUT = new Float32Array(512);
+
+function pushHach4(idx, a, b, c, d) {
+  if (idx + 4 > HACH_OUT.length) {
+    const grown = new Float32Array(HACH_OUT.length * 2);
+    grown.set(HACH_OUT);
+    HACH_OUT = grown;
+  }
+  HACH_OUT[idx] = a; HACH_OUT[idx + 1] = b; HACH_OUT[idx + 2] = c; HACH_OUT[idx + 3] = d;
+  return idx + 4;
+}
+
+function pushHach6(idx, a, b, c, d, e, f) {
+  if (idx + 6 > HACH_OUT.length) {
+    const grown = new Float32Array(HACH_OUT.length * 2);
+    grown.set(HACH_OUT);
+    HACH_OUT = grown;
+  }
+  HACH_OUT[idx] = a; HACH_OUT[idx + 1] = b; HACH_OUT[idx + 2] = c;
+  HACH_OUT[idx + 3] = d; HACH_OUT[idx + 4] = e; HACH_OUT[idx + 5] = f;
+  return idx + 6;
+}
+
+function buildHachureData(points, angleDeg, gap, roughness, seed, crossHatch = false) {
+  const n = points.length;
+  if (n < 3) return null;
+  if (n > HACH_U.length) {
+    HACH_U = new Float64Array(n * 2);
+    HACH_V = new Float64Array(n * 2);
+  }
+  const isRough = roughness > 0.001;
+  const stepGap = Math.max(3.8, gap);
+  let outLen = 0;
+  let d = "";
+  let s = hashSeed(seed);
+  const nextRand = () => {
+    s = (Math.imul(s, 48271) % 2147483647) & 0x7fffffff;
+    return (s - 1) / 2147483646;
+  };
+
+  const passCount = crossHatch ? 2 : 1;
+  for (let pass = 0; pass < passCount; pass++) {
+    const rad = (((angleDeg + pass * 90) + 90) * Math.PI) / 180;
+    const cosR = Math.cos(rad);
+    const sinR = Math.sin(rad);
+    let minV = Infinity, maxV = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const px = points[i][0], py = points[i][1];
+      const u = px * cosR - py * sinR;
+      const v = px * sinR + py * cosR;
+      HACH_U[i] = u;
+      HACH_V[i] = v;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+    if (maxV - minV < 1.2) continue;
+    const phase = (((seed + pass * 7) & 15) / 16) * stepGap;
+    let vStart = Math.floor((minV - phase) / stepGap) * stepGap + phase;
+    while (vStart <= minV + 0.25) vStart += stepGap;
+    if (vStart >= maxV - 0.25) {
+      if (maxV - minV >= 3) vStart = (minV + maxV) * 0.5;
+      else continue;
+    }
+    for (let v = vStart; v < maxV - 0.15; v += stepGap) {
+      let cnt = 0;
+      for (let i = 0; i < n; i++) {
+        const j = i + 1 === n ? 0 : i + 1;
+        const vi = HACH_V[i], vj = HACH_V[j];
+        if ((vi <= v && vj > v) || (vj <= v && vi > v)) {
+          if (cnt >= HACH_X.length) {
+            const grown = new Float64Array(HACH_X.length * 2);
+            grown.set(HACH_X);
+            HACH_X = grown;
+          }
+          HACH_X[cnt++] = HACH_U[i] + ((v - vi) / (vj - vi)) * (HACH_U[j] - HACH_U[i]);
+        }
+      }
+      if (cnt < 2) continue;
+      if (cnt === 2) {
+        if (HACH_X[0] > HACH_X[1]) { const t = HACH_X[0]; HACH_X[0] = HACH_X[1]; HACH_X[1] = t; }
+      } else {
+        for (let a = 1; a < cnt; a++) {
+          const kv = HACH_X[a];
+          let b = a - 1;
+          while (b >= 0 && HACH_X[b] > kv) { HACH_X[b + 1] = HACH_X[b]; b--; }
+          HACH_X[b + 1] = kv;
+        }
+      }
+      for (let k = 0; k + 1 < cnt; k += 2) {
+        const u0 = HACH_X[k], u1 = HACH_X[k + 1];
+        const segLen = u1 - u0;
+        if (segLen < 0.8) continue;
+        const x0 = u0 * cosR + v * sinR;
+        const y0 = -u0 * sinR + v * cosR;
+        const x1 = u1 * cosR + v * sinR;
+        const y1 = -u1 * sinR + v * cosR;
+        if (!isRough) {
+          const rx0 = f1(x0), ry0 = f1(y0), rx1 = f1(x1), ry1 = f1(y1);
+          d += d ? ` M ${rx0} ${ry0} L ${rx1} ${ry1}` : `M ${rx0} ${ry0} L ${rx1} ${ry1}`;
+          outLen = pushHach4(outLen, rx0, ry0, rx1, ry1);
+        } else {
+          const amp = Math.min(roughness * 1.45, segLen * 0.12);
+          const jx0 = f1(x0 + (nextRand() - 0.5) * amp);
+          const jy0 = f1(y0 + (nextRand() - 0.5) * amp);
+          const jx1 = f1(x1 + (nextRand() - 0.5) * amp);
+          const jy1 = f1(y1 + (nextRand() - 0.5) * amp);
+          const bow = (nextRand() - 0.5) * amp * 1.8;
+          const mx = f1((jx0 + jx1) * 0.5 + bow * sinR);
+          const my = f1((jy0 + jy1) * 0.5 + bow * cosR);
+          d += d ? ` M ${jx0} ${jy0} Q ${mx} ${my} ${jx1} ${jy1}` : `M ${jx0} ${jy0} Q ${mx} ${my} ${jx1} ${jy1}`;
+          outLen = pushHach6(outLen, jx0, jy0, mx, my, jx1, jy1);
+        }
+      }
+    }
+  }
+  if (!d) return null;
+  const arr = HACH_OUT.slice(0, outLen);
+  return isRough ? { d, qsegs: arr } : { d, segs: arr };
 }
 
 // ============================================================================
@@ -683,14 +1150,13 @@ function ensoRingOutlinePath(cx, cy, r, sw, ang) {
  */
 export function buildDotSpec(cx, cy, r, G, opts = {}) {
   if (!(r > 0)) return [];
-  const seed = hashSeed(opts.seed ?? 1);
   const op = clamp(opts.opacity ?? 1, 0, 1);
   if (op < 0.002) return [];
   const roleCol = resolveRoleColor(G, opts.role || "primary");
   const fill = opts.fill !== undefined ? opts.fill : (opts.hollow ? G.P.bg : roleCol);
   const stroke = opts.stroke !== undefined ? opts.stroke : (opts.hollow ? roleCol : "none");
   const sw = Number(opts.strokeWidth ?? (stroke !== "none" ? 1.6 : 0));
-  const isPaperFill = fill !== "none" && colorDist(fill, G.P.bg) < 28;
+  const isPaperFill = fill !== "none" && (fill === G.P.bg || colorDistSqRgb(parseRgb(fill, [128, 128, 128]), G.bgRgb) < 784);
   const isHollow = Boolean(opts.hollow || fill === "none" || isPaperFill);
   const keepOpenInterior = Boolean(opts.labelInside || r >= 24);
 
@@ -716,31 +1182,37 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   };
 
   if (G.node === "dab") {
+    const seed = hashSeed(opts.seed ?? 1);
     const rand = seededRand(seed);
     const ang = -0.48 + (rand() - 0.5) * 0.36;
     const hasExplicitRim = Boolean(stroke && stroke !== "none" && sw > 0);
     if (!isHollow && !hasExplicitRim && r < 22) {
       const c = Math.cos(ang), s = Math.sin(ang);
-      const rot = (lx, ly) => `${f2(cx + lx * c - ly * s)} ${f2(cy + lx * s + ly * c)}`;
+      const rx = (lx, ly) => f2(cx + lx * c - ly * s);
+      const ry = (lx, ly) => f2(cy + lx * s + ly * c);
       const tip = keepOpenInterior || r >= 11 ? 1.08 : 1.22;
       const belly = keepOpenInterior || r >= 11 ? 1.02 : 0.96;
       const heel = keepOpenInterior || r >= 11 ? 1.00 : 0.90;
-      const d = [
-        `M ${rot(-r * heel, 0)}`,
-        `C ${rot(-r * heel, -r * belly * 0.95)}, ${rot(r * 0.25, -r * belly * 1.04)}, ${rot(r * tip, -r * 0.06)}`,
-        `Q ${rot(r * (tip + 0.08), r * 0.04)} ${rot(r * (tip - 0.08), r * 0.16)}`,
-        `C ${rot(r * 0.22, r * belly * 1.02)}, ${rot(-r * heel, r * belly * 0.92)}, ${rot(-r * heel, 0)}`,
-        "Z",
-      ].join(" ");
-      out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
+      const d = `M ${rx(-r * heel, 0)} ${ry(-r * heel, 0)} C ${rx(-r * heel, -r * belly * 0.95)} ${ry(-r * heel, -r * belly * 0.95)}, ${rx(r * 0.25, -r * belly * 1.04)} ${ry(r * 0.25, -r * belly * 1.04)}, ${rx(r * tip, -r * 0.06)} ${ry(r * tip, -r * 0.06)} Q ${rx(r * (tip + 0.08), r * 0.04)} ${ry(r * (tip + 0.08), r * 0.04)} ${rx(r * (tip - 0.08), r * 0.16)} ${ry(r * (tip - 0.08), r * 0.16)} C ${rx(r * 0.22, r * belly * 1.02)} ${ry(r * 0.22, r * belly * 1.02)}, ${rx(-r * heel, r * belly * 0.92)} ${ry(-r * heel, r * belly * 0.92)}, ${rx(-r * heel, 0)} ${ry(-r * heel, 0)} Z`;
+      const N = 12;
+      const closedPts = new Float32Array(N * 2);
+      for (let i = 0; i < N; i++) {
+        const th = (i * 2 * Math.PI) / N;
+        const ct = Math.cos(th), st = Math.sin(th);
+        const lx = ct >= 0 ? ct * r * tip : ct * r * heel;
+        const ly = st * r * belly * (ct > 0.3 ? 0.78 : 0.96);
+        closedPts[i * 2] = cx + lx * c - ly * s;
+        closedPts[i * 2 + 1] = cy + lx * s + ly * c;
+      }
+      out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw), closedPts });
       return out;
     }
     if (fill && fill !== "none") {
       out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r * 0.95) }, fill, "none", 0) });
     }
     const ringCol = hasExplicitRim ? stroke : fill;
-    const rd = ensoRingOutlinePath(cx, cy, r, sw, ang);
-    if (rd) out.push({ tag: "path", attrs: addCommon({ d: rd }, ringCol, "none", 0) });
+    const ed = ensoRingData(cx, cy, r, sw, ang);
+    if (ed.d) out.push({ tag: "path", attrs: addCommon({ d: ed.d }, ringCol, "none", 0), smoothPoly: ed.smoothPoly });
     return out;
   }
 
@@ -754,30 +1226,36 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
   }
 
   if (G.node === "chisel") {
-    const d = chiseledNodePath(cx, cy, r * 1.05, seed);
-    out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw > 0 ? sw * 1.12 : 0) });
+    const seed = hashSeed(opts.seed ?? 1);
+    const cd = chiseledNodeData(cx, cy, r * 1.05, seed);
+    out.push({ tag: "path", attrs: addCommon({ d: cd.d }, fill, stroke, sw > 0 ? sw * 1.12 : 0), closedPts: cd.closedPts });
     return out;
   }
 
   if (G.node === "star8") {
-    const d = keepOpenInterior
-      ? regularStarPath(cx, cy, r * 1.05, r * 0.90, r >= 24 ? 16 : 8, Math.PI / 16)
-      : regularStarPath(cx, cy, r * 1.18, r * 0.66, 8, -Math.PI / 8);
-    out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
+    const sd = keepOpenInterior
+      ? regularStarData(cx, cy, r * 1.05, r * 0.90, r >= 24 ? 16 : 8, Math.PI / 16)
+      : regularStarData(cx, cy, r * 1.18, r * 0.66, 8, -Math.PI / 8);
+    out.push({ tag: "path", attrs: addCommon({ d: sd.d }, fill, stroke, sw), closedPts: sd.closedPts });
     return out;
   }
 
   if (G.node === "diamond") {
-    const d = keepOpenInterior
-      ? regularStarPath(cx, cy, r * 1.04, r * 1.04, 4, Math.PI / 8)
-      : `M ${f2(cx)} ${f2(cy - r * 1.18)} L ${f2(cx + r * 1.18)} ${f2(cy)} L ${f2(cx)} ${f2(cy + r * 1.18)} L ${f2(cx - r * 1.18)} ${f2(cy)} Z`;
-    out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
+    if (keepOpenInterior) {
+      const sd = regularStarData(cx, cy, r * 1.04, r * 1.04, 4, Math.PI / 8);
+      out.push({ tag: "path", attrs: addCommon({ d: sd.d }, fill, stroke, sw), closedPts: sd.closedPts });
+    } else {
+      const rr = r * 1.18;
+      const x0 = f2(cx), y0 = f2(cy - rr), x1 = f2(cx + rr), y1 = f2(cy), y2 = f2(cy + rr), x3 = f2(cx - rr);
+      const d = `M ${x0} ${y0} L ${x1} ${y1} L ${x0} ${y2} L ${x3} ${y1} Z`;
+      out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw), closedPts: new Float32Array([x0, y0, x1, y1, x0, y2, x3, y1]) });
+    }
     return out;
   }
 
   if (G.node === "shippo") {
-    const d = shippoFloretPath(cx, cy, r, keepOpenInterior ? 8 : 4);
-    out.push({ tag: "path", attrs: addCommon({ d }, fill, stroke, sw) });
+    const fd = shippoFloretData(cx, cy, r, keepOpenInterior ? 8 : 4);
+    out.push({ tag: "path", attrs: addCommon({ d: fd.d }, fill, stroke, sw), qloop: fd.qloop });
     return out;
   }
 
@@ -787,14 +1265,18 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
       out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r) }, fill, stroke, sw) });
       const tIn = r >= 24 ? r * 0.84 : r * 0.98;
       const tOut = r >= 24 ? r * 1.0 : r + 3.0;
-      const td = `M ${f2(cx)} ${f2(cy - tOut)} L ${f2(cx)} ${f2(cy - tIn)} M ${f2(cx)} ${f2(cy + tIn)} L ${f2(cx)} ${f2(cy + tOut)} M ${f2(cx - tOut)} ${f2(cy)} L ${f2(cx - tIn)} ${f2(cy)} M ${f2(cx + tIn)} ${f2(cy)} L ${f2(cx + tOut)} ${f2(cy)}`;
-      out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.35) });
+      const xc = f2(cx), yc = f2(cy);
+      const segs = new Float32Array([xc, f2(cy - tOut), xc, f2(cy - tIn), xc, f2(cy + tIn), xc, f2(cy + tOut), f2(cx - tOut), yc, f2(cx - tIn), yc, f2(cx + tIn), yc, f2(cx + tOut), yc]);
+      const td = `M ${segs[0]} ${segs[1]} L ${segs[2]} ${segs[3]} M ${segs[4]} ${segs[5]} L ${segs[6]} ${segs[7]} M ${segs[8]} ${segs[9]} L ${segs[10]} ${segs[11]} M ${segs[12]} ${segs[13]} L ${segs[14]} ${segs[15]}`;
+      out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.35), segs });
     } else {
       out.push({ tag: "circle", attrs: addCommon({ cx: f2(cx), cy: f2(cy), r: f2(r * 0.78) }, fill, stroke, sw) });
       const arm = Math.max(r * 1.48, r + 3.2);
       const gapR = r * 0.42;
-      const td = `M ${f2(cx - arm)} ${f2(cy)} L ${f2(cx - gapR)} ${f2(cy)} M ${f2(cx + gapR)} ${f2(cy)} L ${f2(cx + arm)} ${f2(cy)} M ${f2(cx)} ${f2(cy - arm)} L ${f2(cx)} ${f2(cy - gapR)} M ${f2(cx)} ${f2(cy + gapR)} L ${f2(cx)} ${f2(cy + arm)}`;
-      out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.25) });
+      const xc = f2(cx), yc = f2(cy);
+      const segs = new Float32Array([f2(cx - arm), yc, f2(cx - gapR), yc, f2(cx + gapR), yc, f2(cx + arm), yc, xc, f2(cy - arm), xc, f2(cy - gapR), xc, f2(cy + gapR), xc, f2(cy + arm)]);
+      const td = `M ${segs[0]} ${segs[1]} L ${segs[2]} ${segs[3]} M ${segs[4]} ${segs[5]} L ${segs[6]} ${segs[7]} M ${segs[8]} ${segs[9]} L ${segs[10]} ${segs[11]} M ${segs[12]} ${segs[13]} L ${segs[14]} ${segs[15]}`;
+      out.push({ tag: "path", attrs: addCommon({ d: td }, "none", tickCol, 1.25), segs });
     }
     return out;
   }
@@ -805,7 +1287,8 @@ export function buildDotSpec(cx, cy, r, G, opts = {}) {
       const c = r * 0.38;
       const x0 = snap(cx - r), x1 = snap(cx + r), y0 = snap(cy - r), y1 = snap(cy + r), k = Math.max(2, snap(c));
       const d = `M ${x0 + k} ${y0} H ${x1 - k} L ${x1} ${y0 + k} V ${y1 - k} L ${x1 - k} ${y1} H ${x0 + k} L ${x0} ${y1 - k} V ${y0 + k} Z`;
-      out.push({ tag: "path", attrs: addCommon({ d, "shape-rendering": "crispEdges" }, fill, stroke, sw > 0 ? Math.max(sw, 2) : 0) });
+      const closedPts = new Float32Array([x0 + k, y0, x1 - k, y0, x1, y0 + k, x1, y1 - k, x1 - k, y1, x0 + k, y1, x0, y1 - k, x0, y0 + k]);
+      out.push({ tag: "path", attrs: addCommon({ d, "shape-rendering": "crispEdges" }, fill, stroke, sw > 0 ? Math.max(sw, 2) : 0), closedPts });
     } else {
       const side = Math.max(4, Math.round(r * 1.85));
       out.push({
@@ -831,7 +1314,6 @@ export function buildRingSpec(cx, cy, r, G, opts = {}) {
   if (!(r > 0)) return [];
   const op = clamp(opts.opacity ?? 1, 0, 1);
   if (op < 0.002) return [];
-  const seed = hashSeed(opts.seed ?? 7);
   const stroke = opts.stroke || resolveRoleColor(G, opts.role || "primary");
   const sw = Number(opts.strokeWidth ?? 1.8);
   const dashed = opts.dash || "";
@@ -840,43 +1322,52 @@ export function buildRingSpec(cx, cy, r, G, opts = {}) {
   if (op < 0.999) base.opacity = op.toFixed(3);
 
   if (!dashed && G.node === "dab" && r >= 6) {
+    const seed = hashSeed(opts.seed ?? 7);
     const rand = seededRand(seed);
-    const rd = ensoRingOutlinePath(cx, cy, r, sw * 0.92, -0.4 + (rand() - 0.5) * 0.4);
-    if (rd) {
-      const pa = { d: rd, fill: stroke };
+    const ed = ensoRingData(cx, cy, r, sw * 0.92, -0.4 + (rand() - 0.5) * 0.4);
+    if (ed.d) {
+      const pa = { d: ed.d, fill: stroke };
       if (op < 0.999) pa.opacity = op.toFixed(3);
-      return [{ tag: "path", attrs: pa }];
+      return [{ tag: "path", attrs: pa, smoothPoly: ed.smoothPoly }];
     }
   }
   if (G.node === "star8" && r >= 6) {
-    return [{ tag: "path", attrs: { ...base, d: regularStarPath(cx, cy, r * 1.06, r * 0.90, 8, -Math.PI / 8) } }];
+    const sd = regularStarData(cx, cy, r * 1.06, r * 0.90, 8, -Math.PI / 8);
+    return [{ tag: "path", attrs: { ...base, d: sd.d }, closedPts: sd.closedPts }];
   }
   if (G.node === "shippo" && r >= 6) {
-    return [{ tag: "path", attrs: { ...base, d: shippoFloretPath(cx, cy, r, r >= 22 ? 8 : 4) } }];
+    const fd = shippoFloretData(cx, cy, r, r >= 22 ? 8 : 4);
+    return [{ tag: "path", attrs: { ...base, d: fd.d }, qloop: fd.qloop }];
   }
   if (!dashed && G.node === "reticle" && r >= 7) {
     const q = f2((2 * Math.PI * r) / 4);
     const arcLen = f2(q * 0.76);
     const gapLen = f2(q * 0.24);
     const tOut = r + 2.6;
-    const td = `M ${f2(cx)} ${f2(cy - tOut)} L ${f2(cx)} ${f2(cy - r)} M ${f2(cx)} ${f2(cy + r)} L ${f2(cx)} ${f2(cy + tOut)} M ${f2(cx - tOut)} ${f2(cy)} L ${f2(cx - r)} ${f2(cy)} M ${f2(cx + r)} ${f2(cy)} L ${f2(cx + tOut)} ${f2(cy)}`;
+    const xc = f2(cx), yc = f2(cy);
+    const segs = new Float32Array([xc, f2(cy - tOut), xc, f2(cy - r), xc, f2(cy + r), xc, f2(cy + tOut), f2(cx - tOut), yc, f2(cx - r), yc, f2(cx + r), yc, f2(cx + tOut), yc]);
+    const td = `M ${segs[0]} ${segs[1]} L ${segs[2]} ${segs[3]} M ${segs[4]} ${segs[5]} L ${segs[6]} ${segs[7]} M ${segs[8]} ${segs[9]} L ${segs[10]} ${segs[11]} M ${segs[12]} ${segs[13]} L ${segs[14]} ${segs[15]}`;
     const tickAttrs = { d: td, fill: "none", stroke, "stroke-width": f2(Math.max(1.1, sw * 0.75)) };
     if (op < 0.999) tickAttrs.opacity = op.toFixed(3);
     return [
-      { tag: "circle", attrs: { ...base, cx: f2(cx), cy: f2(cy), r: f2(r), "stroke-dasharray": `${arcLen} ${gapLen}`, "stroke-dashoffset": f2(-gapLen * 0.5) } },
-      { tag: "path", attrs: tickAttrs },
+      { tag: "circle", attrs: { ...base, cx: xc, cy: yc, r: f2(r), "stroke-dasharray": `${arcLen} ${gapLen}`, "stroke-dashoffset": f2(-gapLen * 0.5) } },
+      { tag: "path", attrs: tickAttrs, segs },
     ];
   }
   if (G.node === "diamond") {
-    const d = `M ${f2(cx)} ${f2(cy - r * 1.1)} L ${f2(cx + r * 1.1)} ${f2(cy)} L ${f2(cx)} ${f2(cy + r * 1.1)} L ${f2(cx - r * 1.1)} ${f2(cy)} Z`;
-    return [{ tag: "path", attrs: { ...base, d } }];
+    const rr = r * 1.1;
+    const x0 = f2(cx), y0 = f2(cy - rr), x1 = f2(cx + rr), y1 = f2(cy), y2 = f2(cy + rr), x3 = f2(cx - rr);
+    const d = `M ${x0} ${y0} L ${x1} ${y1} L ${x0} ${y2} L ${x3} ${y1} Z`;
+    return [{ tag: "path", attrs: { ...base, d }, closedPts: new Float32Array([x0, y0, x1, y1, x0, y2, x3, y1]) }];
   }
   if (G.node === "pixel") {
     const s = Math.round(r * 2);
     return [{ tag: "rect", attrs: { ...base, x: Math.round(cx - r), y: Math.round(cy - r), width: s, height: s, "shape-rendering": "crispEdges" } }];
   }
   if (G.node === "chisel") {
-    return [{ tag: "path", attrs: { ...base, d: chiseledNodePath(cx, cy, r, seed) } }];
+    const seed = hashSeed(opts.seed ?? 7);
+    const cd = chiseledNodeData(cx, cy, r, seed);
+    return [{ tag: "path", attrs: { ...base, d: cd.d }, closedPts: cd.closedPts }];
   }
   return [{ tag: "circle", attrs: { ...base, cx: f2(cx), cy: f2(cy), r: f2(r) } }];
 }
@@ -891,40 +1382,67 @@ export function buildArrowHeadSpec(x, y, angle, G, opts = {}) {
   const s = Number(opts.size ?? 8.5);
   const c = Math.cos(angle);
   const n = Math.sin(angle);
-  const pt = (back, side) => `${f2(x - c * back - n * side)} ${f2(y - n * back + c * side)}`;
+  const px = (back, side) => f2(x - c * back - n * side);
+  const py = (back, side) => f2(y - n * back + c * side);
 
-  const wrap = (attrs) => {
+  const wrap = (attrs, extra) => {
     if (op < 0.999) attrs.opacity = op.toFixed(3);
-    return [{ tag: "path", attrs }];
+    return [extra ? { tag: "path", attrs, ...extra } : { tag: "path", attrs }];
   };
 
   if (G.arrow === "flick") {
     const tx = f2(x + c * 0.6), ty = f2(y + n * 0.6);
-    const d = `M ${tx} ${ty} Q ${pt(s * 0.45, s * 0.58)} ${pt(s * 1.18, s * 0.66)} L ${pt(s * 0.66, s * 0.06)} L ${pt(s * 0.92, -s * 0.46)} Q ${pt(s * 0.38, -s * 0.36)} ${tx} ${ty} Z`;
-    return wrap({ d, fill: col });
+    const c1x = px(s * 0.45, s * 0.58), c1y = py(s * 0.45, s * 0.58);
+    const p1x = px(s * 1.18, s * 0.66), p1y = py(s * 1.18, s * 0.66);
+    const p2x = px(s * 0.66, s * 0.06), p2y = py(s * 0.66, s * 0.06);
+    const p3x = px(s * 0.92, -s * 0.46), p3y = py(s * 0.92, -s * 0.46);
+    const c2x = px(s * 0.38, -s * 0.36), c2y = py(s * 0.38, -s * 0.36);
+    const d = `M ${tx} ${ty} Q ${c1x} ${c1y} ${p1x} ${p1y} L ${p2x} ${p2y} L ${p3x} ${p3y} Q ${c2x} ${c2y} ${tx} ${ty} Z`;
+    const mx1 = (tx + 2 * c1x + p1x) * 0.25, my1 = (ty + 2 * c1y + p1y) * 0.25;
+    const mx2 = (p3x + 2 * c2x + tx) * 0.25, my2 = (p3y + 2 * c2y + ty) * 0.25;
+    return wrap({ d, fill: col }, { closedPts: new Float32Array([tx, ty, mx1, my1, p1x, p1y, p2x, p2y, p3x, p3y, mx2, my2]) });
   }
   if (G.arrow === "barb") {
-    const d = `M ${f2(x + c * 0.8)} ${f2(y + n * 0.8)} L ${pt(s * 1.12, s * 0.62)} L ${pt(s * 0.64, 0)} L ${pt(s * 1.12, -s * 0.62)} Z`;
-    return wrap({ d, fill: col });
+    const x0 = f2(x + c * 0.8), y0 = f2(y + n * 0.8);
+    const x1 = px(s * 1.12, s * 0.62), y1 = py(s * 1.12, s * 0.62);
+    const x2 = px(s * 0.64, 0), y2 = py(s * 0.64, 0);
+    const x3 = px(s * 1.12, -s * 0.62), y3 = py(s * 1.12, -s * 0.62);
+    const d = `M ${x0} ${y0} L ${x1} ${y1} L ${x2} ${y2} L ${x3} ${y3} Z`;
+    return wrap({ d, fill: col }, { closedPts: new Float32Array([x0, y0, x1, y1, x2, y2, x3, y3]) });
   }
   if (G.arrow === "vee") {
-    const d = `M ${pt(s * 0.88, 0)} L ${f2(x)} ${f2(y)} M ${pt(s * 0.96, s * 0.56)} L ${f2(x)} ${f2(y)} L ${pt(s * 0.96, -s * 0.56)}`;
-    return wrap({ d, fill: "none", stroke: col, "stroke-width": f2(Math.max(1.75, s * 0.22)), "stroke-linecap": "round", "stroke-linejoin": "round" });
+    const tx = f2(x), ty = f2(y);
+    const b0x = px(s * 0.88, 0), b0y = py(s * 0.88, 0);
+    const w1x = px(s * 0.96, s * 0.56), w1y = py(s * 0.96, s * 0.56);
+    const w2x = px(s * 0.96, -s * 0.56), w2y = py(s * 0.96, -s * 0.56);
+    const d = `M ${b0x} ${b0y} L ${tx} ${ty} M ${w1x} ${w1y} L ${tx} ${ty} L ${w2x} ${w2y}`;
+    return wrap(
+      { d, fill: "none", stroke: col, "stroke-width": f2(Math.max(1.75, s * 0.22)), "stroke-linecap": "round", "stroke-linejoin": "round" },
+      { segs: new Float32Array([b0x, b0y, tx, ty, w1x, w1y, tx, ty, tx, ty, w2x, w2y]) }
+    );
   }
   if (G.arrow === "chisel") {
-    const d = `M ${f2(x)} ${f2(y)} L ${pt(s * 0.95, s * 0.68)} L ${pt(s * 1.12, s * 0.28)} L ${pt(s * 1.12, -s * 0.28)} L ${pt(s * 0.95, -s * 0.68)} Z`;
-    return wrap({ d, fill: col });
+    const x0 = f2(x), y0 = f2(y);
+    const x1 = px(s * 0.95, s * 0.68), y1 = py(s * 0.95, s * 0.68);
+    const x2 = px(s * 1.12, s * 0.28), y2 = py(s * 1.12, s * 0.28);
+    const x3 = px(s * 1.12, -s * 0.28), y3 = py(s * 1.12, -s * 0.28);
+    const x4 = px(s * 0.95, -s * 0.68), y4 = py(s * 0.95, -s * 0.68);
+    const d = `M ${x0} ${y0} L ${x1} ${y1} L ${x2} ${y2} L ${x3} ${y3} L ${x4} ${y4} Z`;
+    return wrap({ d, fill: col }, { closedPts: new Float32Array([x0, y0, x1, y1, x2, y2, x3, y3, x4, y4]) });
   }
   if (G.arrow === "pixel") {
     const u = Math.max(2, Math.round(s / 3.4));
     const bx = Math.round(x), by = Math.round(y);
-    const d = `M ${bx} ${by} L ${pt(u * 3, u * 2)} L ${pt(u * 3, -u * 2)} Z`;
-    return wrap({ d, fill: col, "shape-rendering": "crispEdges" });
+    const x1 = px(u * 3, u * 2), y1 = py(u * 3, u * 2);
+    const x2 = px(u * 3, -u * 2), y2 = py(u * 3, -u * 2);
+    const d = `M ${bx} ${by} L ${x1} ${y1} L ${x2} ${y2} Z`;
+    return wrap({ d, fill: col, "shape-rendering": "crispEdges" }, { closedPts: new Float32Array([bx, by, x1, y1, x2, y2]) });
   }
 
   const w = s * 0.56;
-  const d = `M ${f2(x)} ${f2(y)} L ${pt(s, w)} L ${pt(s, -w)} Z`;
-  return wrap({ d, fill: col });
+  const x0 = f2(x), y0 = f2(y), x1 = px(s, w), y1 = py(s, w), x2 = px(s, -w), y2 = py(s, -w);
+  const d = `M ${x0} ${y0} L ${x1} ${y1} L ${x2} ${y2} Z`;
+  return wrap({ d, fill: col }, { closedPts: new Float32Array([x0, y0, x1, y1, x2, y2]) });
 }
 
 function prepareArrowGeometry(pointsOrPath, G, opts) {
@@ -938,16 +1456,18 @@ function prepareArrowGeometry(pointsOrPath, G, opts) {
   const visPts = slicePolyline(rawPts, progress);
   if (!visPts || visPts.length < 2) return { shaftInput: null, head: null };
 
-  const [tipX, tipY] = visPts[visPts.length - 1];
+  const lastPt = visPts[visPts.length - 1];
+  const tipX = lastPt[0], tipY = lastPt[1];
   let refX = visPts[0][0], refY = visPts[0][1];
   for (let i = visPts.length - 2; i >= 0; i--) {
-    if (Math.hypot(tipX - visPts[i][0], tipY - visPts[i][1]) > 1e-3) {
+    const dx = tipX - visPts[i][0], dy = tipY - visPts[i][1];
+    if (dx * dx + dy * dy > 1e-6) {
       refX = visPts[i][0];
       refY = visPts[i][1];
       break;
     }
   }
-  const segDist = Math.hypot(tipX - refX, tipY - refY);
+  const segDist = hypot2(tipX - refX, tipY - refY);
   if (segDist <= 1e-3) return { shaftInput: visPts, shaftProgress: 1, head: null };
 
   const setback = G.arrow === "vee" ? headSize * 0.35 : headSize * 0.58;
@@ -979,16 +1499,15 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
   const stroke = opts.stroke !== undefined ? opts.stroke : G.P.grid;
   const sw = Number(opts.strokeWidth ?? (stroke !== "none" ? 1.5 : 0));
   const dashed = opts.dash || "";
-  const seed = hashSeed(opts.seed ?? 11);
   const isCell = Boolean(opts.isCell || (w <= 56 && h <= 56 && Math.abs(w - h) < 1.2));
   const out = [];
 
-  const hasFill = fill && fill !== "none" && fillP > 0.002;
-  const hasStroke = stroke && stroke !== "none" && sw > 0 && progress > 0.002;
-  const isSolidAccent = hasFill && luminance(fill) < 140 && !G.isDark;
+  const hasFill = Boolean(fill && fill !== "none" && fillP > 0.002);
+  const hasStroke = Boolean(stroke && stroke !== "none" && sw > 0 && progress > 0.002);
+  const isSolidAccent = hasFill && !G.isDark && luminance(fill) < 140;
 
-  const mkFillRect = (rx, ry, rw, rh, extra = {}, alphaMult = 1) => {
-    const fa = { x: rx, y: ry, width: rw, height: rh, fill, ...extra };
+  const mkFillRect = (rx, ry, rw, rh, extra = null, alphaMult = 1) => {
+    const fa = extra ? { x: rx, y: ry, width: rw, height: rh, fill, ...extra } : { x: rx, y: ry, width: rw, height: rh, fill };
     if (fillP < 0.999) fa["fill-opacity"] = fillP.toFixed(3);
     const effOp = op * alphaMult;
     if (effOp < 0.999) fa.opacity = effOp.toFixed(3);
@@ -1031,9 +1550,17 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
         const p1 = { d: `M ${x0} ${y1} V ${y0} H ${x1}`, fill: "none", stroke: hiCol, "stroke-width": "1.4", "shape-rendering": "crispEdges" };
         const p2 = { d: `M ${x0} ${y1} H ${x1} V ${y0}`, fill: "none", stroke: loCol, "stroke-width": "1.5", "shape-rendering": "crispEdges" };
         if (op < 0.999) { p1.opacity = op.toFixed(3); p2.opacity = op.toFixed(3); }
-        out.push({ tag: "path", attrs: p1 }, { tag: "path", attrs: p2 });
+        out.push(
+          { tag: "path", attrs: p1, nums: new Float64Array([x0, y1, x0, y0, x1, y0]) },
+          { tag: "path", attrs: p2, nums: new Float64Array([x0, y1, x1, y1, x1, y0]) }
+        );
         if (w >= 28 && h >= 22) {
-          out.push({ tag: "path", attrs: { d: `M ${f2(x0 + 1.2)} ${f2(y1 - 1.2)} H ${f2(x1 - 1.2)} V ${f2(y0 + 1.2)}`, fill: "none", stroke, "stroke-width": "1", opacity: (op * 0.85).toFixed(3), "shape-rendering": "crispEdges" } });
+          const ix0 = f2(x0 + 1.2), iy0 = f2(y0 + 1.2), ix1 = f2(x1 - 1.2), iy1 = f2(y1 - 1.2);
+          out.push({
+            tag: "path",
+            attrs: { d: `M ${ix0} ${iy1} H ${ix1} V ${iy0}`, fill: "none", stroke, "stroke-width": "1", opacity: (op * 0.85).toFixed(3), "shape-rendering": "crispEdges" },
+            nums: new Float64Array([ix0, iy1, ix1, iy1, ix1, iy0]),
+          });
         }
       }
     }
@@ -1059,7 +1586,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 
   if (G.panel === "scroll" && !isCell && !dashed && w >= 72 && h >= 36) {
     if (hasFill) {
-      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : {};
+      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : null;
       out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra, 0.85));
     }
     if (hasStroke) {
@@ -1077,7 +1604,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 
   if ((G.panel === "cartouche" || G.panel === "inlay") && !isCell && !dashed && w >= 76 && h >= 36) {
     if (hasFill) {
-      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : {};
+      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : null;
       out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra));
     }
     if (hasStroke) {
@@ -1089,20 +1616,20 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
         const ins = 3.5;
         const innerSw = f2(Math.max(0.75, sw * 0.45));
         if (G.panel === "cartouche") {
-          // Palace / manuscript / mosque stepped corner-notch jadval frame
           const k = f2(Math.min(7.5, w * 0.05, h * 0.14));
-          const x0 = x + ins, y0 = y + ins, x1 = x + w - ins, y1 = y + h - ins;
-          const cd = [
-            `M ${f2(x0 + k)} ${f2(y0)} H ${f2(x1 - k)} V ${f2(y0 + k)} H ${f2(x1)} V ${f2(y1 - k)} H ${f2(x1 - k)} V ${f2(y1)} H ${f2(x0 + k)} V ${f2(y1 - k)} H ${f2(x0)} V ${f2(y0 + k)} H ${f2(x0 + k)} Z`,
-          ].join(" ");
+          const x0 = f2(x + ins), y0 = f2(y + ins), x1 = f2(x + w - ins), y1 = f2(y + h - ins);
+          const x0k = f2(x0 + k), x1k = f2(x1 - k), y0k = f2(y0 + k), y1k = f2(y1 - k);
+          const cd = `M ${x0k} ${y0} H ${x1k} V ${y0k} H ${x1} V ${y1k} H ${x1k} V ${y1} H ${x0k} V ${y1k} H ${x0} V ${y0k} H ${x0k} Z`;
+          const closedPts = new Float32Array([x0k, y0, x1k, y0, x1k, y0k, x1, y0k, x1, y1k, x1k, y1k, x1k, y1, x0k, y1, x0k, y1k, x0, y1k, x0, y0k, x0k, y0k]);
           out.push({
             tag: "path",
             attrs: { d: cd, fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.58).toFixed(3) },
+            closedPts,
           });
         } else {
-          // Yosegi / Kumiko mitered wood-joinery double frame + 4 corner miter hairlines
           const x0 = f2(x + ins), y0 = f2(y + ins), x1 = f2(x + w - ins), y1 = f2(y + h - ins);
-          const md = `M ${f2(x)} ${f2(y)} L ${x0} ${y0} M ${f2(x + w)} ${f2(y)} L ${x1} ${y0} M ${f2(x)} ${f2(y + h)} L ${x0} ${y1} M ${f2(x + w)} ${f2(y + h)} L ${x1} ${y1}`;
+          const ox0 = f2(x), oy0 = f2(y), ox1 = f2(x + w), oy1 = f2(y + h);
+          const md = `M ${ox0} ${oy0} L ${x0} ${y0} M ${ox1} ${oy0} L ${x1} ${y0} M ${ox0} ${oy1} L ${x0} ${y1} M ${ox1} ${oy1} L ${x1} ${y1}`;
           out.push({
             tag: "rect",
             attrs: { x: x0, y: y0, width: f2(w - ins * 2), height: f2(h - ins * 2), fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.55).toFixed(3) },
@@ -1110,6 +1637,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
           out.push({
             tag: "path",
             attrs: { d: md, fill: "none", stroke, "stroke-width": innerSw, opacity: (op * 0.45).toFixed(3) },
+            segs: new Float32Array([ox0, oy0, x0, y0, ox1, oy0, x1, y0, ox0, oy1, x0, y1, ox1, oy1, x1, y1]),
           });
         }
       }
@@ -1122,11 +1650,18 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
     if (hasStroke) {
       out.push({ tag: "rect", attrs: { x: f2(x), y: f2(y), width: f2(w), height: f2(h), fill: "none", stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.42).toFixed(3) } });
       const b = Math.min(10, w * 0.12, h * 0.24);
-      const x1 = x + w, y1 = y + h;
-      const d = `M ${f2(x)} ${f2(y + b)} V ${f2(y)} H ${f2(x + b)} M ${f2(x1 - b)} ${f2(y)} H ${f2(x1)} V ${f2(y + b)} M ${f2(x)} ${f2(y1 - b)} V ${f2(y1)} H ${f2(x + b)} M ${f2(x1 - b)} ${f2(y1)} H ${f2(x1)} V ${f2(y1 - b)}`;
+      const x0 = f2(x), y0 = f2(y), x1 = f2(x + w), y1 = f2(y + h);
+      const x0b = f2(x + b), x1b = f2(x + w - b), y0b = f2(y + b), y1b = f2(y + h - b);
+      const d = `M ${x0} ${y0b} V ${y0} H ${x0b} M ${x1b} ${y0} H ${x1} V ${y0b} M ${x0} ${y1b} V ${y1} H ${x0b} M ${x1b} ${y1} H ${x1} V ${y1b}`;
       const ca = { d, fill: "none", stroke, "stroke-width": f2(sw * 1.25) };
       if (op < 0.999) ca.opacity = op.toFixed(3);
-      out.push({ tag: "path", attrs: ca });
+      const segs = new Float32Array([
+        x0, y0b, x0, y0, x0, y0, x0b, y0,
+        x1b, y0, x1, y0, x1, y0, x1, y0b,
+        x0, y1b, x0, y1, x0, y1, x0b, y1,
+        x1b, y1, x1, y1, x1, y1, x1, y1b,
+      ]);
+      out.push({ tag: "path", attrs: ca, segs });
     }
     return out;
   }
@@ -1134,31 +1669,24 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
   if (G.panel === "stone" && !dashed && w >= 12 && h >= 12) {
     if (hasFill) out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h)));
     if (hasStroke) {
-      const drawable = roughGen.rectangle(x, y, w, h, {
-        stroke,
-        strokeWidth: sw,
-        roughness: clamp(G.roughness, 0.3, 0.7),
-        bowing: 0.5,
-        disableMultiStroke: true,
-        seed,
-      });
-      for (const p of roughGen.toPaths(drawable)) {
-        const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": f2(Number(p.strokeWidth || sw)) };
-        if (progress < 0.999) {
-          pa.pathLength = "1";
-          pa["stroke-dasharray"] = "1 1";
-          pa["stroke-dashoffset"] = (1 - progress).toFixed(4);
-        }
-        if (op < 0.999) pa.opacity = op.toFixed(3);
-        out.push({ tag: "path", attrs: pa });
+      const seed = hashSeed(opts.seed ?? 11);
+      const rectPts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]];
+      const cd = chiseledPolylineData(rectPts, G.roughness, seed, true);
+      const pa = { d: cd.d, fill: "none", stroke, "stroke-width": f2(sw) };
+      if (progress < 0.999) {
+        pa.pathLength = "1";
+        pa["stroke-dasharray"] = "1 1";
+        pa["stroke-dashoffset"] = (1 - progress).toFixed(4);
       }
+      if (op < 0.999) pa.opacity = op.toFixed(3);
+      out.push({ tag: "path", attrs: pa, closedPts: cd.closedPts });
     }
     return out;
   }
 
   // Default hairline / scroll cell / dashed panel
   if (hasFill) {
-    const extra = G.multiply && !isSolidAccent && colorDist(fill, G.P.bg) > 8 ? { style: "mix-blend-mode:multiply" } : {};
+    const extra = G.multiply && !isSolidAccent && colorDistSqRgb(parseRgb(fill, [128, 128, 128]), G.bgRgb) > 64 ? { style: "mix-blend-mode:multiply" } : null;
     out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra));
   }
   if (hasStroke) {
@@ -1175,7 +1703,7 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
 
 /**
  * 5. Semantic Shaded Region / Polygon / Bar (`region`)
- * Materializes fills according to --pf-mark-fill using Rough.js hachures,
+ * Materializes fills according to --pf-mark-fill using analytical scanline hachures,
  * directional yunran washes, manga screentones, CRT scanlines, stipples, and 8-bit dithers.
  */
 export function buildRegionSpec(points, G, opts = {}) {
@@ -1193,30 +1721,38 @@ export function buildRegionSpec(points, G, opts = {}) {
   const sw = Number(opts.strokeWidth ?? (stroke !== "none" ? 1.5 : 0));
   const dashed = opts.dash || "";
 
-  const ptsAttr = points.map(([px, py]) => `${f2(px)},${f2(py)}`).join(" ");
+  let ptsAttr = "";
+  const polyNums = new Float64Array(points.length * 2);
+  for (let i = 0; i < points.length; i++) {
+    const px = f2(points[i][0]), py = f2(points[i][1]);
+    polyNums[i * 2] = px;
+    polyNums[i * 2 + 1] = py;
+    ptsAttr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+  }
   const out = [];
 
-  if (!fill || fill === "none" || fill.startsWith("url(")) {
+  if (!fill || fill === "none" || fill.charCodeAt(0) === 117 /* 'u' */) {
     const a = { points: ptsAttr, fill: fill || "none" };
     if (stroke && stroke !== "none" && sw > 0) { a.stroke = stroke; a["stroke-width"] = f2(sw); }
     if (dashed) a["stroke-dasharray"] = dashed;
     if (op * fillP < 0.999) a.opacity = (op * fillP).toFixed(3);
-    out.push({ tag: "polygon", attrs: a });
+    out.push({ tag: "polygon", attrs: a, nums: polyNums });
     return out;
   }
 
-  const distBg = colorDist(fill, G.P.bg);
-  const distFg = colorDist(fill, G.P.fg);
-  const isNearInk = (role === "ink" && distFg < 45) || (!G.isDark && luminance(fill) < 48 && distFg < 45);
-  const weight = opts.weight || (isNearInk ? "solid" : distBg > 135 ? "strong" : distBg > 52 ? "medium" : "subtle");
   const fillRgb = parseRgb(fill, [128, 128, 128]);
+  const distBgSq = colorDistSqRgb(fillRgb, G.bgRgb);
+  const distFgSq = colorDistSqRgb(fillRgb, G.fgRgb);
+  const fillLum = fillRgb[0] * 0.299 + fillRgb[1] * 0.587 + fillRgb[2] * 0.114;
+  const isNearInk = (role === "ink" && distFgSq < 2025) || (!G.isDark && fillLum < 48 && distFgSq < 2025);
+  const weight = opts.weight || (isNearInk ? "solid" : distBgSq > 18225 ? "strong" : distBgSq > 2704 ? "medium" : "subtle");
   const isReddish = (fillRgb[0] - Math.max(fillRgb[1], fillRgb[2])) > 22;
-  const isCaveat = role === "caveat" || (role !== "primary" && role !== "ink" && isReddish && colorDist(fill, G.P.terracotta) < colorDist(fill, G.P.slate));
+  const isCaveat = role === "caveat" || (role !== "primary" && role !== "ink" && isReddish && colorDistSqRgb(fillRgb, G.terraRgb) < colorDistSqRgb(fillRgb, G.slateRgb));
   const inkLineCol = isCaveat
     ? G.P.terracotta
     : weight === "subtle"
       ? G.P.muted
-      : distBg > 95
+      : distBgSq > 9025
         ? fill
         : G.P.slate;
 
@@ -1224,16 +1760,14 @@ export function buildRegionSpec(points, G, opts = {}) {
   if (G.fill === "tint") {
     const a = { points: ptsAttr, fill };
     if (op * fillP < 0.999) a.opacity = (op * fillP).toFixed(3);
-    out.push({ tag: "polygon", attrs: a });
+    out.push({ tag: "polygon", attrs: a, nums: polyNums });
   }
   // Fill Mode B: Directional Yunran (晕染) / Bokashi ink & mineral wash
-  // Horizontal bars pool ink toward the right tome (止め) endpoint for crisp quantitative reading;
-  // vertical / mountain regions pool ink at the crest and breathe into paper below.
   else if (G.fill === "wash") {
     if (weight === "solid") {
-      out.push({ tag: "polygon", attrs: { points: ptsAttr, fill, opacity: (op * fillP * 0.92).toFixed(3) } });
+      out.push({ tag: "polygon", attrs: { points: ptsAttr, fill, opacity: (op * fillP * 0.92).toFixed(3) }, nums: polyNums });
     } else {
-      const washInk = isCaveat ? G.P.terracotta : weight === "subtle" ? G.P.muted : (distBg > 125 ? fill : G.P.slate);
+      const washInk = isCaveat ? G.P.terracotta : weight === "subtle" ? G.P.muted : (distBgSq > 15625 ? fill : G.P.slate);
       const darkScale = G.isDark ? 0.62 : 1.0;
       const isHorizBar = bounds.w > bounds.h * 2.1 && points.length <= 6;
       const hiA = (weight === "strong" ? 0.72 : weight === "medium" ? 0.40 : 0.22) * darkScale;
@@ -1247,7 +1781,7 @@ export function buildRegionSpec(points, G, opts = {}) {
         opacity: effOp.toFixed(3),
       };
       if (G.multiply) a.style = "mix-blend-mode:multiply";
-      out.push({ tag: "polygon", attrs: a, wash: { color: washInk, dir: isHorizBar ? "h" : "v", stops, bounds } });
+      out.push({ tag: "polygon", attrs: a, nums: polyNums, wash: { color: washInk, dir: isHorizBar ? "h" : "v", stops, bounds } });
     }
   }
   // Fill Mode C: Manga 45-deg halftone screentone + slash hachure on caveats
@@ -1255,26 +1789,19 @@ export function buildRegionSpec(points, G, opts = {}) {
     if (weight === "solid") {
       const sa = { points: ptsAttr, fill: G.P.fg };
       if (op * fillP < 0.999) sa.opacity = (op * fillP).toFixed(3);
-      out.push({ tag: "polygon", attrs: sa });
+      out.push({ tag: "polygon", attrs: sa, nums: polyNums });
     } else if (isCaveat) {
       const ba = { points: ptsAttr, fill: G.P.bg };
       if (op * fillP < 0.999) ba.opacity = (op * fillP).toFixed(3);
-      out.push({ tag: "polygon", attrs: ba });
-      const d = roughGen.polygon(points, {
-        stroke: "none",
-        fill: G.P.terracotta,
-        fillStyle: "hachure",
-        hachureAngle: 36,
-        hachureGap: 5.5,
-        fillWeight: 1.15,
-        roughness: 0.12,
-        disableMultiStroke: true,
-        seed,
-      });
-      for (const p of roughGen.toPaths(d)) {
-        if (p.stroke && p.stroke !== "none") {
-          out.push({ tag: "path", attrs: { d: p.d, fill: "none", stroke: p.stroke, "stroke-width": f2(Number(p.strokeWidth || 1.1)), opacity: (op * clamp(fillP * 1.25, 0, 1) * 0.85).toFixed(3) } });
-        }
+      out.push({ tag: "polygon", attrs: ba, nums: polyNums });
+      const hd = buildHachureData(points, 36, 5.5, 0.12, seed, false);
+      if (hd) {
+        out.push({
+          tag: "path",
+          attrs: { d: hd.d, fill: "none", stroke: G.P.terracotta, "stroke-width": "1.15", opacity: (op * clamp(fillP * 1.25, 0, 1) * 0.85).toFixed(3) },
+          segs: hd.segs,
+          qsegs: hd.qsegs,
+        });
       }
     } else {
       const density = weight === "strong" ? 34 : weight === "medium" ? 22 : 12;
@@ -1284,6 +1811,7 @@ export function buildRegionSpec(points, G, opts = {}) {
       out.push({
         tag: "polygon",
         attrs: pa,
+        nums: polyNums,
         pattern: { kind: "screentone", density, fg: G.P.fg, bg: G.P.bg },
       });
     }
@@ -1293,21 +1821,22 @@ export function buildRegionSpec(points, G, opts = {}) {
     if (weight === "solid") {
       const sa = { points: ptsAttr, fill, "shape-rendering": "crispEdges" };
       if (op * fillP < 0.999) sa.opacity = (op * fillP).toFixed(3);
-      out.push({ tag: "polygon", attrs: sa });
+      out.push({ tag: "polygon", attrs: sa, nums: polyNums });
     } else {
       const density = weight === "strong" ? 50 : weight === "medium" ? 25 : 12;
-      const fgCol = isCaveat ? G.P.terracotta : distBg > 85 ? fill : G.P.slate;
+      const fgCol = isCaveat ? G.P.terracotta : distBgSq > 7225 ? fill : G.P.slate;
       const pa = { points: ptsAttr, fill, "shape-rendering": "crispEdges" };
       const pOp = op * clamp(fillP * (weight === "strong" ? 1.0 : 1.25), 0, 1);
       if (pOp < 0.999) pa.opacity = pOp.toFixed(3);
       out.push({
         tag: "polygon",
         attrs: pa,
+        nums: polyNums,
         pattern: { kind: "dither", density, fg: fgCol, bg: G.P.bg },
       });
     }
   }
-  // Fill Mode E: Rough.js Procedural Fills — hachure, weave, stipple, scanline
+  // Fill Mode E: Analytical Scanline Procedural Fills — hachure, weave, stipple, scanline
   else {
     let baseTintAlpha =
       G.fill === "scanline" ? (weight === "solid" ? 0.34 : 0.14)
@@ -1320,34 +1849,32 @@ export function buildRegionSpec(points, G, opts = {}) {
 
     const baseAttrs = { points: ptsAttr, fill, opacity: (op * fillP * baseTintAlpha).toFixed(3) };
     if (G.multiply && weight !== "solid") baseAttrs.style = "mix-blend-mode:multiply";
-    out.push({ tag: "polygon", attrs: baseAttrs });
+    out.push({ tag: "polygon", attrs: baseAttrs, nums: polyNums });
 
     const area = bounds.w * bounds.h;
     if (area >= 48 && bounds.w >= 4 && bounds.h >= 4) {
-      let fillStyle = "hachure";
+      let crossHatch = false;
       let angle = isCaveat ? -G.scanAngle : G.scanAngle;
       let gap = G.gap;
       let rgh = G.roughness;
       let fw = 0.95;
       let lineAlpha = 0.44;
       let lineCol = weight === "solid" ? G.P.bg : inkLineCol;
-
       let extraDash = "";
+
       if (G.fill === "weave") {
-        fillStyle = weight === "strong" && area < 95000 ? "cross-hatch" : "hachure";
+        crossHatch = weight === "strong" && area < 95000;
         rgh = 0;
         gap = weight === "subtle" ? G.gap * 1.45 : G.gap * 1.08;
         fw = 0.82;
         lineAlpha = weight === "subtle" ? 0.24 : 0.36;
       } else if (G.fill === "stipple") {
-        fillStyle = "hachure";
         rgh = Math.max(0.38, G.roughness);
         gap = G.gap * 1.05;
         fw = 1.35;
         lineAlpha = weight === "subtle" ? 0.30 : 0.50;
         extraDash = "2.4 5.6";
       } else if (G.fill === "scanline") {
-        fillStyle = "hachure";
         angle = isCaveat && G.scanAngle === 90 ? 62 : G.scanAngle;
         rgh = 0;
         gap = weight === "strong" || weight === "solid" ? 4.2 : G.gap;
@@ -1363,32 +1890,20 @@ export function buildRegionSpec(points, G, opts = {}) {
         lineAlpha = Math.min(0.84, lineAlpha * 1.25);
       }
 
-      const drawable = roughGen.polygon(points, {
-        stroke: "none",
-        fill: lineCol,
-        fillStyle,
-        hachureAngle: angle,
-        hachureGap: Math.max(3.8, gap),
-        fillWeight: fw,
-        roughness: rgh,
-        disableMultiStroke: true,
-        seed,
-      });
-      for (const p of roughGen.toPaths(drawable)) {
-        if (p.stroke && p.stroke !== "none" && p.d) {
-          const pa = {
-            d: p.d,
-            fill: "none",
-            stroke: p.stroke,
-            "stroke-width": f2(Number(p.strokeWidth || fw)),
-            opacity: (op * fillP * lineAlpha).toFixed(3),
-          };
-          if (extraDash) {
-            pa["stroke-dasharray"] = extraDash;
-            pa["stroke-linecap"] = "round";
-          }
-          out.push({ tag: "path", attrs: pa });
+      const hd = buildHachureData(points, angle, gap, rgh, seed, crossHatch);
+      if (hd) {
+        const pa = {
+          d: hd.d,
+          fill: "none",
+          stroke: lineCol,
+          "stroke-width": f2(fw),
+          opacity: (op * fillP * lineAlpha).toFixed(3),
+        };
+        if (extraDash) {
+          pa["stroke-dasharray"] = extraDash;
+          pa["stroke-linecap"] = "round";
         }
+        out.push({ tag: "path", attrs: pa, segs: hd.segs, qsegs: hd.qsegs });
       }
     }
   }
@@ -1420,12 +1935,15 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
   const subpaths = isStringPath && !dashed ? sampleSvgSubpaths(pointsOrPath) : null;
 
   if (subpaths && subpaths.length > 1) {
-    const lengths = subpaths.map((sp) => {
+    let total = 0;
+    const lengths = new Float64Array(subpaths.length);
+    for (let s = 0; s < subpaths.length; s++) {
+      const sp = subpaths[s];
       let L = 0;
-      for (let i = 0; i < sp.length - 1; i++) L += Math.hypot(sp[i + 1][0] - sp[i][0], sp[i + 1][1] - sp[i][1]);
-      return L;
-    });
-    const total = lengths.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < sp.length - 1; i++) L += hypot2(sp[i + 1][0] - sp[i][0], sp[i + 1][1] - sp[i][1]);
+      lengths[s] = L;
+      total += L;
+    }
     if (total < 0.5) return [];
     let budget = total * progress;
     const out = [];
@@ -1451,12 +1969,29 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     if (opts.lineJoin) attrs["stroke-linejoin"] = opts.lineJoin;
     if (G.stroke === "pixel") attrs["shape-rendering"] = "crispEdges";
     if (op < 0.999) attrs.opacity = op.toFixed(3);
-    if (isStringPath) return [{ tag: "path", attrs: { d: pointsOrPath, ...attrs } }];
+    if (isStringPath) {
+      let sNums = null;
+      if (rawPts && rawPts.length >= 2) {
+        sNums = new Float64Array(rawPts.length * 2);
+        for (let i = 0; i < rawPts.length; i++) {
+          sNums[i * 2] = rawPts[i][0];
+          sNums[i * 2 + 1] = rawPts[i][1];
+        }
+      }
+      return [sNums ? { tag: "path", attrs: { d: pointsOrPath, ...attrs }, nums: sNums } : { tag: "path", attrs: { d: pointsOrPath, ...attrs } }];
+    }
     if (!rawPts || rawPts.length < 2) return [];
     if (rawPts.length === 2) {
       return [{ tag: "line", attrs: { x1: f2(rawPts[0][0]), y1: f2(rawPts[0][1]), x2: f2(rawPts[1][0]), y2: f2(rawPts[1][1]), ...attrs } }];
     }
-    return [{ tag: "polyline", attrs: { points: rawPts.map(([x, y]) => `${f2(x)},${f2(y)}`).join(" "), ...attrs } }];
+    const nums = new Float64Array(rawPts.length * 2);
+    let pStr = "";
+    for (let i = 0; i < rawPts.length; i++) {
+      const px = f2(rawPts[i][0]), py = f2(rawPts[i][1]);
+      nums[i * 2] = px; nums[i * 2 + 1] = py;
+      pStr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+    }
+    return [{ tag: "polyline", attrs: { points: pStr, ...attrs }, nums }];
   }
 
   const pts = slicePolyline(rawPts, progress);
@@ -1464,70 +1999,26 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
 
   let totalLen = 0;
   for (let i = 0; i < pts.length - 1; i++) {
-    totalLen += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    totalLen += hypot2(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
   }
   if (totalLen < 0.5) return [];
 
   const minBrushLen = opts.forceBrush ? 8 : 26;
   if ((G.stroke === "brush" || G.stroke === "gpen") && totalLen >= minBrushLen && sw >= 1.35) {
     const isBrush = G.stroke === "brush";
-    const dense = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const [x0, y0] = pts[i];
-      const [x1, y1] = pts[i + 1];
-      const segLen = Math.hypot(x1 - x0, y1 - y0);
-      const steps = segLen > 24 && pts.length <= 4 ? Math.min(8, Math.ceil(segLen / 22)) : 1;
-      for (let s = 0; s < steps; s++) {
-        const u = s / steps;
-        dense.push([lerp(x0, x1, u), lerp(y0, y1, u)]);
-      }
-    }
-    dense.push(pts[pts.length - 1]);
-
-    const phase = (seed % 97) * 0.064;
-    let acc = 0;
-    const withPressure = dense.map((p, idx) => {
-      if (idx > 0) acc += Math.hypot(p[0] - dense[idx - 1][0], p[1] - dense[idx - 1][1]);
-      const u = clamp(acc / totalLen, 0, 1);
-      const env = isBrush
-        ? 0.36 + 0.50 * Math.sin(Math.pow(u, 0.82) * Math.PI) + 0.06 * Math.sin(u * 9 + phase)
-        : 0.48 + 0.34 * Math.sin(u * Math.PI) + 0.03 * Math.cos(u * 7 + phase);
-      return [p[0], p[1], clamp(env, 0.2, 0.95)];
-    });
-
-    const outline = getStroke(withPressure, {
-      size: sw * (isBrush ? 1.44 : 1.26),
-      thinning: isBrush ? 0.48 : 0.26,
-      smoothing: pts.length <= 4 ? 0.24 : 0.50,
-      streamline: pts.length <= 4 ? 0.14 : 0.34,
-      simulatePressure: false,
-      start: { taper: isBrush ? Math.min(8, totalLen * 0.12) : Math.min(4, totalLen * 0.07), cap: true },
-      end: { taper: isBrush ? Math.min(11, totalLen * 0.16) : Math.min(6, totalLen * 0.09), cap: true },
-    });
-    const d = strokeOutlineToSvgPath(outline, true);
-    if (d) {
-      const pa = { d, fill: stroke };
+    const td = taperedPolylineData(pts, sw, isBrush, seed);
+    if (td && td.d) {
+      const pa = { d: td.d, fill: stroke };
       if (op < 0.999) pa.opacity = op.toFixed(3);
-      return [{ tag: "path", attrs: pa }];
+      return [{ tag: "path", attrs: pa, smoothPoly: td.smoothPoly }];
     }
   }
 
   if (G.stroke === "chisel" && totalLen >= 24) {
-    const drawable = roughGen.linearPath(pts, {
-      stroke,
-      strokeWidth: sw * 1.06,
-      roughness: clamp(G.roughness, 0.32, 0.72),
-      bowing: 0.55,
-      disableMultiStroke: true,
-      seed,
-    });
-    const out = [];
-    for (const p of roughGen.toPaths(drawable)) {
-      const pa = { d: p.d, fill: "none", stroke: p.stroke || stroke, "stroke-width": f2(Number(p.strokeWidth || sw)) };
-      if (op < 0.999) pa.opacity = op.toFixed(3);
-      out.push({ tag: "path", attrs: pa });
-    }
-    if (out.length) return out;
+    const cd = chiseledPolylineData(pts, G.roughness, seed, false);
+    const pa = { d: cd.d, fill: "none", stroke, "stroke-width": f2(sw * 1.06) };
+    if (op < 0.999) pa.opacity = op.toFixed(3);
+    return [{ tag: "path", attrs: pa, nums: cd.nums }];
   }
 
   if (G.stroke === "pixel") {
@@ -1537,9 +2028,16 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
       if (op < 0.999) a.opacity = op.toFixed(3);
       return [{ tag: "line", attrs: a }];
     }
-    const a = { points: pts.map(([x, y]) => `${q(x)},${q(y)}`).join(" "), fill: "none", stroke, "stroke-width": Math.max(1.5, Math.round(sw)), "stroke-linecap": "square", "stroke-linejoin": "miter", "shape-rendering": "crispEdges" };
+    const nums = new Float64Array(pts.length * 2);
+    let pStr = "";
+    for (let i = 0; i < pts.length; i++) {
+      const px = q(pts[i][0]), py = q(pts[i][1]);
+      nums[i * 2] = px; nums[i * 2 + 1] = py;
+      pStr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+    }
+    const a = { points: pStr, fill: "none", stroke, "stroke-width": Math.max(1.5, Math.round(sw)), "stroke-linecap": "square", "stroke-linejoin": "miter", "shape-rendering": "crispEdges" };
     if (op < 0.999) a.opacity = op.toFixed(3);
-    return [{ tag: "polyline", attrs: a }];
+    return [{ tag: "polyline", attrs: a, nums }];
   }
 
   if (isStringPath && progress >= 0.999) {
@@ -1547,7 +2045,12 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     if (opts.lineCap) a["stroke-linecap"] = opts.lineCap;
     if (opts.lineJoin) a["stroke-linejoin"] = opts.lineJoin;
     if (op < 0.999) a.opacity = op.toFixed(3);
-    return [{ tag: "path", attrs: a }];
+    const sNums = new Float64Array(pts.length * 2);
+    for (let i = 0; i < pts.length; i++) {
+      sNums[i * 2] = pts[i][0];
+      sNums[i * 2 + 1] = pts[i][1];
+    }
+    return [{ tag: "path", attrs: a, nums: sNums }];
   }
   if (pts.length === 2) {
     const a = { x1: f2(pts[0][0]), y1: f2(pts[0][1]), x2: f2(pts[1][0]), y2: f2(pts[1][1]), stroke, "stroke-width": f2(sw) };
@@ -1555,11 +2058,18 @@ export function buildCurveSpec(pointsOrPath, G, opts = {}) {
     if (op < 0.999) a.opacity = op.toFixed(3);
     return [{ tag: "line", attrs: a }];
   }
-  const a = { points: pts.map(([x, y]) => `${f2(x)},${f2(y)}`).join(" "), fill: "none", stroke, "stroke-width": f2(sw) };
+  const nums = new Float64Array(pts.length * 2);
+  let pStr = "";
+  for (let i = 0; i < pts.length; i++) {
+    const px = f2(pts[i][0]), py = f2(pts[i][1]);
+    nums[i * 2] = px; nums[i * 2 + 1] = py;
+    pStr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+  }
+  const a = { points: pStr, fill: "none", stroke, "stroke-width": f2(sw) };
   if (opts.lineCap) a["stroke-linecap"] = opts.lineCap;
   if (opts.lineJoin) a["stroke-linejoin"] = opts.lineJoin;
   if (op < 0.999) a.opacity = op.toFixed(3);
-  return [{ tag: "polyline", attrs: a }];
+  return [{ tag: "polyline", attrs: a, nums }];
 }
 
 /**
@@ -1572,7 +2082,7 @@ export function buildAxisSpec(x1, y1, x2, y2, G, opts = {}) {
   const role = opts.role || "ink";
   const stroke = opts.stroke || resolveRoleColor(G, role);
   const sw = Number(opts.strokeWidth ?? 1.8);
-  const seed = hashSeed(opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`));
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x61786973, x1, y1, x2, y2));
   const out = [];
 
   const withArrow = opts.arrow !== false;
@@ -1591,7 +2101,7 @@ export function buildAxisSpec(x1, y1, x2, y2, G, opts = {}) {
   const ticks = opts.ticks;
   if (ticks) {
     const dx = x2 - x1, dy = y2 - y1;
-    const len = Math.hypot(dx, dy);
+    const len = hypot2(dx, dy);
     if (len > 1) {
       const nx = -dy / len, ny = dx / len;
       const tSize = Number(opts.tickSize ?? 4.5);
@@ -1623,38 +2133,357 @@ export function buildAxisSpec(x1, y1, x2, y2, G, opts = {}) {
 }
 
 // ============================================================================
+// High-Level Diagram & Animation Builders (Braces, Connectors, Annotations, Morphs, Plots)
+// ============================================================================
+
+const MORPH_ARRAY_CACHE = new WeakMap();
+const MORPH_STR_CACHE = new Map();
+
+function resampleUniformPolyline(ptsOrPath, samples) {
+  const isArr = Array.isArray(ptsOrPath);
+  if (isArr) {
+    const byS = MORPH_ARRAY_CACHE.get(ptsOrPath);
+    if (byS && byS.n === samples) return byS.pts;
+  } else if (typeof ptsOrPath === "string" && ptsOrPath.length <= 420) {
+    const k = `${samples}|${ptsOrPath}`;
+    const hit = MORPH_STR_CACHE.get(k);
+    if (hit !== undefined) return hit;
+  }
+  const raw = isArr ? ptsOrPath : sampleSimpleSvgPath(ptsOrPath) || (sampleSvgSubpaths(ptsOrPath)?.[0] ?? null);
+  if (!raw || raw.length === 0) return [];
+  if (raw.length === 1) {
+    const single = new Array(samples);
+    for (let i = 0; i < samples; i++) single[i] = [raw[0][0], raw[0][1]];
+    return single;
+  }
+  const cum = new Float64Array(raw.length);
+  for (let i = 1; i < raw.length; i++) {
+    cum[i] = cum[i - 1] + hypot2(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]);
+  }
+  const total = cum[raw.length - 1];
+  const out = new Array(samples);
+  if (total < 1e-6) {
+    for (let i = 0; i < samples; i++) out[i] = [raw[0][0], raw[0][1]];
+  } else {
+    let segIdx = 0;
+    for (let s = 0; s < samples; s++) {
+      const targetD = (s / (samples - 1)) * total;
+      while (segIdx < raw.length - 2 && cum[segIdx + 1] < targetD) segIdx++;
+      const d0 = cum[segIdx], d1 = cum[segIdx + 1];
+      const u = d1 > d0 + 1e-9 ? clamp((targetD - d0) / (d1 - d0), 0, 1) : 0;
+      out[s] = [lerp(raw[segIdx][0], raw[segIdx + 1][0], u), lerp(raw[segIdx][1], raw[segIdx + 1][1], u)];
+    }
+  }
+  if (isArr) {
+    MORPH_ARRAY_CACHE.set(ptsOrPath, { n: samples, pts: out });
+  } else if (typeof ptsOrPath === "string" && ptsOrPath.length <= 420) {
+    if (MORPH_STR_CACHE.size >= 256) MORPH_STR_CACHE.clear();
+    MORPH_STR_CACHE.set(`${samples}|${ptsOrPath}`, out);
+  }
+  return out;
+}
+
+/** Smoothly morph between any two polylines or SVG path strings across `u` in `[0, 1]`. */
+export function morphPoints(ptsA, ptsB, u, samples = 32) {
+  const n = Math.max(4, Math.min(256, samples | 0));
+  const a = resampleUniformPolyline(ptsA, n);
+  const b = resampleUniformPolyline(ptsB, n);
+  if (!a.length || !b.length) return a.length ? a : b;
+  const t = clamp(u, 0, 1);
+  if (t <= 0) return a;
+  if (t >= 1) return b;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = [lerp(a[i][0], b[i][0], t), lerp(a[i][1], b[i][1], t)];
+  }
+  return out;
+}
+
+/** Exact cusp tip `[x, y]` of an oriented curly brace from `(x1, y1)` to `(x2, y2)`. */
+export function braceTip(x1, y1, x2, y2, depth = 10, flip = false) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const L = hypot2(dx, dy) || 1;
+  const d = Number(depth) * (flip ? -1 : 1);
+  return [(x1 + x2) * 0.5 - (dy / L) * d, (y1 + y2) * 0.5 + (dx / L) * d];
+}
+
+export function buildBraceSpec(x1, y1, x2, y2, G, opts = {}) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const L = hypot2(dx, dy);
+  if (L < 2) return [];
+  const tx = dx / L, ty = dy / L;
+  const d = Number(opts.depth ?? 10) * (opts.flip ? -1 : 1);
+  const nx = -ty * d, ny = tx * d;
+  const k = Math.min(Math.abs(d) * 0.9, L * 0.18);
+  const mx = (x1 + x2) * 0.5, my = (y1 + y2) * 0.5;
+  const sx = nx * 0.52, sy = ny * 0.52;
+  const p = (px, py) => `${f2(px)} ${f2(py)}`;
+  const dPath =
+    `M ${p(x1, y1)} Q ${p(x1 + sx, y1 + sy)} ${p(x1 + tx * k + sx, y1 + ty * k + sy)} ` +
+    `L ${p(mx - tx * k + sx, my - ty * k + sy)} Q ${p(mx + sx, my + sy)} ${p(mx + nx, my + ny)} ` +
+    `M ${p(mx + nx, my + ny)} Q ${p(mx + sx, my + sy)} ${p(mx + tx * k + sx, my + ty * k + sy)} ` +
+    `L ${p(x2 - tx * k + sx, y2 - ty * k + sy)} Q ${p(x2 + sx, y2 + sy)} ${p(x2, y2)}`;
+  return buildCurveSpec(dPath, G, { ...opts, stroke: opts.stroke || resolveRoleColor(G, opts.role || "muted"), strokeWidth: opts.strokeWidth ?? 1.7, forceBrush: true });
+}
+
+export function buildBracketSpec(x1, y1, x2, y2, G, opts = {}) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const L = hypot2(dx, dy);
+  if (L < 1) return [];
+  const tk = Number(opts.tick ?? 5) * (opts.flip ? -1 : 1);
+  const nx = (-dy / L) * tk, ny = (dx / L) * tk;
+  const pts = [[x1 + nx, y1 + ny], [x1, y1], [x2, y2], [x2 + nx, y2 + ny]];
+  return buildCurveSpec(pts, G, { ...opts, stroke: opts.stroke || resolveRoleColor(G, opts.role || "muted"), strokeWidth: opts.strokeWidth ?? 1.6 });
+}
+
+function normBox(boxOrPt) {
+  if (Array.isArray(boxOrPt)) {
+    if (boxOrPt.length >= 4) return { x: boxOrPt[0], y: boxOrPt[1], w: boxOrPt[2], h: boxOrPt[3], cx: boxOrPt[0] + boxOrPt[2] * 0.5, cy: boxOrPt[1] + boxOrPt[3] * 0.5, isPt: false };
+    return { x: boxOrPt[0], y: boxOrPt[1], w: 0, h: 0, cx: boxOrPt[0], cy: boxOrPt[1], isPt: true };
+  }
+  const x = Number(boxOrPt.x || 0), y = Number(boxOrPt.y || 0), w = Number(boxOrPt.w ?? boxOrPt.width ?? 0), h = Number(boxOrPt.h ?? boxOrPt.height ?? 0);
+  return { x, y, w, h, cx: x + w * 0.5, cy: y + h * 0.5, isPt: w === 0 && h === 0 };
+}
+
+/** Cardinal & center ports `{ top, right, bottom, left, center }` for `{ x, y, w, h }` with optional `pad`. */
+export function boxPorts(box, pad = 0) {
+  const b = normBox(box);
+  return {
+    top: [b.cx, b.y - pad],
+    right: [b.x + b.w + pad, b.cy],
+    bottom: [b.cx, b.y + b.h + pad],
+    left: [b.x - pad, b.cy],
+    center: [b.cx, b.cy],
+  };
+}
+
+function rayBoxExit(b, dirX, dirY, pad) {
+  if (b.isPt) return [b.cx, b.cy];
+  const hw = b.w * 0.5 + pad, hh = b.h * 0.5 + pad;
+  const tx = Math.abs(dirX) > 1e-6 ? hw / Math.abs(dirX) : Infinity;
+  const ty = Math.abs(dirY) > 1e-6 ? hh / Math.abs(dirY) : Infinity;
+  const t = Math.min(tx, ty);
+  return Number.isFinite(t) ? [b.cx + dirX * t, b.cy + dirY * t] : [b.cx, b.cy];
+}
+
+/** Compute clean boundary-clipped connector geometry (polyline or SVG quadratic arc) between boxes or points. */
+export function routeConnector(from, to, opts = {}) {
+  const pad = Number(opts.pad ?? 5);
+  const A = normBox(from), B = normBox(to);
+  const dx = B.cx - A.cx, dy = B.cy - A.cy;
+  const route = opts.route || "auto";
+  const fp = boxPorts(A, pad), tp = boxPorts(B, pad);
+
+  if (route === "arc") {
+    const L = hypot2(dx, dy) || 1;
+    const ux = dx / L, uy = dy / L;
+    const p0 = opts.fromSide ? fp[opts.fromSide] : rayBoxExit(A, ux, uy, pad);
+    const p1 = opts.toSide ? tp[opts.toSide] : rayBoxExit(B, -ux, -uy, pad);
+    const bend = Number(opts.curve ?? 0.2) * hypot2(p1[0] - p0[0], p1[1] - p0[1]);
+    const qx = (p0[0] + p1[0]) * 0.5 - uy * bend;
+    const qy = (p0[1] + p1[1]) * 0.5 + ux * bend;
+    return `M ${f2(p0[0])} ${f2(p0[1])} Q ${f2(qx)} ${f2(qy)} ${f2(p1[0])} ${f2(p1[1])}`;
+  }
+
+  if (route === "hv") {
+    const p0 = opts.fromSide ? fp[opts.fromSide] : (dx >= 0 ? fp.right : fp.left);
+    const p1 = opts.toSide ? tp[opts.toSide] : (dy >= 0 ? tp.top : tp.bottom);
+    return [p0, [p1[0], p0[1]], p1];
+  }
+  if (route === "vh") {
+    const p0 = opts.fromSide ? fp[opts.fromSide] : (dy >= 0 ? fp.bottom : fp.top);
+    const p1 = opts.toSide ? tp[opts.toSide] : (dx >= 0 ? tp.left : tp.right);
+    return [p0, [p0[0], p1[1]], p1];
+  }
+  const useZ = route === "z" || (route === "auto" && Math.abs(dx) > 8 && Math.abs(dy) > 8 && !A.isPt && !B.isPt);
+  if (useZ) {
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const p0 = opts.fromSide ? fp[opts.fromSide] : (dx >= 0 ? fp.right : fp.left);
+      const p1 = opts.toSide ? tp[opts.toSide] : (dx >= 0 ? tp.left : tp.right);
+      const mx = (p0[0] + p1[0]) * 0.5;
+      return [p0, [mx, p0[1]], [mx, p1[1]], p1];
+    }
+    const p0 = opts.fromSide ? fp[opts.fromSide] : (dy >= 0 ? fp.bottom : fp.top);
+    const p1 = opts.toSide ? tp[opts.toSide] : (dy >= 0 ? tp.top : tp.bottom);
+    const my = (p0[1] + p1[1]) * 0.5;
+    return [p0, [p0[0], my], [p1[0], my], p1];
+  }
+
+  const L = hypot2(dx, dy) || 1;
+  const ux = dx / L, uy = dy / L;
+  const p0 = opts.fromSide ? fp[opts.fromSide] : rayBoxExit(A, ux, uy, pad);
+  const p1 = opts.toSide ? tp[opts.toSide] : rayBoxExit(B, -ux, -uy, pad);
+  return [p0, p1];
+}
+
+export function buildAnnotateSpec(box, G, opts = {}) {
+  const op = clamp(opts.opacity ?? 1, 0, 1);
+  if (op < 0.002) return [];
+  const progress = clamp(opts.progress ?? 1, 0, 1);
+  if (progress < 0.002) return [];
+  const b = normBox(box);
+  const type = opts.type || "underline";
+  const pad = Number(opts.pad ?? 4);
+  const seed = hashSeed(opts.seed ?? anchorSeed4(0x616e6e, b.x, b.y, b.w, b.h));
+  const role = opts.role || (type === "highlight" ? "auxiliary" : "caveat");
+
+  if (type === "highlight") {
+    const wVis = b.w * progress;
+    if (wVis < 1) return [];
+    const pts = [[b.x - 2, b.y], [b.x + wVis + 2, b.y], [b.x + wVis + 2, b.y + b.h], [b.x - 2, b.y + b.h]];
+    return buildRegionSpec(pts, G, { ...opts, role, weight: opts.weight || "medium", stroke: "none", fillOpacity: opts.fillOpacity ?? 0.55, seed });
+  }
+  if (type === "underline") {
+    const yLine = b.y + b.h + pad;
+    return buildCurveSpec([[b.x, yLine], [b.x + b.w, yLine]], G, { ...opts, role, strokeWidth: opts.strokeWidth ?? 2.2, progress, forceBrush: true, seed });
+  }
+  if (type === "strike") {
+    return buildCurveSpec([[b.x - pad * 0.5, b.y + b.h * 0.52], [b.x + b.w + pad * 0.5, b.y + b.h * 0.48]], G, { ...opts, role, strokeWidth: opts.strokeWidth ?? 2.1, progress, forceBrush: true, seed });
+  }
+  if (type === "cross") {
+    const out = [];
+    const p1 = clamp(progress * 2, 0, 1);
+    const p2 = clamp(progress * 2 - 1, 0, 1);
+    const sw = opts.strokeWidth ?? 2.1;
+    if (p1 > 0.01) out.push(...buildCurveSpec([[b.x - pad * 0.5, b.y - pad * 0.5], [b.x + b.w + pad * 0.5, b.y + b.h + pad * 0.5]], G, { ...opts, role, strokeWidth: sw, progress: p1, forceBrush: true, seed }));
+    if (p2 > 0.01) out.push(...buildCurveSpec([[b.x + b.w + pad * 0.5, b.y - pad * 0.5], [b.x - pad * 0.5, b.y + b.h + pad * 0.5]], G, { ...opts, role, strokeWidth: sw, progress: p2, forceBrush: true, seed: seed + 19 }));
+    return out;
+  }
+  if (type === "circle") {
+    const rx = b.w * 0.54 + pad, ry = b.h * 0.58 + pad;
+    if (Math.abs(rx - ry) < 3 && progress >= 0.999) {
+      return buildRingSpec(b.cx, b.cy, (rx + ry) * 0.5, G, { ...opts, role, strokeWidth: opts.strokeWidth ?? 2, seed });
+    }
+    const N = 20;
+    const pts = new Array(N + 1);
+    const ang0 = -0.35;
+    for (let i = 0; i <= N; i++) {
+      const a = ang0 + (i / N) * Math.PI * 2.04;
+      pts[i] = [b.cx + Math.cos(a) * rx, b.cy + Math.sin(a) * ry];
+    }
+    return buildCurveSpec(pts, G, { ...opts, role, strokeWidth: opts.strokeWidth ?? 2, progress, forceBrush: true, seed });
+  }
+  // Default "box" / "enclose"
+  return buildPanelSpec(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, G, {
+    ...opts,
+    role,
+    fill: "none",
+    stroke: opts.stroke || resolveRoleColor(G, role),
+    strokeWidth: opts.strokeWidth ?? 2,
+    progress,
+    seed,
+  });
+}
+
+function buildGridSpec(scale, G, opts = {}) {
+  const op = clamp(opts.opacity ?? 1, 0, 1);
+  if (op < 0.002 || !scale) return [];
+  const [rx0, rx1] = scale.rangeX;
+  const [ry0, ry1] = scale.rangeY;
+  const nx = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksX ?? 4))));
+  const ny = Math.max(0, Math.min(24, Math.floor(Number(opts.ticksY ?? 4))));
+  const gridStroke = opts.gridStroke || G.P.grid;
+  const out = [];
+  const gOp = (op * 0.65).toFixed(3);
+  for (let i = 1; i <= nx; i++) {
+    const u = i / (nx + 1);
+    const px = f2(lerp(rx0, rx1, u));
+    out.push({ tag: "line", attrs: { x1: px, y1: f2(ry0), x2: px, y2: f2(ry1), stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+  }
+  for (let j = 1; j <= ny; j++) {
+    const u = j / (ny + 1);
+    const py = f2(lerp(ry0, ry1, u));
+    out.push({ tag: "line", attrs: { x1: f2(rx0), y1: py, x2: f2(rx1), y2: py, stroke: gridStroke, "stroke-width": "1", opacity: gOp } });
+  }
+  if (opts.axes !== false) {
+    out.push(...buildAxisSpec(rx0, ry0, rx1, ry0, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: nx || undefined, opacity: op }));
+    out.push(...buildAxisSpec(rx0, ry0, rx0, ry1, G, { role: opts.role || "ink", stroke: opts.stroke, strokeWidth: opts.strokeWidth ?? 1.7, ticks: ny || undefined, opacity: op }));
+  }
+  return out;
+}
+
+function sampleFunctionPoints(fn, domain, opts) {
+  const x0 = domain[0], x1 = domain[1];
+  const samples = Math.max(4, Math.min(256, Math.floor(Number(opts.samples ?? 48))));
+  const sc = opts.scale || null;
+  const pts = new Array(samples + 1);
+  for (let i = 0; i <= samples; i++) {
+    const vx = lerp(x0, x1, i / samples);
+    const vy = fn(vx);
+    pts[i] = sc ? sc.pt(vx, vy) : [vx, vy];
+  }
+  return pts;
+}
+
+// ============================================================================
 // Shared Opacity-Invariant Geometry Spec Cache (SVG + Canvas)
 // ============================================================================
 
 const SPEC_CACHE = new Map();
+const SEEN_SPEC_KEYS = new Set();
+const STAMP_CACHE = new Map();
 
-function getCachedUnitSpecs(geomKey, buildUnitFn) {
-  let unit = SPEC_CACHE.get(geomKey);
-  if (unit !== undefined) return unit;
-  const raw = buildUnitFn();
-  unit = raw.map((sp) => {
-    const baseOp = sp.attrs.opacity != null ? Number(sp.attrs.opacity) : 1;
-    const cleanAttrs = { ...sp.attrs };
-    delete cleanAttrs.opacity;
-    return {
+function toUnitSpecs(raw) {
+  const len = raw.length;
+  const unit = new Array(len);
+  for (let i = 0; i < len; i++) {
+    const sp = raw[i];
+    const srcA = sp.attrs;
+    let baseOp = 1;
+    const cleanAttrs = {};
+    for (const k in srcA) {
+      if (k === "opacity") {
+        baseOp = srcA.opacity != null ? Number(srcA.opacity) : 1;
+      } else {
+        cleanAttrs[k] = srcA[k];
+      }
+    }
+    unit[i] = {
       tag: sp.tag,
       attrs: cleanAttrs,
       baseOp,
       wash: sp.wash || null,
       pattern: sp.pattern || null,
+      closedPts: sp.closedPts || null,
+      segs: sp.segs || null,
+      qsegs: sp.qsegs || null,
+      qloop: sp.qloop || null,
+      smoothPoly: sp.smoothPoly || null,
       __path2d: null,
-      __nums: null,
+      __nums: sp.nums || null,
+      __dash: null,
       __perim: -1,
     };
-  });
-  if (SPEC_CACHE.size >= 1536) {
+  }
+  return unit;
+}
+
+function getCachedUnitSpecs(geomKey, buildUnitFn) {
+  const cached = SPEC_CACHE.get(geomKey);
+  if (cached !== undefined) return cached;
+  const unit = toUnitSpecs(buildUnitFn());
+  if (!SEEN_SPEC_KEYS.has(geomKey)) {
+    if (SEEN_SPEC_KEYS.size >= 3072) SEEN_SPEC_KEYS.clear();
+    SEEN_SPEC_KEYS.add(geomKey);
+    return unit;
+  }
+  if (SPEC_CACHE.size >= 2048) {
     let n = 0;
     for (const k of SPEC_CACHE.keys()) {
       SPEC_CACHE.delete(k);
-      if (++n >= 384) break;
+      if (++n >= 512) break;
     }
   }
   SPEC_CACHE.set(geomKey, unit);
+  return unit;
+}
+
+function getCachedStampSpecs(stampKey, buildStampFn) {
+  let unit = STAMP_CACHE.get(stampKey);
+  if (unit !== undefined) return unit;
+  unit = toUnitSpecs(buildStampFn());
+  if (STAMP_CACHE.size >= 1024) STAMP_CACHE.clear();
+  STAMP_CACHE.set(stampKey, unit);
   return unit;
 }
 
@@ -1662,10 +2491,23 @@ function getCachedUnitSpecs(geomKey, buildUnitFn) {
 // SVG Renderer (`createSvgMarks` + `hydrateSvgMarks`)
 // ============================================================================
 
-function quantColorKey(col) {
+const COLOR_Q_CACHE = new Map();
+
+function quantColorInfo(col) {
+  let info = COLOR_Q_CACHE.get(col);
+  if (info !== undefined) return info;
   const [r, g, b] = parseRgb(col, [127, 127, 127]);
-  const q = (v) => Math.min(255, Math.round(v / 4) * 4);
-  return `${q(r)}_${q(g)}_${q(b)}`;
+  const qr = Math.min(255, Math.round(r / 4) * 4);
+  const qg = Math.min(255, Math.round(g / 4) * 4);
+  const qb = Math.min(255, Math.round(b / 4) * 4);
+  info = { key: `${qr}_${qg}_${qb}`, rgb: `rgb(${qr},${qg},${qb})` };
+  if (COLOR_Q_CACHE.size >= 512) COLOR_Q_CACHE.clear();
+  COLOR_Q_CACHE.set(col, info);
+  return info;
+}
+
+function quantColorKey(col) {
+  return quantColorInfo(col).key;
 }
 
 function getDefsPool(svgEl) {
@@ -1716,10 +2558,8 @@ function sweepDefsPool(svgEl) {
 function ensureWashGradient(svgEl, washSpec, defIdsOut) {
   const { color, dir, stops } = washSpec;
   const orient = dir === "h" ? "h" : "v";
-  const cKey = quantColorKey(color);
-  const qRgb = cKey.split("_").map(Number);
-  const qColor = `rgb(${qRgb[0]},${qRgb[1]},${qRgb[2]})`;
-  const id = `pf-wash-${orient}-${cKey}-${stops.map((s) => Math.round(s * 100)).join("-")}`;
+  const cInfo = quantColorInfo(color);
+  const id = `pf-wash-${orient}-${cInfo.key}-${Math.round(stops[0] * 100)}-${Math.round(stops[1] * 100)}-${Math.round(stops[2] * 100)}`;
   const pool = getDefsPool(svgEl);
   pool.active.add(id);
   if (defIdsOut) defIdsOut.push(id);
@@ -1731,17 +2571,14 @@ function ensureWashGradient(svgEl, washSpec, defIdsOut) {
     lg.setAttribute("y1", "0");
     lg.setAttribute("x2", orient === "h" ? "1" : "0");
     lg.setAttribute("y2", orient === "h" ? "0" : "1");
-    [
-      ["0%", stops[0]],
-      [orient === "h" ? "58%" : "52%", stops[1]],
-      ["100%", stops[2]],
-    ].forEach(([off, alpha]) => {
+    const offsets = ["0%", orient === "h" ? "58%" : "52%", "100%"];
+    for (let i = 0; i < 3; i++) {
       const st = doc.createElementNS(SVG_NS, "stop");
-      st.setAttribute("offset", off);
-      st.setAttribute("stop-color", qColor);
-      st.setAttribute("stop-opacity", alpha.toFixed(3));
+      st.setAttribute("offset", offsets[i]);
+      st.setAttribute("stop-color", cInfo.rgb);
+      st.setAttribute("stop-opacity", stops[i].toFixed(3));
       lg.appendChild(st);
-    });
+    }
     pool.el.appendChild(lg);
     pool.map.set(id, lg);
   }
@@ -1820,25 +2657,37 @@ function hostSignature(el) {
   return `${s1}|${s2}|${t1}|${t2}`;
 }
 
+function computeLayoutKey(unitSpecs, className, forceGroup) {
+  if (unitSpecs.length === 1 && !className && !forceGroup) {
+    return `1|${unitSpecs[0].tag}`;
+  }
+  let sig = `g|${className || ""}|${unitSpecs[0].tag}`;
+  for (let i = 1; i < unitSpecs.length; i++) sig += `,${unitSpecs[i].tag}`;
+  return sig;
+}
+
 function applyRecycledAlpha(node, alpha) {
-  const targets = node.__pfAlphaTargets;
-  if (!targets) return;
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i];
+  const leaves = node.__pfLeaves;
+  if (!leaves) return;
+  for (let i = 0; i < leaves.length; i++) {
+    const t = leaves[i];
     const eff = alpha * t.baseOp;
-    if (eff < 0.999) {
+    const qEff = eff < 0.999 ? Math.round(eff * 1000) : 1000;
+    if (qEff === t.qEffOp) continue;
+    if (qEff < 1000) {
       t.el.setAttribute("opacity", eff.toFixed(3));
-    } else if (t.hadOp) {
+    } else {
       t.el.removeAttribute("opacity");
     }
-    t.hadOp = eff < 0.999;
+    t.qEffOp = qEff;
   }
 }
 
 /**
  * Create a semantic SVG mark emitter bound to `svgEl` and theme tokens on `hostEl`.
- * Automatically recycles detached SVG DOM nodes across `beginFrame()` ticks so
- * unchanged and opacity-fading marks perform zero path generation or DOM allocation.
+ * Two-tier DOM recycling across `beginFrame()` ticks:
+ *  - Tier 1 (`prevExact`): exact geometry key match -> 0 path builds, 0 `createElementNS`, 0 `setAttribute`.
+ *  - Tier 2 (`freeByLayout`): structural tag-signature recycling for moving/morphing marks -> 0 `createElementNS`, minimal attribute diffing.
  */
 export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   const doc = svgEl.ownerDocument;
@@ -1847,8 +2696,9 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   let lastOverrides = undefined;
   let lastSig = "";
   let inFrame = false;
-  let prevPool = new Map();
-  let activePool = new Map();
+  let prevExact = new Map();
+  let activeExact = new Map();
+  const freeByLayout = new Map();
 
   function syncGrammar(overrides = grammarOverrides) {
     cachedG = markGrammar(target, overrides);
@@ -1857,10 +2707,28 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     return cachedG;
   }
 
+  let autoContainer = null;
+
   function beginFrame(overrides = grammarOverrides) {
+    autoContainer = null;
     inFrame = true;
-    prevPool = activePool;
-    activePool = new Map();
+    if (prevExact.size > 0) {
+      for (const bucket of prevExact.values()) {
+        for (let i = 0; i < bucket.length; i++) {
+          const nd = bucket[i];
+          const lk = nd.__pfLayoutKey;
+          if (!lk) continue;
+          let fb = freeByLayout.get(lk);
+          if (!fb) {
+            fb = [];
+            freeByLayout.set(lk, fb);
+          }
+          if (fb.length < 192) fb.push(nd);
+        }
+      }
+    }
+    prevExact = activeExact;
+    activeExact = new Map();
     sweepDefsPool(svgEl);
     const sig = hostSignature(target);
     if (cachedG && overrides === lastOverrides && sig === lastSig) {
@@ -1869,45 +2737,86 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     return syncGrammar(overrides);
   }
 
+  function frame(containerEl = svgEl, overrides = grammarOverrides) {
+    const c = containerEl || svgEl;
+    if (c === svgEl && svgEl.__pfDefs && svgEl.__pfDefs.el) {
+      const keep = svgEl.__pfDefs.el;
+      const kids = Array.from(c.children || []);
+      for (let i = 0; i < kids.length; i++) {
+        if (kids[i] !== keep) c.removeChild(kids[i]);
+      }
+    } else if (typeof c.replaceChildren === "function") {
+      c.replaceChildren();
+    } else {
+      while (c.firstChild) c.removeChild(c.firstChild);
+    }
+    const g = beginFrame(overrides);
+    autoContainer = c;
+    return g;
+  }
+
   function storeActive(poolKey, node) {
-    let bucket = activePool.get(poolKey);
+    let bucket = activeExact.get(poolKey);
     if (!bucket) {
       bucket = [];
-      activePool.set(poolKey, bucket);
+      activeExact.set(poolKey, bucket);
     }
     bucket.push(node);
   }
 
-  function materializeUnitSpecs(unitSpecs, className, forceGroup = false) {
-    if (!unitSpecs || unitSpecs.length === 0) {
-      return doc.createElementNS(SVG_NS, "g");
+  function applySpecToLeaf(leaf, sp, defIds) {
+    const el = leaf.el;
+    const prev = leaf.domAttrs;
+    const next = sp.attrs;
+    let fillOverride = null;
+    if (sp.wash) fillOverride = ensureWashGradient(svgEl, sp.wash, defIds);
+    else if (sp.pattern) fillOverride = ensurePatternDef(svgEl, sp.pattern, defIds);
+
+    for (const k in prev) {
+      if (k === "fill" && fillOverride !== null) continue;
+      if (!(k in next)) {
+        el.removeAttribute(k);
+        delete prev[k];
+      }
     }
-    const alphaTargets = [];
-    const defIds = [];
-    const mkNode = (sp) => {
+    for (const k in next) {
+      if (k === "fill" && fillOverride !== null) continue;
+      const v = String(next[k]);
+      if (prev[k] !== v) {
+        el.setAttribute(k, v);
+        prev[k] = v;
+      }
+    }
+    if (fillOverride !== null && prev.fill !== fillOverride) {
+      el.setAttribute("fill", fillOverride);
+      prev.fill = fillOverride;
+    }
+    leaf.baseOp = sp.baseOp;
+  }
+
+  function materializeUnitSpecs(unitSpecs, className, forceGroup, layoutKey) {
+    const leaves = new Array(unitSpecs.length);
+    let defIds = null;
+    const mkLeaf = (sp, idx) => {
       const node = doc.createElementNS(SVG_NS, sp.tag);
-      for (const [k, v] of Object.entries(sp.attrs)) {
-        node.setAttribute(k, String(v));
-      }
-      if (sp.wash) {
-        node.setAttribute("fill", ensureWashGradient(svgEl, sp.wash, defIds));
-      } else if (sp.pattern) {
-        node.setAttribute("fill", ensurePatternDef(svgEl, sp.pattern, defIds));
-      }
-      alphaTargets.push({ el: node, baseOp: sp.baseOp, hadOp: false });
+      const leaf = { el: node, domAttrs: {}, baseOp: sp.baseOp, qEffOp: 1000 };
+      if ((sp.wash || sp.pattern) && !defIds) defIds = [];
+      applySpecToLeaf(leaf, sp, defIds);
+      leaves[idx] = leaf;
       return node;
     };
     let rootNode;
     if (unitSpecs.length === 1 && !className && !forceGroup) {
-      rootNode = mkNode(unitSpecs[0]);
+      rootNode = mkLeaf(unitSpecs[0], 0);
     } else {
       const g = doc.createElementNS(SVG_NS, "g");
       if (className) g.setAttribute("class", className);
-      for (let i = 0; i < unitSpecs.length; i++) g.appendChild(mkNode(unitSpecs[i]));
+      for (let i = 0; i < unitSpecs.length; i++) g.appendChild(mkLeaf(unitSpecs[i], i));
       rootNode = g;
     }
-    rootNode.__pfAlphaTargets = alphaTargets;
-    rootNode.__pfDefIds = defIds.length ? defIds : null;
+    rootNode.__pfLayoutKey = layoutKey;
+    rootNode.__pfLeaves = leaves;
+    rootNode.__pfDefIds = defIds;
     rootNode.__pfQOp = -1;
     return rootNode;
   }
@@ -1919,7 +2828,7 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     const poolKey = className || forceGroup ? `${geomKey}|c:${className || ""}|g:${forceGroup ? 1 : 0}` : geomKey;
 
     if (inFrame) {
-      const bucket = prevPool.get(poolKey);
+      const bucket = prevExact.get(poolKey);
       while (bucket && bucket.length > 0) {
         const cand = bucket.pop();
         if (!cand.parentNode) {
@@ -1932,6 +2841,7 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
             cand.__pfQOp = qOp;
           }
           storeActive(poolKey, cand);
+          if (autoContainer) autoContainer.appendChild(cand);
           return cand;
         }
       }
@@ -1939,113 +2849,242 @@ export function createSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
 
     const unitSpecs = getCachedUnitSpecs(geomKey, buildUnitFn);
     if (!unitSpecs.length) return doc.createElementNS(SVG_NS, "g");
-    const node = materializeUnitSpecs(unitSpecs, className, forceGroup);
+    const layoutKey = computeLayoutKey(unitSpecs, className, forceGroup);
+
+    if (inFrame) {
+      const fb = freeByLayout.get(layoutKey);
+      while (fb && fb.length > 0) {
+        const cand = fb.pop();
+        if (!cand.parentNode && !cand.__pfPinned) {
+          const leaves = cand.__pfLeaves;
+          let defIds = null;
+          for (let i = 0; i < unitSpecs.length; i++) {
+            const sp = unitSpecs[i];
+            if ((sp.wash || sp.pattern) && !defIds) defIds = [];
+            applySpecToLeaf(leaves[i], sp, defIds);
+          }
+          cand.__pfDefIds = defIds;
+          applyRecycledAlpha(cand, alpha);
+          cand.__pfQOp = qOp;
+          storeActive(poolKey, cand);
+          if (autoContainer) autoContainer.appendChild(cand);
+          return cand;
+        }
+      }
+    }
+
+    const node = materializeUnitSpecs(unitSpecs, className, forceGroup, layoutKey);
     applyRecycledAlpha(node, alpha);
     node.__pfQOp = qOp;
     if (inFrame) storeActive(poolKey, node);
+    if (autoContainer) autoContainer.appendChild(node);
     return node;
   }
 
   const G = () => cachedG || syncGrammar();
+  return attachMarkMethods({ grammar: G, beginFrame, frame, syncGrammar }, G, emit, null);
+}
 
-  return {
-    grammar: G,
-    beginFrame,
-    syncGrammar,
-    dot(cx, cy, r, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`dot:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      const gk = `dot|${curG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildDotSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }));
-    },
-    ring(cx, cy, r, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`ring:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      const gk = `ring|${curG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildRingSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }));
-    },
-    arrowHead(x, y, angle, opts = {}) {
-      const curG = G();
-      const gk = `ah|${curG.key}|${f2(x)},${f2(y)},${Math.round(angle * 1000)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.size ?? ""}`;
-      return emit(gk, opts.opacity, opts.className, () => buildArrowHeadSpec(x, y, angle, curG, { ...opts, opacity: 1 }));
-    },
-    panel(x, y, w, h, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`panel:${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}`);
+function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
+  api.dot = function dot(cx, cy, r, opts = {}) {
+    const curG = getG();
+    if (emitStampFn && curG.node !== "pixel") {
+      const alpha = clamp(opts.opacity ?? 1, 0, 1);
+      if (alpha < 0.002 || !(r > 0)) return;
+      const usesSeed = curG.node === "dab" || curG.node === "chisel";
+      const seed = usesSeed ? (opts.seed ?? anchorSeed2(0x646f74, cx, cy, opts.role)) : 1;
+      const sk = `ds|${curG.id}|${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
+      return emitStampFn(sk, alpha, () => buildDotSpec(0, 0, r, curG, { ...opts, opacity: 1, seed }), cx, cy);
+    }
+    const seed = opts.seed ?? anchorSeed2(0x646f74, cx, cy, opts.role);
+    const gk = `d|${curG.id}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildDotSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.ring = function ring(cx, cy, r, opts = {}) {
+    const curG = getG();
+    if (emitStampFn && curG.node !== "pixel") {
+      const alpha = clamp(opts.opacity ?? 1, 0, 1);
+      if (alpha < 0.002 || !(r > 0)) return;
+      const usesSeed = curG.node === "dab" || curG.node === "chisel";
+      const seed = usesSeed ? (opts.seed ?? anchorSeed2(0x72696e67, cx, cy, opts.role)) : 7;
+      const sk = `rs|${curG.id}|${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
+      return emitStampFn(sk, alpha, () => buildRingSpec(0, 0, r, curG, { ...opts, opacity: 1, seed }), cx, cy);
+    }
+    const seed = opts.seed ?? anchorSeed2(0x72696e67, cx, cy, opts.role);
+    const gk = `r|${curG.id}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildRingSpec(cx, cy, r, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.arrowHead = function arrowHead(x, y, angle, opts = {}) {
+    const curG = getG();
+    const gk = `ah|${curG.id}|${f2(x)},${f2(y)},${Math.round(angle * 1000)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.size ?? ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildArrowHeadSpec(x, y, angle, curG, { ...opts, opacity: 1 }), false);
+  };
+
+  api.panel = function panel(x, y, w, h, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed4(0x70616e, x, y, w, h);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+    const gk = `p|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.isCell ? 1 : 0}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, w, h, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.cell = function cell(x, y, size, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed3(0x63656c6c, x, y, size);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+    const gk = `cl|${curG.id}|${f2(x)},${f2(y)},${f2(size)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, size, size, curG, { ...opts, isCell: true, opacity: 1, seed }), false);
+  };
+
+  api.region = function region(points, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? (Array.isArray(points) && points.length
+      ? anchorSeed3(0x726567, points[0][0], points[0][1], points.length, roleCode(opts.role))
+      : 29);
+    const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+    const gk = `rg|${curG.id}|${serializePointsKey(points)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildRegionSpec(points, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.bar = function bar(x, y, w, h, opts = {}) {
+    const curG = getG();
+    const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    const seed = opts.seed ?? anchorSeed2(0x626172, x, y + h, opts.role);
+    const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
+    const gk = `b|${curG.id}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildRegionSpec(pts, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.curve = function curve(pointsOrPath, opts = {}) {
+    const curG = getG();
+    const seed = polylineAnchorSeed(0x637276, pointsOrPath, opts.seed);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `c|${curG.id}|${serializePointsKey(pointsOrPath)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${opts.lineJoin || ""}|${opts.forceBrush ? 1 : 0}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildCurveSpec(pointsOrPath, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.segment = function segment(x1, y1, x2, y2, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed3(0x736567, x1, y1, Math.round(Math.atan2(y2 - y1, x2 - x1) * 32));
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `s|${curG.id}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildCurveSpec([[x1, y1], [x2, y2]], curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.arrow = function arrow(points, opts = {}) {
+    const curG = getG();
+    const seed = polylineAnchorSeed(0x617272, points, opts.seed);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `ar|${curG.id}|${serializePointsKey(points)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.headSize ?? ""}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => {
+      const prep = prepareArrowGeometry(points, curG, opts);
+      const specs = [];
+      if (prep.shaftInput) {
+        specs.push(...buildCurveSpec(prep.shaftInput, curG, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
+      }
+      if (prep.head) {
+        specs.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, curG, {
+          role: opts.role,
+          fill: opts.stroke,
+          size: prep.head.size,
+          opacity: 1,
+        }));
+      }
+      return specs;
+    }, true);
+  };
+
+  api.axis = function axis(x1, y1, x2, y2, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed4(0x61786973, x1, y1, x2, y2);
+    const tKey = Array.isArray(opts.ticks) ? opts.ticks.join(",") : String(opts.ticks ?? "");
+    const gk = `ax|${curG.id}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.arrow === false ? 0 : 1}|${tKey}|${opts.tickSize ?? ""}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildAxisSpec(x1, y1, x2, y2, curG, { ...opts, opacity: 1, seed }), true);
+  };
+
+  api.brace = function brace(x1, y1, x2, y2, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed4(0x627263, x1, y1, x2, y2);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `br|${curG.id}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.depth ?? 10}|${opts.flip ? 1 : 0}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildBraceSpec(x1, y1, x2, y2, curG, { ...opts, opacity: 1, seed }), true);
+  };
+
+  api.bracket = function bracket(x1, y1, x2, y2, opts = {}) {
+    const curG = getG();
+    const seed = opts.seed ?? anchorSeed4(0x62726b, x1, y1, x2, y2);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `bk|${curG.id}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.tick ?? 5}|${opts.flip ? 1 : 0}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildBracketSpec(x1, y1, x2, y2, curG, { ...opts, opacity: 1, seed }), false);
+  };
+
+  api.connect = function connect(from, to, opts = {}) {
+    const routed = routeConnector(from, to, opts);
+    if (opts.arrow === false) return api.curve(routed, opts);
+    if (opts.arrow === "both") {
+      const curG = getG();
+      const rawPts = typeof routed === "string" ? sampleSimpleSvgPath(routed) : routed;
+      if (!rawPts || rawPts.length < 2) return api.arrow(routed, opts);
+      const rev = rawPts.slice().reverse();
+      const seed = polylineAnchorSeed(0x636f6e, rawPts, opts.seed);
       const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `pan|${curG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.isCell ? 1 : 0}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, w, h, curG, { ...opts, opacity: 1, seed }));
-    },
-    cell(x, y, size, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`cell:${Math.round(x)}:${Math.round(y)}:${Math.round(size)}`);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `cell|${curG.key}|${f2(x)},${f2(y)},${f2(size)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildPanelSpec(x, y, size, size, curG, { ...opts, isCell: true, opacity: 1, seed }));
-    },
-    region(points, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? (Array.isArray(points) && points.length
-        ? fnv1aSeed(`reg:${Math.round(points[0][0])}:${Math.round(points[0][1])}:${points.length}:${opts.role || ""}`)
-        : 29);
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `reg|${curG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildRegionSpec(points, curG, { ...opts, opacity: 1, seed }));
-    },
-    bar(x, y, w, h, opts = {}) {
-      const curG = G();
-      const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
-      const seed = opts.seed ?? fnv1aSeed(`bar:${Math.round(x)}:${Math.round(y + h)}:${opts.role || ""}`);
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `bar|${curG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildRegionSpec(pts, curG, { ...opts, opacity: 1, seed }));
-    },
-    curve(pointsOrPath, opts = {}) {
-      const curG = G();
-      const seed = polylineAnchorSeed("crv", pointsOrPath, opts.seed);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `crv|${curG.key}|${serializePointsKey(pointsOrPath)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${opts.lineJoin || ""}|${opts.forceBrush ? 1 : 0}|${progQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildCurveSpec(pointsOrPath, curG, { ...opts, opacity: 1, seed }));
-    },
-    segment(x1, y1, x2, y2, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`seg:${Math.round(x1)}:${Math.round(y1)}:${Math.round(Math.atan2(y2 - y1, x2 - x1) * 32)}`);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `seg|${curG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${progQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildCurveSpec([[x1, y1], [x2, y2]], curG, { ...opts, opacity: 1, seed }));
-    },
-    arrow(points, opts = {}) {
-      const curG = G();
-      const seed = polylineAnchorSeed("arr", points, opts.seed);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `arr|${curG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.headSize ?? ""}|${progQ}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => {
-        const prep = prepareArrowGeometry(points, curG, opts);
+      const gk = `cn2|${curG.id}|${serializePointsKey(rawPts)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${progQ}|${seed}`;
+      return emitFn(gk, opts.opacity, opts.className, () => {
+        const pFwd = prepareArrowGeometry(rawPts, curG, opts);
+        const pBwd = prepareArrowGeometry(rev, curG, { ...opts, progress: 1 });
         const specs = [];
-        if (prep.shaftInput) {
-          specs.push(...buildCurveSpec(prep.shaftInput, curG, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
+        if (pFwd.shaftInput) {
+          const trimmed = pBwd.head ? trimPolylineEnd(pFwd.shaftInput.slice().reverse(), pBwd.head.size * 0.72).reverse() : pFwd.shaftInput;
+          specs.push(...buildCurveSpec(trimmed, curG, { ...opts, opacity: 1, progress: pFwd.shaftProgress, seed }));
         }
-        if (prep.head) {
-          specs.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, curG, {
-            role: opts.role,
-            fill: opts.stroke,
-            size: prep.head.size,
-            opacity: 1,
-          }));
-        }
+        if (pBwd.head) specs.push(...buildArrowHeadSpec(pBwd.head.x, pBwd.head.y, pBwd.head.angle, curG, { role: opts.role, fill: opts.stroke, size: pBwd.head.size, opacity: 1 }));
+        if (pFwd.head && (opts.progress ?? 1) > 0.15) specs.push(...buildArrowHeadSpec(pFwd.head.x, pFwd.head.y, pFwd.head.angle, curG, { role: opts.role, fill: opts.stroke, size: pFwd.head.size, opacity: 1 }));
         return specs;
       }, true);
-    },
-    axis(x1, y1, x2, y2, opts = {}) {
-      const curG = G();
-      const seed = opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`);
-      const tKey = Array.isArray(opts.ticks) ? opts.ticks.join(",") : String(opts.ticks ?? "");
-      const gk = `axis|${curG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.arrow === false ? 0 : 1}|${tKey}|${opts.tickSize ?? ""}|${seed}`;
-      return emit(gk, opts.opacity, opts.className, () => buildAxisSpec(x1, y1, x2, y2, curG, { ...opts, opacity: 1, seed }), true);
-    },
+    }
+    return api.arrow(routed, opts);
   };
+
+  api.annotate = function annotate(box, opts = {}) {
+    const curG = getG();
+    const b = normBox(box);
+    const seed = opts.seed ?? anchorSeed4(0x616e6e, b.x, b.y, b.w, b.h);
+    const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
+    const gk = `an|${curG.id}|${opts.type || "underline"}|${f2(b.x)},${f2(b.y)},${f2(b.w)},${f2(b.h)}|${opts.pad ?? 4}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${progQ}|${seed}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildAnnotateSpec(b, curG, { ...opts, opacity: 1, seed }), true);
+  };
+
+  api.plot = function plot(fn, domain, opts = {}) {
+    const pts = sampleFunctionPoints(fn, domain, opts);
+    return api.curve(pts, opts);
+  };
+
+  api.area = function area(fn, domain, opts = {}) {
+    const prog = clamp(opts.progress ?? 1, 0, 1);
+    if (prog < 0.002) return api.region([], { ...opts, opacity: 0 });
+    const subDom = [domain[0], lerp(domain[0], domain[1], prog)];
+    const pts = sampleFunctionPoints(fn, subDom, opts);
+    const sc = opts.scale || null;
+    const baseVal = opts.baseline ?? (sc ? sc.domainY[0] : 0);
+    const endBase = sc ? sc.pt(subDom[1], baseVal) : [subDom[1], baseVal];
+    const startBase = sc ? sc.pt(subDom[0], baseVal) : [subDom[0], baseVal];
+    pts.push(endBase, startBase);
+    return api.region(pts, { stroke: "none", ...opts });
+  };
+
+  api.grid = function grid(scale, opts = {}) {
+    const curG = getG();
+    const [rx0, rx1] = scale.rangeX;
+    const [ry0, ry1] = scale.rangeY;
+    const gk = `gd|${curG.id}|${f2(rx0)},${f2(rx1)},${f2(ry0)},${f2(ry1)}|${opts.ticksX ?? 4}|${opts.ticksY ?? 4}|${opts.axes === false ? 0 : 1}|${opts.role || ""}`;
+    return emitFn(gk, opts.opacity, opts.className, () => buildGridSpec(scale, curG, { ...opts, opacity: 1 }), true);
+  };
+
+  return api;
 }
 
 function parsePointsAttr(pointsStr) {
@@ -2060,6 +3099,7 @@ function parsePointsAttr(pointsStr) {
 function resolveCssVarColor(raw, cs) {
   if (raw == null) return undefined;
   const s = String(raw).trim();
+  if (!s.startsWith("var(")) return s;
   const m = s.match(/^var\(\s*(--[a-zA-Z0-9_-]+)\s*(?:,\s*([^)]+))?\)$/);
   if (!m) return s;
   if (cs) {
@@ -2072,11 +3112,12 @@ function resolveCssVarColor(raw, cs) {
 const PASSTHROUGH_ATTRS = ["id", "transform", "clip-path", "mask", "filter", "data-marpit-fragment", "role"];
 
 function copyPassthroughAttrs(attrs, node) {
-  for (const k of PASSTHROUGH_ATTRS) {
+  for (let i = 0; i < PASSTHROUGH_ATTRS.length; i++) {
+    const k = PASSTHROUGH_ATTRS[i];
     if (attrs[k] != null && !node.getAttribute(k)) node.setAttribute(k, attrs[k]);
   }
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k.startsWith("aria-") && !node.getAttribute(k)) node.setAttribute(k, v);
+  for (const k in attrs) {
+    if (k.startsWith("aria-") && !node.getAttribute(k)) node.setAttribute(k, attrs[k]);
   }
   if (attrs.style) {
     const existing = node.getAttribute("style");
@@ -2092,24 +3133,49 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
   if (!svgEl.__pfMarkSnapshots) {
     const items = [];
     let idx = 1;
-    for (const el of Array.from(svgEl.querySelectorAll("[data-pf-mark]"))) {
+    const found = svgEl.querySelectorAll("[data-pf-mark]");
+    for (let i = 0; i < found.length; i++) {
+      const el = found[i];
       if (el.getAttribute("data-pf-mark-generated")) continue;
       const attrs = {};
-      for (const a of Array.from(el.attributes)) attrs[a.name] = a.value;
+      const attrList = el.attributes;
+      for (let j = 0; j < attrList.length; j++) {
+        attrs[attrList[j].name] = attrList[j].value;
+      }
       const origClone = typeof el.cloneNode === "function" ? el.cloneNode(true) : null;
-      items.push({ tag: el.tagName.toLowerCase(), attrs, origClone, placeholder: el, seed: idx++ * 6151 + 7 });
+      const kind = attrs["data-pf-mark"];
+      let prePts = null;
+      if (kind === "region") {
+        if (attrs.points) prePts = parsePointsAttr(attrs.points);
+        else if (attrs.d) prePts = sampleSimpleSvgPath(attrs.d);
+        else if (attrs.width != null && attrs.height != null) {
+          const rx = Number(attrs.x || 0), ry = Number(attrs.y || 0), rw = Number(attrs.width), rh = Number(attrs.height);
+          prePts = [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]];
+        }
+      } else if (kind === "arrow" || kind === "curve" || kind === "segment") {
+        prePts = attrs.d || (attrs.points ? parsePointsAttr(attrs.points) : [[Number(attrs.x1 || 0), Number(attrs.y1 || 0)], [Number(attrs.x2 || 0), Number(attrs.y2 || 0)]]);
+      }
+      items.push({ tag: el.tagName.toLowerCase(), attrs, prePts, origClone, placeholder: el, seed: idx++ * 6151 + 7 });
     }
     svgEl.__pfMarkSnapshots = items;
   }
-  if (!svgEl.__pfMarkSnapshots.length) return;
+  const snapshots = svgEl.__pfMarkSnapshots;
+  if (!snapshots.length) return;
 
   const target = hostEl || svgEl;
-  const marks = createSvgMarks(svgEl, target, grammarOverrides);
+  let holder = svgEl.__pfHydrateHolder;
+  if (!holder || holder.target !== target) {
+    holder = { target, marks: createSvgMarks(svgEl, target, grammarOverrides) };
+    svgEl.__pfHydrateHolder = holder;
+  }
+  const marks = holder.marks;
   const G = marks.syncGrammar(grammarOverrides);
   const hasCustomColorMap = Boolean(grammarOverrides && grammarOverrides.mapColor);
 
-  if (G.isSwiss && !G.isDark && !hasCustomColorMap && svgEl.__pfMarkSnapshots.every((s) => s.origClone)) {
-    for (const snap of svgEl.__pfMarkSnapshots) {
+  if (G.isSwiss && !G.isDark && !hasCustomColorMap && snapshots.every((s) => s.origClone)) {
+    if (svgEl.__pfHydratedKey === "__swiss_native__") return;
+    for (let i = 0; i < snapshots.length; i++) {
+      const snap = snapshots[i];
       const restored = snap.origClone.cloneNode(true);
       if (snap.placeholder.parentNode) {
         snap.placeholder.parentNode.replaceChild(restored, snap.placeholder);
@@ -2118,14 +3184,21 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
     }
     clearDefsPool(svgEl);
     svgEl.removeAttribute("data-pf-hydrated");
+    svgEl.__pfHydratedKey = "__swiss_native__";
+    return;
+  }
+
+  if (!hasCustomColorMap && svgEl.__pfHydratedKey === G.key && snapshots[0].placeholder.parentNode) {
     return;
   }
 
   svgEl.setAttribute("data-pf-hydrated", "1");
+  sweepDefsPool(svgEl);
   const cs = target && typeof getComputedStyle === "function" ? getComputedStyle(target) : null;
   const mapCol = hasCustomColorMap ? grammarOverrides.mapColor : (c) => c;
 
-  for (const snap of svgEl.__pfMarkSnapshots) {
+  for (let i = 0; i < snapshots.length; i++) {
+    const snap = snapshots[i];
     const a = snap.attrs;
     const kind = a["data-pf-mark"];
     const rawFill = resolveCssVarColor(a.fill, cs);
@@ -2162,32 +3235,37 @@ export function hydrateSvgMarks(svgEl, hostEl = null, grammarOverrides = null) {
       const sz = Number(a.width || a.height || 28);
       replacement = marks.cell(Number(a.x || 0), Number(a.y || 0), sz, common);
     } else if (kind === "region") {
-      let pts = null;
-      if (a.points) pts = parsePointsAttr(a.points);
-      else if (a.d) pts = sampleSimpleSvgPath(a.d);
-      else if (a.width != null && a.height != null) {
-        const rx = Number(a.x || 0), ry = Number(a.y || 0), rw = Number(a.width), rh = Number(a.height);
-        pts = [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]];
-      }
-      if (pts && pts.length >= 3) replacement = marks.region(pts, common);
+      if (snap.prePts && snap.prePts.length >= 3) replacement = marks.region(snap.prePts, common);
     } else if (kind === "arrow") {
-      const src = a.d || (a.points ? parsePointsAttr(a.points) : [[Number(a.x1 || 0), Number(a.y1 || 0)], [Number(a.x2 || 0), Number(a.y2 || 0)]]);
-      replacement = marks.arrow(src, common);
+      replacement = marks.arrow(snap.prePts, common);
     } else if (kind === "axis") {
       const ticks = a["data-pf-ticks"] != null ? Number(a["data-pf-ticks"]) : undefined;
       replacement = marks.axis(Number(a.x1 || 0), Number(a.y1 || 0), Number(a.x2 || 0), Number(a.y2 || 0), { ...common, ticks });
+    } else if (kind === "brace") {
+      const depth = a["data-pf-depth"] != null ? Number(a["data-pf-depth"]) : undefined;
+      const flip = a["data-pf-flip"] === "1" || a["data-pf-flip"] === "true";
+      replacement = marks.brace(Number(a.x1 || 0), Number(a.y1 || 0), Number(a.x2 || 0), Number(a.y2 || 0), { ...common, depth, flip });
+    } else if (kind === "bracket") {
+      const tick = a["data-pf-tick"] != null ? Number(a["data-pf-tick"]) : undefined;
+      const flip = a["data-pf-flip"] === "1" || a["data-pf-flip"] === "true";
+      replacement = marks.bracket(Number(a.x1 || 0), Number(a.y1 || 0), Number(a.x2 || 0), Number(a.y2 || 0), { ...common, tick, flip });
+    } else if (kind === "annotate") {
+      const type = a["data-pf-type"] || "underline";
+      const pad = a["data-pf-pad"] != null ? Number(a["data-pf-pad"]) : undefined;
+      replacement = marks.annotate({ x: Number(a.x || 0), y: Number(a.y || 0), w: Number(a.width || 0), h: Number(a.height || 0) }, { ...common, type, pad });
     } else if (kind === "curve" || kind === "segment") {
-      const src = a.d || (a.points ? parsePointsAttr(a.points) : [[Number(a.x1 || 0), Number(a.y1 || 0)], [Number(a.x2 || 0), Number(a.y2 || 0)]]);
-      replacement = marks.curve(src, common);
+      replacement = marks.curve(snap.prePts, common);
     }
 
     if (replacement && snap.placeholder.parentNode) {
+      replacement.__pfPinned = true;
       replacement.setAttribute("data-pf-mark-generated", "1");
       copyPassthroughAttrs(a, replacement);
       snap.placeholder.parentNode.replaceChild(replacement, snap.placeholder);
       snap.placeholder = replacement;
     }
   }
+  svgEl.__pfHydratedKey = hasCustomColorMap ? "" : G.key;
 }
 
 // ============================================================================
@@ -2241,15 +3319,20 @@ function getCanvasPattern(ctx, patSpec) {
   return pat;
 }
 
+const EMPTY_DASH = [];
+
 /**
  * Create a semantic Canvas 2D mark renderer compatible with `chao-ui/diagrams.js`.
- * Reuses cached `SPEC_CACHE` geometry, `Path2D` instances, and `Float64Array` polylines across frames.
+ * Draws typed `Float32Array`/`Float64Array` geometry directly on `ctx` with zero `Path2D`
+ * allocations, caches origin-centered `dot`/`ring` stamps across moving frames, and skips
+ * redundant C++ `ctx.save()/restore()` stack copies when no composite/smoothing state changes.
  */
 export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
   const target = hostEl || (ctx && ctx.canvas) || null;
   let cachedG = markGrammar(target, grammarOverrides);
   let lastOverrides = grammarOverrides;
   let lastSig = hostSignature(target);
+  const hasQuad = Boolean(ctx && typeof ctx.quadraticCurveTo === "function");
 
   function syncGrammar(overrides = grammarOverrides) {
     cachedG = markGrammar(target, overrides);
@@ -2264,11 +3347,18 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
     return syncGrammar(overrides);
   }
 
-  function applyDash(a, perim = 0) {
-    if (!a["stroke-dasharray"]) return;
-    const raw = String(a["stroke-dasharray"]).trim().split(/[\s,]+/).map(Number);
+  function applyDash(sp, a, perim = 0) {
+    const dashStr = a["stroke-dasharray"];
+    if (!dashStr) return false;
+    let raw = sp.__dash;
+    if (!raw) {
+      raw = String(dashStr).trim().split(/[\s,]+/).map(Number);
+      sp.__dash = raw;
+    }
     if (a.pathLength === "1" && perim > 0) {
-      ctx.setLineDash(raw.map((v) => v * perim));
+      const scaled = new Array(raw.length);
+      for (let i = 0; i < raw.length; i++) scaled[i] = raw[i] * perim;
+      ctx.setLineDash(scaled);
       if (a["stroke-dashoffset"] != null && "lineDashOffset" in ctx) {
         ctx.lineDashOffset = Number(a["stroke-dashoffset"]) * perim;
       }
@@ -2278,11 +3368,13 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
         ctx.lineDashOffset = Number(a["stroke-dashoffset"]);
       }
     }
+    return true;
   }
 
-  function drawUnitSpecs(unitSpecs, rawOp) {
+  function drawUnitSpecs(unitSpecs, rawOp, offX = 0, offY = 0) {
     const alpha = clamp(rawOp ?? 1, 0, 1);
     if (alpha < 0.002 || !unitSpecs.length) return;
+    const prevAlpha = ctx.globalAlpha;
 
     for (let sIdx = 0; sIdx < unitSpecs.length; sIdx++) {
       const sp = unitSpecs[sIdx];
@@ -2290,24 +3382,35 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
       const op = alpha * sp.baseOp;
       if (op < 0.002) continue;
 
-      ctx.save();
       const fillOp = a["fill-opacity"] != null ? Number(a["fill-opacity"]) : 1;
-      if (a.style && String(a.style).includes("multiply") && "globalCompositeOperation" in ctx) {
+      let prevBlend = null;
+      if (a.style && String(a.style).indexOf("multiply") !== -1 && "globalCompositeOperation" in ctx) {
+        prevBlend = ctx.globalCompositeOperation;
         ctx.globalCompositeOperation = "multiply";
       }
+      let prevSmooth = null;
       if (a["shape-rendering"] === "crispEdges" && "imageSmoothingEnabled" in ctx) {
+        prevSmooth = ctx.imageSmoothingEnabled;
         ctx.imageSmoothingEnabled = false;
       }
-      if (a["stroke-linecap"] && "lineCap" in ctx) ctx.lineCap = a["stroke-linecap"];
-      if (a["stroke-linejoin"] && "lineJoin" in ctx) ctx.lineJoin = a["stroke-linejoin"];
+      let prevCap = null;
+      if (a["stroke-linecap"] && "lineCap" in ctx) {
+        prevCap = ctx.lineCap;
+        ctx.lineCap = a["stroke-linecap"];
+      }
+      let prevJoin = null;
+      if (a["stroke-linejoin"] && "lineJoin" in ctx) {
+        prevJoin = ctx.lineJoin;
+        ctx.lineJoin = a["stroke-linejoin"];
+      }
 
       let fillStyle = a.fill;
       if (sp.wash && typeof ctx.createLinearGradient === "function") {
         const { color, dir, stops, bounds } = sp.wash;
         const rgb = parseRgb(color, [79, 125, 150]);
         const grad = dir === "h"
-          ? ctx.createLinearGradient(bounds.minX, 0, bounds.maxX, 0)
-          : ctx.createLinearGradient(0, bounds.minY, 0, bounds.maxY);
+          ? ctx.createLinearGradient(bounds.minX + offX, 0, bounds.maxX + offX, 0)
+          : ctx.createLinearGradient(0, bounds.minY + offY, 0, bounds.maxY + offY);
         grad.addColorStop(0, rgba(rgb, stops[0]));
         grad.addColorStop(dir === "h" ? 0.58 : 0.52, rgba(rgb, stops[1]));
         grad.addColorStop(1, rgba(rgb, stops[2]));
@@ -2317,6 +3420,7 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
         if (pat) fillStyle = pat;
       }
 
+      let usedDash = false;
       const doFillStroke = (drawShape, perim = 0) => {
         if (fillStyle && fillStyle !== "none") {
           ctx.globalAlpha = op * fillOp;
@@ -2324,7 +3428,7 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
           drawShape("fill");
         }
         if (a.stroke && a.stroke !== "none") {
-          applyDash(a, perim);
+          usedDash = applyDash(sp, a, perim);
           ctx.globalAlpha = op;
           ctx.strokeStyle = a.stroke;
           ctx.lineWidth = Number(a["stroke-width"] || 1);
@@ -2333,46 +3437,116 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
       };
 
       if (sp.tag === "circle") {
-        const r = Number(a.r);
+        const cx = Number(a.cx) + offX, cy = Number(a.cy) + offY, r = Number(a.r);
         doFillStroke((mode) => {
           ctx.beginPath();
-          ctx.arc(Number(a.cx), Number(a.cy), r, 0, Math.PI * 2);
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
           if (mode === "fill") ctx.fill(); else ctx.stroke();
         }, 2 * Math.PI * r);
       } else if (sp.tag === "rect") {
-        const rx = Number(a.x), ry = Number(a.y), rw = Number(a.width), rh = Number(a.height);
+        const rx = Number(a.x) + offX, ry = Number(a.y) + offY, rw = Number(a.width), rh = Number(a.height);
         doFillStroke((mode) => {
           if (mode === "fill") ctx.fillRect(rx, ry, rw, rh); else ctx.strokeRect(rx, ry, rw, rh);
         }, 2 * (rw + rh));
       } else if (sp.tag === "line") {
-        const x1 = Number(a.x1), y1 = Number(a.y1), x2 = Number(a.x2), y2 = Number(a.y2);
+        const x1 = Number(a.x1) + offX, y1 = Number(a.y1) + offY, x2 = Number(a.x2) + offX, y2 = Number(a.y2) + offY;
         doFillStroke(() => {
           ctx.beginPath();
           ctx.moveTo(x1, y1);
           ctx.lineTo(x2, y2);
           ctx.stroke();
-        }, Math.hypot(x2 - x1, y2 - y1));
-      } else if (sp.tag === "polyline" || sp.tag === "polygon") {
+        }, hypot2(x2 - x1, y2 - y1));
+      } else if (sp.closedPts) {
+        const pts = sp.closedPts;
+        doFillStroke((mode) => {
+          ctx.beginPath();
+          ctx.moveTo(pts[0] + offX, pts[1] + offY);
+          for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i] + offX, pts[i + 1] + offY);
+          ctx.closePath();
+          if (mode === "fill") ctx.fill(); else ctx.stroke();
+        }, 0);
+      } else if (sp.segs) {
+        const segs = sp.segs;
+        doFillStroke(() => {
+          ctx.beginPath();
+          for (let i = 0; i + 3 < segs.length; i += 4) {
+            ctx.moveTo(segs[i] + offX, segs[i + 1] + offY);
+            ctx.lineTo(segs[i + 2] + offX, segs[i + 3] + offY);
+          }
+          ctx.stroke();
+        }, 0);
+      } else if (sp.qsegs) {
+        const q = sp.qsegs;
+        doFillStroke(() => {
+          ctx.beginPath();
+          for (let i = 0; i + 5 < q.length; i += 6) {
+            ctx.moveTo(q[i] + offX, q[i + 1] + offY);
+            if (hasQuad) ctx.quadraticCurveTo(q[i + 2] + offX, q[i + 3] + offY, q[i + 4] + offX, q[i + 5] + offY);
+            else ctx.lineTo(q[i + 4] + offX, q[i + 5] + offY);
+          }
+          ctx.stroke();
+        }, 0);
+      } else if (sp.qloop) {
+        const q = sp.qloop;
+        doFillStroke((mode) => {
+          ctx.beginPath();
+          ctx.moveTo(q[0] + offX, q[1] + offY);
+          for (let i = 0; i + 5 < q.length; i += 6) {
+            if (hasQuad) ctx.quadraticCurveTo(q[i + 2] + offX, q[i + 3] + offY, q[i + 4] + offX, q[i + 5] + offY);
+            else ctx.lineTo(q[i + 4] + offX, q[i + 5] + offY);
+          }
+          ctx.closePath();
+          if (mode === "fill") ctx.fill(); else ctx.stroke();
+        }, 0);
+      } else if (sp.smoothPoly) {
+        const flat = sp.smoothPoly;
+        const nPts = flat.length >> 1;
+        if (nPts >= 3) {
+          doFillStroke((mode) => {
+            ctx.beginPath();
+            const p0x = flat[0] + offX, p0y = flat[1] + offY;
+            const p1x = flat[2] + offX, p1y = flat[3] + offY;
+            if (hasQuad) {
+              ctx.moveTo((p0x + p1x) * 0.5, (p0y + p1y) * 0.5);
+              for (let i = 2; i < flat.length; i += 2) {
+                const cxp = flat[i] + offX, cyp = flat[i + 1] + offY;
+                const ni = i + 2 < flat.length ? i + 2 : 0;
+                const nxp = flat[ni] + offX, nyp = flat[ni + 1] + offY;
+                ctx.quadraticCurveTo(cxp, cyp, (cxp + nxp) * 0.5, (cyp + nyp) * 0.5);
+              }
+            } else {
+              ctx.moveTo(p0x, p0y);
+              for (let i = 2; i < flat.length; i += 2) ctx.lineTo(flat[i] + offX, flat[i + 1] + offY);
+            }
+            ctx.closePath();
+            if (mode === "fill") ctx.fill(); else ctx.stroke();
+          }, 0);
+        }
+      } else if (sp.tag === "polyline" || sp.tag === "polygon" || sp.__nums) {
         if (!sp.__nums) {
           const parsed = String(a.points || "").trim().split(/[\s,]+/).map(Number);
           sp.__nums = new Float64Array(parsed);
+        }
+        if (sp.__perim < 0 && a.pathLength === "1") {
           let p = 0;
           for (let i = 2; i + 1 < sp.__nums.length; i += 2) {
-            p += Math.hypot(sp.__nums[i] - sp.__nums[i - 2], sp.__nums[i + 1] - sp.__nums[i - 1]);
+            p += hypot2(sp.__nums[i] - sp.__nums[i - 2], sp.__nums[i + 1] - sp.__nums[i - 1]);
           }
           sp.__perim = p;
         }
         const nums = sp.__nums;
+        const isClosed = sp.tag === "polygon";
         doFillStroke((mode) => {
           ctx.beginPath();
-          for (let i = 0; i + 1 < nums.length; i += 2) {
-            if (i === 0) ctx.moveTo(nums[i], nums[i + 1]); else ctx.lineTo(nums[i], nums[i + 1]);
+          if (nums.length >= 2) {
+            ctx.moveTo(nums[0] + offX, nums[1] + offY);
+            for (let i = 2; i + 1 < nums.length; i += 2) ctx.lineTo(nums[i] + offX, nums[i + 1] + offY);
           }
-          if (sp.tag === "polygon") ctx.closePath();
+          if (isClosed) ctx.closePath();
           if (mode === "fill") ctx.fill(); else ctx.stroke();
-        }, sp.__perim);
+        }, sp.__perim > 0 ? sp.__perim : 0);
       } else if (sp.tag === "path" && a.d) {
-        if (typeof Path2D !== "undefined") {
+        if (typeof Path2D !== "undefined" && offX === 0 && offY === 0) {
           const p2 = sp.__path2d || (sp.__path2d = new Path2D(a.d));
           doFillStroke((mode) => {
             if (mode === "fill") ctx.fill(p2); else ctx.stroke(p2);
@@ -2382,9 +3556,11 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
           if (subs) {
             doFillStroke((mode) => {
               ctx.beginPath();
-              for (const sub of subs) {
+              for (let s = 0; s < subs.length; s++) {
+                const sub = subs[s];
                 for (let i = 0; i < sub.length; i++) {
-                  if (i === 0) ctx.moveTo(sub[i][0], sub[i][1]); else ctx.lineTo(sub[i][0], sub[i][1]);
+                  if (i === 0) ctx.moveTo(sub[i][0] + offX, sub[i][1] + offY);
+                  else ctx.lineTo(sub[i][0] + offX, sub[i][1] + offY);
                 }
               }
               if (mode === "fill") ctx.fill(); else ctx.stroke();
@@ -2392,103 +3568,35 @@ export function createCanvasMarks(ctx, hostEl = null, grammarOverrides = null) {
           }
         }
       }
-      ctx.restore();
+
+      if (usedDash) {
+        ctx.setLineDash(EMPTY_DASH);
+        if ("lineDashOffset" in ctx) ctx.lineDashOffset = 0;
+      }
+      if (prevBlend !== null) ctx.globalCompositeOperation = prevBlend;
+      if (prevSmooth !== null) ctx.imageSmoothingEnabled = prevSmooth;
+      if (prevCap !== null) ctx.lineCap = prevCap;
+      if (prevJoin !== null) ctx.lineJoin = prevJoin;
     }
+    ctx.globalAlpha = prevAlpha;
   }
 
-  function emitCanvas(geomKey, rawOp, buildUnitFn) {
+  function emitCanvas(geomKey, rawOp, _className, buildUnitFn) {
     const alpha = clamp(rawOp ?? 1, 0, 1);
     if (alpha < 0.002) return;
-    drawUnitSpecs(getCachedUnitSpecs(geomKey, buildUnitFn), alpha);
+    drawUnitSpecs(getCachedUnitSpecs(geomKey, buildUnitFn), alpha, 0, 0);
   }
 
-  return {
-    grammar: () => cachedG,
-    beginFrame,
-    syncGrammar,
-    dot(cx, cy, r, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`dot:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      const gk = `dot|${cachedG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.hollow ? 1 : 0}|${opts.labelInside ? 1 : 0}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildDotSpec(cx, cy, r, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    ring(cx, cy, r, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`ring:${Math.round(cx)}:${Math.round(cy)}:${opts.role || ""}`);
-      const gk = `ring|${cachedG.key}|${f2(cx)},${f2(cy)},${f2(r)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildRingSpec(cx, cy, r, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    arrowHead(x, y, angle, opts = {}) {
-      const gk = `ah|${cachedG.key}|${f2(x)},${f2(y)},${Math.round(angle * 1000)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.size ?? ""}`;
-      emitCanvas(gk, opts.opacity, () => buildArrowHeadSpec(x, y, angle, cachedG, { ...opts, opacity: 1 }));
-    },
-    panel(x, y, w, h, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`panel:${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}`);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `pan|${cachedG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.isCell ? 1 : 0}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildPanelSpec(x, y, w, h, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    cell(x, y, size, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`cell:${Math.round(x)}:${Math.round(y)}:${Math.round(size)}`);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `cell|${cachedG.key}|${f2(x)},${f2(y)},${f2(size)}|${opts.role || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${progQ}|${fillPQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildPanelSpec(x, y, size, size, cachedG, { ...opts, isCell: true, opacity: 1, seed }));
-    },
-    region(points, opts = {}) {
-      const seed = opts.seed ?? (Array.isArray(points) && points.length
-        ? fnv1aSeed(`reg:${Math.round(points[0][0])}:${Math.round(points[0][1])}:${points.length}:${opts.role || ""}`)
-        : 29);
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `reg|${cachedG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildRegionSpec(points, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    bar(x, y, w, h, opts = {}) {
-      const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
-      const seed = opts.seed ?? fnv1aSeed(`bar:${Math.round(x)}:${Math.round(y + h)}:${opts.role || ""}`);
-      const fillPQ = opts.fillOpacity != null ? Math.round(clamp(opts.fillOpacity, 0, 1) * 1000) : 1000;
-      const gk = `bar|${cachedG.key}|${f2(x)},${f2(y)},${f2(w)},${f2(h)}|${opts.role || ""}|${opts.weight || ""}|${opts.fill ?? ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${fillPQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildRegionSpec(pts, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    curve(pointsOrPath, opts = {}) {
-      const seed = polylineAnchorSeed("crv", pointsOrPath, opts.seed);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `crv|${cachedG.key}|${serializePointsKey(pointsOrPath)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${opts.lineJoin || ""}|${opts.forceBrush ? 1 : 0}|${progQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildCurveSpec(pointsOrPath, cachedG, { ...opts, opacity: 1, seed }));
-    },
-    segment(x1, y1, x2, y2, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`seg:${Math.round(x1)}:${Math.round(y1)}:${Math.round(Math.atan2(y2 - y1, x2 - x1) * 32)}`);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `seg|${cachedG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.lineCap || ""}|${progQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildCurveSpec([[x1, y1], [x2, y2]], cachedG, { ...opts, opacity: 1, seed }));
-    },
-    arrow(points, opts = {}) {
-      const seed = polylineAnchorSeed("arr", points, opts.seed);
-      const progQ = opts.progress != null ? Math.round(clamp(opts.progress, 0, 1) * 1000) : 1000;
-      const gk = `arr|${cachedG.key}|${serializePointsKey(points)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.dash || ""}|${opts.headSize ?? ""}|${progQ}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => {
-        const prep = prepareArrowGeometry(points, cachedG, opts);
-        const specs = [];
-        if (prep.shaftInput) {
-          specs.push(...buildCurveSpec(prep.shaftInput, cachedG, { ...opts, opacity: 1, progress: prep.shaftProgress, seed }));
-        }
-        if (prep.head) {
-          specs.push(...buildArrowHeadSpec(prep.head.x, prep.head.y, prep.head.angle, cachedG, {
-            role: opts.role,
-            fill: opts.stroke,
-            size: prep.head.size,
-            opacity: 1,
-          }));
-        }
-        return specs;
-      });
-    },
-    axis(x1, y1, x2, y2, opts = {}) {
-      const seed = opts.seed ?? fnv1aSeed(`axis:${Math.round(x1)}:${Math.round(y1)}:${Math.round(x2)}:${Math.round(y2)}`);
-      const tKey = Array.isArray(opts.ticks) ? opts.ticks.join(",") : String(opts.ticks ?? "");
-      const gk = `axis|${cachedG.key}|${f2(x1)},${f2(y1)},${f2(x2)},${f2(y2)}|${opts.role || ""}|${opts.stroke ?? ""}|${opts.strokeWidth ?? ""}|${opts.arrow === false ? 0 : 1}|${tKey}|${opts.tickSize ?? ""}|${seed}`;
-      emitCanvas(gk, opts.opacity, () => buildAxisSpec(x1, y1, x2, y2, cachedG, { ...opts, opacity: 1, seed }));
-    },
-  };
+  function emitStampCanvas(stampKey, alpha, buildStampFn, offX, offY) {
+    drawUnitSpecs(getCachedStampSpecs(stampKey, buildStampFn), alpha, offX, offY);
+  }
+
+  function frame(_unusedContainer = null, overrides = grammarOverrides) {
+    return beginFrame(overrides);
+  }
+
+  const G = () => cachedG;
+  return attachMarkMethods({ grammar: G, beginFrame, frame, syncGrammar }, G, emitCanvas, emitStampCanvas);
 }
 
 /**
@@ -2504,4 +3612,149 @@ export function mountMarkedDiagram(canvas, spec, grammarOverrides = null) {
       spec.draw(ctx, W, H, { ...state, marks, G });
     },
   });
+}
+
+/**
+ * Mount an animated or static <svg> stage with the exact same zero-boilerplate lifecycle
+ * as `mountMarkedDiagram`: auto-manages `m.frame(sceneGroup)`, `IntersectionObserver`
+ * off-screen pause, `prefers-reduced-motion`, `[data-diagram-toggle]`, pointer coordinates
+ * in SVG `viewBox` space, and live `chao-theme-change` updates.
+ *
+ * spec: {
+ *   viewBox?: [W, H] | [x, y, W, H], // defaults to svgEl viewBox or width/height
+ *   cycle?: number,                  // loop period in seconds (0 or omit for static)
+ *   reduceAt?: number,               // static timestamp under prefers-reduced-motion
+ *   container?: Element,             // optional <g> layer to clear/draw into (auto-created if omitted)
+ *   draw: (marks, W, H, state) => void
+ * }
+ */
+export function mountMarkedSvg(svgEl, spec, grammarOverrides = null) {
+  const doc = svgEl.ownerDocument;
+  const host = spec.host || svgEl;
+  const vbAttr = svgEl.getAttribute && svgEl.getAttribute("viewBox");
+  let vbX = 0, vbY = 0, W = 600, H = 360;
+  if (Array.isArray(spec.viewBox)) {
+    if (spec.viewBox.length >= 4) { [vbX, vbY, W, H] = spec.viewBox; }
+    else if (spec.viewBox.length >= 2) { [W, H] = spec.viewBox; }
+  } else if (vbAttr) {
+    const parts = vbAttr.trim().split(/[\s,]+/).map(Number);
+    if (parts.length === 4 && parts.every(Number.isFinite)) [vbX, vbY, W, H] = parts;
+  } else {
+    W = Number(svgEl.getAttribute?.("width")) || 600;
+    H = Number(svgEl.getAttribute?.("height")) || 360;
+  }
+
+  let sceneGroup = spec.container || null;
+  if (!sceneGroup) {
+    sceneGroup = doc.createElementNS(SVG_NS, "g");
+    sceneGroup.setAttribute("data-pf-scene", "1");
+    svgEl.appendChild(sceneGroup);
+  }
+
+  const marks = createSvgMarks(svgEl, host, grammarOverrides);
+  const cycle = spec.cycle || 0;
+  const hasWindow = typeof window !== "undefined";
+  const reducedMotion = () =>
+    Boolean(hasWindow && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  let inView = !hasWindow || typeof IntersectionObserver === "undefined";
+  let paused = reducedMotion();
+  let rafId = 0;
+  let elapsedMs = paused && cycle > 0 ? (spec.reduceAt ?? cycle * 0.95) * 1000 : 0;
+  let lastNow = null;
+  const pointer = { x: vbX + W * 0.5, y: vbY + H * 0.5, normX: 0.5, normY: 0.5, active: false };
+
+  function renderOnce() {
+    const G = marks.frame(sceneGroup, grammarOverrides);
+    const t = cycle > 0 ? (elapsedMs / 1000) % cycle : elapsedMs / 1000;
+    spec.draw(marks, W, H, { t, elapsedMs, cycle, paused, pointer, P: G.P, G, marks, sceneGroup });
+  }
+
+  function tick(now) {
+    rafId = 0;
+    if (!inView) { lastNow = null; return; }
+    if (!paused && cycle > 0) {
+      if (lastNow !== null) elapsedMs += Math.min(100, Math.max(0, now - lastNow));
+      lastNow = now;
+    } else {
+      lastNow = null;
+    }
+    renderOnce();
+    if (!paused && cycle > 0 && inView && hasWindow) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+  }
+
+  function schedule() {
+    if (!hasWindow) { renderOnce(); return; }
+    if (!rafId) rafId = window.requestAnimationFrame(tick);
+  }
+
+  if (!hasWindow) {
+    renderOnce();
+    return { redraw: renderOnce, marks, destroy() {} };
+  }
+
+  const io = typeof IntersectionObserver !== "undefined"
+    ? new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          inView = e.isIntersecting;
+          if (inView) schedule();
+          else if (rafId) { window.cancelAnimationFrame(rafId); rafId = 0; lastNow = null; }
+        }
+      }, { threshold: 0.05 })
+    : null;
+  if (io) io.observe(svgEl);
+
+  const onMove = (ev) => {
+    if (!svgEl.getBoundingClientRect) return;
+    const r = svgEl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    pointer.normX = clamp((ev.clientX - r.left) / r.width, 0, 1);
+    pointer.normY = clamp((ev.clientY - r.top) / r.height, 0, 1);
+    pointer.x = vbX + pointer.normX * W;
+    pointer.y = vbY + pointer.normY * H;
+    pointer.active = true;
+    if (paused || cycle === 0) renderOnce();
+  };
+  const onLeave = () => {
+    pointer.active = false;
+    if (paused || cycle === 0) renderOnce();
+  };
+  const onTheme = () => renderOnce();
+
+  svgEl.addEventListener?.("pointermove", onMove);
+  svgEl.addEventListener?.("pointerleave", onLeave);
+  window.addEventListener("chao-theme-change", onTheme);
+
+  const fig = svgEl.closest?.("figure");
+  const btn = fig && fig.querySelector?.("[data-diagram-toggle]");
+  const syncBtn = () => {
+    if (!btn) return;
+    btn.textContent = paused ? "▶ Play" : "❚❚ Pause";
+    btn.setAttribute("aria-pressed", String(paused));
+  };
+  const onToggle = () => {
+    paused = !paused;
+    lastNow = null;
+    syncBtn();
+    if (!paused) schedule(); else renderOnce();
+  };
+  if (btn) { syncBtn(); btn.addEventListener("click", onToggle); }
+
+  if (inView) schedule(); else renderOnce();
+
+  return {
+    redraw: renderOnce,
+    marks,
+    setTime(sec) { elapsedMs = Math.max(0, sec * 1000); renderOnce(); },
+    destroy() {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      if (io) io.disconnect();
+      svgEl.removeEventListener?.("pointermove", onMove);
+      svgEl.removeEventListener?.("pointerleave", onLeave);
+      window.removeEventListener("chao-theme-change", onTheme);
+      if (btn) btn.removeEventListener("click", onToggle);
+    },
+  };
 }
