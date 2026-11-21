@@ -390,8 +390,14 @@ export function createStageTimeline(opts = {}) {
           if (!hasExplicitUrl) syncDeck();
 
           const onKey = (ev) => {
-            if (ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === " " || ev.key === "PageDown" || ev.key === "PageUp") {
-              parentDoc.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, bubbles: true }));
+            if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+            if (
+              ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === " " ||
+              ev.key === "PageDown" || ev.key === "PageUp" ||
+              ev.key === "s" || ev.key === "S" || ev.key === "c" || ev.key === "C" || ev.key === "Escape"
+            ) {
+              const targetWin = parentDoc.defaultView || parentDoc;
+              targetWin.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, bubbles: true, cancelable: true }));
             }
           };
           window.addEventListener("keydown", onKey);

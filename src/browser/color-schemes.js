@@ -22,13 +22,27 @@ if (!override && persist) {
 
 const picker = document.createElement('label');
 picker.className = 'xarp-color-scheme-picker';
-if (!options) picker.classList.add('xarp-editor-only');
-picker.append('Colors');
+if (options?.open) picker.classList.add('is-open');
+picker.append('Style');
 const select = document.createElement('select');
 select.setAttribute('aria-label', 'Color scheme');
-select.title = 'Preview colors in this browser (shortcut: C / Shift+C). Set colorScheme in the Markdown to share a deck default.';
+select.title = 'Switch visual style (shortcut: S to open/close, C / Shift+C to cycle). Set colorScheme in the Markdown to share a deck default.';
 picker.append(select);
 document.body.append(picker);
+
+function closePicker() {
+  picker.classList.remove('is-open');
+  if (document.activeElement === select) select.blur();
+}
+
+function togglePicker() {
+  if (picker.classList.contains('is-open')) {
+    closePicker();
+  } else {
+    picker.classList.add('is-open');
+    try { select.focus({ preventScroll: true }); } catch { select.focus(); }
+  }
+}
 
 const toast = document.createElement('div');
 toast.className = 'xarp-color-scheme-toast';
@@ -210,16 +224,34 @@ select.addEventListener('change', () => {
 });
 select.addEventListener('keydown', event => {
   event.stopPropagation();
-  if (event.key === 'Escape') select.blur();
+  if (event.key === 'Escape' || event.key === 'Enter' || event.key === 's' || event.key === 'S') {
+    event.preventDefault();
+    closePicker();
+  }
+});
+
+document.addEventListener('pointerdown', event => {
+  if (picker.classList.contains('is-open') && event.target && !picker.contains(event.target)) {
+    closePicker();
+  }
 });
 
 window.addEventListener('keydown', event => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
-  if (event.key !== 'c' && event.key !== 'C') return;
-  if (!options && !document.body.classList.contains('xarp-edit-active')) return;
   if (document.body.classList.contains('xarp-drawing-active')) return;
   const active = document.activeElement;
   if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable || active.closest?.('[contenteditable="true"]'))) return;
+  if (event.key === 's' || event.key === 'S') {
+    event.preventDefault();
+    togglePicker();
+    return;
+  }
+  if (event.key === 'Escape' && picker.classList.contains('is-open')) {
+    event.preventDefault();
+    closePicker();
+    return;
+  }
+  if (event.key !== 'c' && event.key !== 'C') return;
   event.preventDefault();
   const activeScheme = currentSelected();
   const idx = COLOR_SCHEMES.findIndex(item => item.name === activeScheme);

@@ -17,6 +17,10 @@ body > .xarp-color-scheme-picker {
   font: 13px/1.3 var(--pf-font-sans);
 }
 
+body.xarp-edit-active > .xarp-color-scheme-picker {
+  top: 52px;
+}
+
 .xarp-color-scheme-picker::before {
   content: "";
   width: 18px;
@@ -60,7 +64,7 @@ body > .xarp-color-scheme-picker select {
   opacity: 1;
 }
 
-body > .xarp-editor-only,
+body > .xarp-color-scheme-picker:not(.is-open),
 body.xarp-drawing-active > .xarp-color-scheme-picker,
 body.xarp-drawing-active > .xarp-color-scheme-toast,
 body:is([data-bespoke-view="presenter"], [data-bespoke-view="next"], [data-bespoke-view="overview"]) .xarp-color-scheme-picker,

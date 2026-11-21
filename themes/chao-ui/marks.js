@@ -1632,22 +1632,164 @@ export function buildPanelSpec(x, y, w, h, G, opts = {}) {
     return out;
   }
 
-  if (G.panel === "scroll" && !isCell && !dashed && w >= 72 && h >= 36) {
-    if (hasFill) {
-      const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : null;
-      out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra, 0.85));
+  if (G.panel === "scroll") {
+    const seed = hashSeed(opts.seed ?? anchorSeed4(0x736372, x, y, w, h));
+    const isBrush = G.stroke === "brush" || G.stroke === "gpen";
+    if (isBrush && w >= 8 && h >= 8) {
+      const rand = seededRand(seed);
+      const isBrushMode = G.stroke === "brush";
+      const mkDeckled = (amp) => {
+        const j = () => (rand() - 0.5) * amp;
+        const jb = () => (rand() - 0.5) * amp * 1.55;
+        const pts8 = [
+          [x + j(), y + j()],
+          [x + w * 0.5 + jb(), y + jb()],
+          [x + w + j(), y + j()],
+          [x + w + jb(), y + h * 0.5 + jb()],
+          [x + w + j(), y + h + j()],
+          [x + w * 0.5 + jb(), y + h + jb()],
+          [x + j(), y + h + j()],
+          [x + jb(), y + h * 0.5 + jb()],
+        ];
+        const polyNums = new Float64Array(16);
+        let ptsAttr = "";
+        for (let i = 0; i < 8; i++) {
+          const px = f2(pts8[i][0]), py = f2(pts8[i][1]);
+          polyNums[i * 2] = px;
+          polyNums[i * 2 + 1] = py;
+          ptsAttr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+        }
+        return { pts8, polyNums, ptsAttr, bounds: { minX: x, minY: y, maxX: x + w, maxY: y + h, w, h } };
+      };
+      const pushBrushSeg = (x0, y0, x1, y1, widthSw, alphaMult, sOff) => {
+        const td = taperedSegmentData(x0, y0, x1, y1, widthSw, isBrushMode, seed + sOff);
+        if (!td || !td.d) return;
+        const pa = { d: td.d, fill: stroke };
+        const eff = op * alphaMult;
+        if (eff < 0.999) pa.opacity = eff.toFixed(3);
+        out.push({ tag: "path", attrs: pa, smoothPoly: td.smoothPoly });
+      };
+
+      // 1a. Solid dark ink tablet / seal plaque (e.g. [frozen LLM])
+      if (isSolidAccent) {
+        const dk = mkDeckled(Math.min(1.9, Math.min(w, h) * 0.042));
+        const eff = op * fillP * 0.93;
+        const fa = { points: dk.ptsAttr, fill };
+        if (eff < 0.999) fa.opacity = eff.toFixed(3);
+        out.push({ tag: "polygon", attrs: fa, nums: dk.polyNums });
+        const ov = Math.min(3.4, w * 0.03);
+        const topTd = taperedSegmentData(x - ov, y + 0.5, x + w * progress + ov, y - 0.4, Math.max(2.2, sw * 1.4), isBrushMode, seed + 3);
+        if (topTd && topTd.d) out.push({ tag: "path", attrs: { d: topTd.d, fill, opacity: (op * fillP * 0.96).toFixed(3) }, smoothPoly: topTd.smoothPoly });
+        const botTd = taperedSegmentData(x + w * progress + ov * 0.8, y + h - 0.4, x - ov * 0.8, y + h + 0.5, Math.max(1.9, sw * 1.2), isBrushMode, seed + 7);
+        if (botTd && botTd.d) out.push({ tag: "path", attrs: { d: botTd.d, fill, opacity: (op * fillP * 0.92).toFixed(3) }, smoothPoly: botTd.smoothPoly });
+        return out;
+      }
+
+      // 1b. Small squares, tape cells, narrow badges & open frames (fangge 毛笔方格)
+      if (isCell || w < 72 || h < 36 || !hasFill) {
+        const dk = mkDeckled(Math.min(1.35, Math.min(w, h) * 0.036));
+        if (hasFill) {
+          const fRgb = parseRgb(fill, [255, 255, 255]);
+          const distBg = colorDistSqRgb(fRgb, G.bgRgb);
+          if (distBg > 90) {
+            const washInk = distBg > 2200 ? fill : G.P.muted;
+            const stops = distBg > 2200 ? [0.64, 0.36, 0.14] : [0.30, 0.15, 0.04];
+            const wa = { points: dk.ptsAttr, fill: washInk, opacity: (op * fillP).toFixed(3) };
+            if (G.multiply) wa.style = "mix-blend-mode:multiply";
+            out.push({ tag: "polygon", attrs: wa, nums: dk.polyNums, wash: { color: washInk, dir: "v", stops, bounds: dk.bounds } });
+          } else {
+            const pa = { points: dk.ptsAttr, fill };
+            if (op * fillP < 0.999) pa.opacity = (op * fillP).toFixed(3);
+            out.push({ tag: "polygon", attrs: pa, nums: dk.polyNums });
+          }
+        }
+        if (hasStroke) {
+          if (dashed) {
+            const closed = dk.pts8.concat([dk.pts8[0]]);
+            const nums = new Float64Array(closed.length * 2);
+            let pStr = "";
+            for (let i = 0; i < closed.length; i++) {
+              const px = f2(closed[i][0]), py = f2(closed[i][1]);
+              nums[i * 2] = px; nums[i * 2 + 1] = py;
+              pStr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+            }
+            const da = { points: pStr, fill: "none", stroke, "stroke-width": f2(sw * 1.12), "stroke-dasharray": "5.5 5", "stroke-linecap": "round" };
+            if (op < 0.999) da.opacity = (op * 0.85).toFixed(3);
+            out.push({ tag: "polyline", attrs: da, nums });
+          } else {
+            const ov = Math.min(2.3, Math.min(w, h) * 0.068);
+            const bsw = Math.max(1.5, sw * (isBrushMode ? 1.26 : 1.08));
+            const s0 = clamp(progress * 4, 0, 1);
+            const s1 = clamp(progress * 4 - 1, 0, 1);
+            const s2 = clamp(progress * 4 - 2, 0, 1);
+            const s3 = clamp(progress * 4 - 3, 0, 1);
+            const j0 = (rand() - 0.5) * 1.1, j1 = (rand() - 0.5) * 1.1;
+            const j2 = (rand() - 0.5) * 1.1, j3 = (rand() - 0.5) * 1.1;
+            if (s0 > 0.02) pushBrushSeg(x - ov, y + j0, lerp(x - ov, x + w + ov, s0), y - j0 * 0.6, bsw, 0.95, 11);
+            if (s1 > 0.02) pushBrushSeg(x + w + j1, y - ov * 0.7, x + w - j1 * 0.6, lerp(y - ov * 0.7, y + h + ov, s1), bsw * 0.94, 0.90, 17);
+            if (s2 > 0.02) pushBrushSeg(lerp(x + w + ov, x - ov, 1 - s2), y + h + j2, x + w + ov, y + h - j2 * 0.6, bsw * 0.96, 0.93, 23);
+            if (s3 > 0.02) pushBrushSeg(x + j3, y + ov * 0.5, x - j3 * 0.6, lerp(y + ov * 0.5, y + h + ov * 0.8, s3), bsw * 0.92, 0.88, 29);
+          }
+        }
+        return out;
+      }
+
+      // 1c. Large scroll / callout panels (w >= 72 && h >= 36): airy Xuan wash + overhanging brush rules
+      const dk = mkDeckled(Math.min(1.7, Math.min(w, h) * 0.014));
+      if (hasFill) {
+        const fRgb = parseRgb(fill, [245, 245, 245]);
+        const distBg = colorDistSqRgb(fRgb, G.bgRgb);
+        const washInk = distBg > 3600 ? fill : G.P.muted;
+        const stops = distBg > 3600 ? [0.56, 0.28, 0.08] : [0.20, 0.09, 0.015];
+        const wa = { points: dk.ptsAttr, fill: washInk, opacity: (op * fillP).toFixed(3) };
+        if (G.multiply) wa.style = "mix-blend-mode:multiply";
+        out.push({ tag: "polygon", attrs: wa, nums: dk.polyNums, wash: { color: washInk, dir: "v", stops, bounds: dk.bounds } });
+      }
+      if (hasStroke) {
+        if (dashed) {
+          const closed = dk.pts8.concat([dk.pts8[0]]);
+          const nums = new Float64Array(closed.length * 2);
+          let pStr = "";
+          for (let i = 0; i < closed.length; i++) {
+            const px = f2(closed[i][0]), py = f2(closed[i][1]);
+            nums[i * 2] = px; nums[i * 2 + 1] = py;
+            pStr += i === 0 ? `${px},${py}` : ` ${px},${py}`;
+          }
+          const da = { points: pStr, fill: "none", stroke, "stroke-width": f2(sw * 1.15), "stroke-dasharray": "7 6.5", "stroke-linecap": "round" };
+          da.opacity = (op * 0.78).toFixed(3);
+          out.push({ tag: "polyline", attrs: da, nums });
+        } else {
+          const ext = Math.min(7.5, w * 0.018);
+          const wVis = w * progress;
+          const jt = (rand() - 0.5) * 1.1, jb = (rand() - 0.5) * 1.1;
+          pushBrushSeg(x - ext, y + jt, x + wVis + ext, y - jt * 0.5, Math.max(1.85, sw * 1.38), 0.94, 31);
+          pushBrushSeg(x + wVis + ext, y + h + jb, x - ext, y + h - jb * 0.5, Math.max(1.75, sw * 1.28), 0.90, 37);
+          const insetY = Math.min(7, h * 0.1);
+          const hVis = Math.max(2, (h - insetY * 2) * progress);
+          pushBrushSeg(x, y + insetY, x + jt * 0.5, y + insetY + hVis, Math.max(1.15, sw * 0.82), 0.34, 41);
+          pushBrushSeg(x + w, y + insetY, x + w - jb * 0.5, y + insetY + hVis, Math.max(1.15, sw * 0.82), 0.34, 43);
+        }
+      }
+      return out;
     }
-    if (hasStroke) {
-      const ext = Math.min(5, w * 0.02);
-      const wVis = w * progress;
-      const topA = { x1: f2(x - ext), y1: f2(y), x2: f2(x + wVis + ext), y2: f2(y), stroke, "stroke-width": f2(sw * 1.12) };
-      const botA = { x1: f2(x - ext), y1: f2(y + h), x2: f2(x + wVis + ext), y2: f2(y + h), stroke, "stroke-width": f2(sw * 1.12) };
-      if (op < 0.999) { topA.opacity = op.toFixed(3); botA.opacity = op.toFixed(3); }
-      out.push({ tag: "line", attrs: topA }, { tag: "line", attrs: botA });
-      out.push({ tag: "line", attrs: { x1: f2(x), y1: f2(y), x2: f2(x), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
-      out.push({ tag: "line", attrs: { x1: f2(x + w), y1: f2(y), x2: f2(x + w), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
+
+    if (!isCell && !dashed && w >= 72 && h >= 36) {
+      if (hasFill) {
+        const extra = G.multiply && !isSolidAccent ? { style: "mix-blend-mode:multiply" } : null;
+        out.push(mkFillRect(f2(x), f2(y), f2(w), f2(h), extra, 0.85));
+      }
+      if (hasStroke) {
+        const ext = Math.min(5, w * 0.02);
+        const wVis = w * progress;
+        const topA = { x1: f2(x - ext), y1: f2(y), x2: f2(x + wVis + ext), y2: f2(y), stroke, "stroke-width": f2(sw * 1.12) };
+        const botA = { x1: f2(x - ext), y1: f2(y + h), x2: f2(x + wVis + ext), y2: f2(y + h), stroke, "stroke-width": f2(sw * 1.12) };
+        if (op < 0.999) { topA.opacity = op.toFixed(3); botA.opacity = op.toFixed(3); }
+        out.push({ tag: "line", attrs: topA }, { tag: "line", attrs: botA });
+        out.push({ tag: "line", attrs: { x1: f2(x), y1: f2(y), x2: f2(x), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
+        out.push({ tag: "line", attrs: { x1: f2(x + w), y1: f2(y), x2: f2(x + w), y2: f2(y + h * progress), stroke, "stroke-width": f2(sw * 0.65), opacity: (op * 0.52).toFixed(3) } });
+      }
+      return out;
     }
-    return out;
   }
 
   if ((G.panel === "cartouche" || G.panel === "inlay") && !isCell && !dashed && w >= 76 && h >= 36) {

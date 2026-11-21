@@ -234,8 +234,12 @@ try {
   const picker = 'select[aria-label="Color scheme"]';
   await palettePage.waitForSelector(picker, { hidden: true });
   await palettePage.keyboard.press('e');
+  await palettePage.waitForSelector(picker, { hidden: true });
+  await palettePage.keyboard.press('s');
   await palettePage.waitForSelector(picker, { visible: true });
   await palettePage.select(picker, 'kimono');
+  await palettePage.keyboard.press('Escape');
+  await palettePage.waitForSelector(picker, { hidden: true });
   await palettePage.click('#te-source');
   await palettePage.waitForFunction(() => document.querySelector('#te-textarea')?.value.includes('Rebuilt with ink'));
   await palettePage.$eval('#te-textarea', field => {

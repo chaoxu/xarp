@@ -1221,11 +1221,6 @@ import { contentSections } from '../slide-dom.js';
     if (next) window.dispatchEvent(new CustomEvent("xarp-mode-request", { detail: { mode: "edit" } }));
     editActive = next;
     document.body.classList.toggle("xarp-edit-active", editActive);
-    const palettePicker = document.querySelector(".xarp-color-scheme-picker");
-    if (palettePicker) {
-      if (editActive) $("te-coords").before(palettePicker);
-      else document.body.append(palettePicker);
-    }
     if (!editActive) {
       stopTextEditing();
       selectBox(null, null);
