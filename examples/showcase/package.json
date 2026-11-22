@@ -9,6 +9,6 @@
     "dev:quick": "xarp dev --config xarp.quick.config.mjs --port 4176"
   },
   "devDependencies": {
-    "@chaoxu/xarp": "https://github.com/chaoxu/xarp/releases/download/v0.2.1/chaoxu-xarp-0.2.1.tgz"
+    "@chaoxu/xarp": "https://github.com/chaoxu/xarp/releases/download/v0.2.2/chaoxu-xarp-0.2.2.tgz"
   }
 }

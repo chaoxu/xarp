@@ -268,6 +268,7 @@ For $a,b\geq 0$:
 - Every real square is nonnegative, so (a - b)^2 is at least 0.
 - Expanding and adding 4ab bounds (a + b)^2 from below.
 - Taking square roots and dividing by 2 yields the arithmetic-geometric mean inequality.
+  zoom: 1.35 @ 32, 62
   pause: 0.9
 -->
 
