@@ -1,15 +1,15 @@
 # Xarp
 
-Xarp turns Marp Markdown into HTML presentations with optional visual editing and drawing. Markdown stays the source. The output directory includes the theme, fonts, browser scripts, and local assets.
+Xarp turns Marp Markdown into HTML presentations with optional visual editing, drawing, and narrated Watch Mode. Markdown stays the source. The output directory includes the theme, fonts, browser scripts, and local assets.
 
-The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathematics, Chinese text, presenter controls, and an interactive plugin. Run [its source](examples/showcase/) locally to try saving changes to Markdown.
+The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathematics, Chinese text, presenter controls, Watch Mode, and an interactive plugin. Run [its source](examples/showcase/) locally to try saving changes to Markdown.
 
 ## Start a deck
 
 Install Node.js 24 or 26, then install the release package in your project:
 
 ```sh
-npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.1.2/chaoxu-xarp-0.1.2.tgz
+npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.2.0/chaoxu-xarp-0.2.0.tgz
 ```
 
 Write `slides.md`:
@@ -133,6 +133,78 @@ Press **E** and use **Colors** (or press **C** in Edit Mode) to cycle schemes ac
 Add `colorSchemes()` from `@chaoxu/xarp/plugins` to the deck's plugins to show **Colors** and enable the **C** shortcut for viewers of the exported HTML. The picker remembers a viewer's choice for that deck in their browser, syncs `data-xarp-color-scheme` onto same-origin `<iframe>` slide embeds, and dispatches `xarp-color-scheme-change` on `window`. Choose **Deck default** to follow the author's setting again, or use `colorSchemes({ persist: false })` for a session-only preview.
 
 Custom themes can use `var(--pf-bg)`, `var(--pf-fg)`, `var(--pf-accent)`, and `var(--pf-surface)` for the canvas, text, headings, and panels. Explicit CSS colors and images keep their authored appearance.
+
+### Narrate and watch as a webpage video
+
+Add `narration()` from `@chaoxu/xarp/plugins` to turn the live HTML deck into a scrubbable video-style player synced to per-beat audio clips, without rendering an MP4.
+
+Write beats as Markdown comments inside each slide:
+
+```markdown
+# Reveal a proof
+
+For $a, b \geq 0$:
+
+* $(a - b)^2 \geq 0$
+* $(a + b)^2 \geq 4ab$
+
+<!-- narration:
+- Start from two nonnegative numbers a and b.
+- Any real square is nonnegative.
+- Adding four a b bounds the squared sum from below.
+  tts: Adding four A B bounds the squared sum from below.
+  pause: 0.4
+-->
+```
+
+Single beats also work inline with `<!-- beat: Explain this step. -->`, silent holds with `<!-- narration: silent 2.0 -->`, and custom recorded snippets with `audio: path/to/clip.m4a` inside a beat block. Ordinary speaker notes without `narration:` or `beat:` stay presenter-only.
+
+Configure `narration()` in `xarp.config.mjs`:
+
+```js
+import { editing, drawing, colorSchemes, narration } from '@chaoxu/xarp/plugins';
+
+export default {
+  input: 'slides.md',
+  plugins: [
+    editing(),
+    drawing(),
+    colorSchemes(),
+    narration({
+      glossary: { KaTeX: 'Kay-tech' },
+      tts: {
+        provider: 'http', // 'http', 'openai', 'say' (macOS), or 'command'
+        url: process.env.XARP_TTS_URL,
+        speed: 0.95,
+      },
+    }),
+  ],
+};
+```
+
+Synthesize audio clips and build the presentation:
+
+```sh
+npx xarp narrate
+npx xarp narrate --only welcome,proof
+npx xarp narrate --prune
+```
+
+`narrate` stores content-addressed clips under `narration/clips/` (`narration/cache.json`). Editing one sentence regenerates only that beat's clip; reordering slides, editing slide layout or CSS (`npx xarp build`), or building a subset `slides` view reuses existing clips without calling TTS. When `ffmpeg` is installed, clips are trimmed and loudness-normalized (`-16 LUFS` AAC `.m4a`). Optional `tts.verify` (`url` or `command`) runs an ASR transcript check and retries bad draws automatically.
+
+Open `?watch=1` (or press **W** in the deck) to enter Watch Mode:
+
+| Control | Behavior |
+| --- | --- |
+| Space or K | Play or pause |
+| ← / → | Seek backward or forward 5 seconds (hold Shift to step beats) |
+| J / L or `[` / `]` | Previous or next beat |
+| Click a transcript line or chapter | Seek to that timestamp and play |
+| Speed (`0.75×`–`2×`) | Pitch-preserved playback speed |
+| M / V / T / F | Mute audio, toggle captions, toggle sidebar, or enter fullscreen |
+| S / C / D | Switch visual schemes live or pause to draw on the frame |
+
+In `npx xarp dev`, Watch Mode also exposes **Synthesize slide** to update the current slide's audio directly from the browser.
 
 ## Use from JavaScript
 

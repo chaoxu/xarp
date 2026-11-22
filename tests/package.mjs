@@ -20,13 +20,25 @@ try {
   }
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: 'xarp-clean-consumer', private: true, type: 'module' }));
   await run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', join(directory, packed.filename)], { cwd: directory, maxBuffer: 4 * 1024 * 1024 });
-  await writeFile(join(directory, 'slides.md'), '# Consumer\n\nFormula $x^2$.\n\n---\n\n# Other slide\n');
-  await writeFile(join(directory, 'xarp.config.mjs'), `import { editing, drawing } from '@chaoxu/xarp/plugins';\nexport default { input: 'slides.md', plugins: [editing(), drawing()] };\n`);
-  await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'build', '--theme', 'gaia', '--color-scheme', 'ukiyo-e'], { cwd: directory });
+  await writeFile(join(directory, 'mock-tts.mjs'), `
+import { writeFileSync } from 'node:fs';
+const sr = 16000, n = 8000, buf = Buffer.alloc(44 + n * 2);
+buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8);
+buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34);
+buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(i * 0.12) * 8000), 44 + i * 2);
+writeFileSync(process.env.XARP_TTS_OUT, buf);
+`);
+  await writeFile(join(directory, 'slides.md'), '# Consumer\n\nFormula $x^2$.\n\n<!-- beat: Consumer opening beat. -->\n\n---\n\n# Other slide\n');
+  await writeFile(join(directory, 'xarp.config.mjs'), `import { editing, drawing, narration } from '@chaoxu/xarp/plugins';\nexport default { input: 'slides.md', plugins: [editing(), drawing(), narration({ tts: { provider: 'command', command: [process.execPath, 'mock-tts.mjs'], format: 'wav' } })] };\n`);
+  await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'narrate', '--theme', 'gaia', '--color-scheme', 'ukiyo-e'], { cwd: directory });
   const html = await readFile(join(directory, 'dist/index.html'), 'utf8');
-  assert(html.includes('Consumer') && html.includes('katex') && html.includes('_xarp/plugins/editing.js'));
+  assert(html.includes('Consumer') && html.includes('katex') && html.includes('_xarp/plugins/editing.js') && html.includes('_xarp/plugins/narration.js'));
+  assert(html.includes('id="xarp-narration"'));
   assert(html.includes('data-xarp-color-scheme="ukiyo-e"'));
   assert((await readFile(join(directory, 'dist/_xarp/palettes.css'), 'utf8')).includes('--xarp-paper'));
+  assert((await readFile(join(directory, 'dist/_xarp/narration/captions.vtt'), 'utf8')).includes('Consumer opening beat.'));
   const notices = await readFile(join(directory, 'dist/_xarp/plugins/LICENSES.txt'), 'utf8');
   for (const name of ['drauu 1.0.0', 'nanoevents 9.1.0', 'perfect-freehand 1.2.2', 'roughjs 4.6.6', 'perfect-freehand 1.2.3']) assert(notices.includes(name), `Missing browser dependency notice: ${name}`);
   await writeFile(join(directory, 'check.mjs'), `

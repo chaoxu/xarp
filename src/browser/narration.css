@@ -1,0 +1,589 @@
+/* Xarp Watch Mode — Live vector deck + piecewise audio cinema player */
+
+.xarp-watch-launcher {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 9990;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  color: var(--xarp-ink, var(--pf-fg, #0f172a));
+  border: 1px solid color-mix(in srgb, currentColor 42%, transparent);
+  border-radius: 0 !important;
+  font: 600 12.5px/1.2 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  user-select: none;
+}
+
+.xarp-watch-launcher:hover {
+  background: var(--xarp-surface, var(--pf-surface, #f1f5f9));
+  border-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+}
+
+.xarp-watch-launcher:focus-visible {
+  outline: 2px solid var(--pf-focus, #1d4ed8);
+  outline-offset: 2px;
+}
+
+.xarp-watch-launcher-icon {
+  color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.xarp-watch-launcher-dur {
+  font-family: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.78;
+}
+
+body.xarp-watch-active .xarp-watch-launcher,
+body.xarp-edit-active .xarp-watch-launcher,
+body.xarp-drawing-active .xarp-watch-launcher,
+body:is([data-bespoke-view="presenter"], [data-bespoke-view="next"], [data-bespoke-view="overview"]) .xarp-watch-launcher,
+body:has(.bespoke-marp-overview[data-open="1"]) .xarp-watch-launcher {
+  display: none !important;
+}
+
+/* Cinema shell */
+.xarp-watch-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  grid-template-rows: 46px minmax(0, 1fr);
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  color: var(--xarp-ink, var(--pf-fg, #0f172a));
+  font-family: var(--pf-font-sans, "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif);
+  box-sizing: border-box;
+}
+
+.xarp-watch-shell *,
+.xarp-watch-stage-overlay,
+.xarp-watch-stage-overlay * {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+}
+
+.xarp-watch-shell [hidden],
+.xarp-watch-stage-overlay [hidden],
+.xarp-watch-launcher[hidden] {
+  display: none !important;
+}
+
+body.xarp-watch-active:is([data-bespoke-view=""], :not([data-bespoke-view])) .xarp-watch-shell {
+  display: grid;
+}
+
+/* Position live Marp deck directly inside the 16:9 stage slot without DOM reparenting */
+body.xarp-watch-active:is([data-bespoke-view=""], :not([data-bespoke-view])) .bespoke-marp-parent {
+  position: fixed !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: var(--xarp-watch-left, 24px) !important;
+  top: var(--xarp-watch-top, 62px) !important;
+  width: var(--xarp-watch-w, 960px) !important;
+  height: var(--xarp-watch-h, 540px) !important;
+  z-index: 9010 !important;
+  overflow: hidden !important;
+  outline: 1px solid color-mix(in srgb, var(--xarp-ink, var(--pf-fg, #0f172a)) 24%, transparent);
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+}
+
+body.xarp-watch-active .bespoke-marp-osc,
+body.xarp-watch-active .bespoke-progress-parent {
+  display: none !important;
+}
+
+body.xarp-watch-active > .xarp-color-scheme-picker {
+  top: 54px;
+  right: 16px;
+  z-index: 10020;
+}
+
+body.xarp-watch-active .xarp-drawing-toolbar {
+  top: 54px;
+  left: 16px;
+  z-index: 10020;
+}
+
+/* Stage click/start overlay matching the live 16:9 viewport */
+.xarp-watch-stage-overlay {
+  position: fixed;
+  left: var(--xarp-watch-left, 24px);
+  top: var(--xarp-watch-top, 62px);
+  width: var(--xarp-watch-w, 960px);
+  height: var(--xarp-watch-h, 540px);
+  z-index: 9020;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+body.xarp-watch-active:is([data-bespoke-view=""], :not([data-bespoke-view])) .xarp-watch-stage-overlay {
+  display: flex;
+}
+
+/* Capture clicks to pause while actively playing (when not drawing); pass clicks through to slide links/widgets when paused */
+body.xarp-watch-playing:not(.xarp-drawing-active) .xarp-watch-stage-overlay {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.xarp-watch-big-play {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  background: color-mix(in srgb, var(--xarp-paper, var(--pf-bg, #ffffff)) 92%, transparent);
+  color: var(--xarp-ink, var(--pf-fg, #0f172a));
+  border: 2px solid var(--xarp-ink, var(--pf-fg, #0f172a));
+  font: 600 15px/1.2 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(4px);
+}
+
+.xarp-watch-big-play:hover {
+  border-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+}
+
+.xarp-watch-big-play[hidden] {
+  display: none !important;
+}
+
+/* Header bar */
+.xarp-watch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 82%, transparent);
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  min-width: 0;
+}
+
+.xarp-watch-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.xarp-watch-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.xarp-watch-badge {
+  font: 600 11px/1 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  background: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  color: var(--xarp-paper, #ffffff);
+  flex: none;
+}
+
+.xarp-watch-title {
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xarp-watch-now {
+  font: 500 12px/1 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+/* Main workspace: stage column + sidebar */
+.xarp-watch-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 368px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body.xarp-watch-theater .xarp-watch-main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.xarp-watch-theater .xarp-watch-sidebar {
+  display: none;
+}
+
+.xarp-watch-player-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 14px 20px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--xarp-surface, var(--pf-surface, #f8fafc)) 55%, var(--xarp-paper, var(--pf-bg, #ffffff)));
+}
+
+.xarp-watch-stage-area {
+  flex: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+.xarp-watch-stage-slot {
+  flex: none;
+}
+
+/* Subtitle / caption bar */
+.xarp-watch-caption-bar {
+  width: min(100%, var(--xarp-watch-w, 100%));
+  min-height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  text-align: center;
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  font-size: 15.5px;
+  line-height: 1.38;
+  font-weight: 500;
+}
+
+body.xarp-watch-captions-off .xarp-watch-caption-bar {
+  display: none;
+}
+
+.xarp-watch-caption-bar.is-empty {
+  opacity: 0.55;
+  font-size: 13.5px;
+}
+
+/* Transport bar */
+.xarp-watch-transport {
+  width: min(100%, var(--xarp-watch-w, 100%));
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 12px 9px;
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.xarp-watch-Timeline-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 18px;
+}
+
+.xarp-watch-scrubber {
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+}
+
+.xarp-watch-ticks {
+  position: absolute;
+  inset: 0 6px;
+  pointer-events: none;
+}
+
+.xarp-watch-tick {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: color-mix(in srgb, currentColor 28%, transparent);
+}
+
+.xarp-watch-tick.is-section {
+  width: 2px;
+  background: color-mix(in srgb, var(--xarp-accent, var(--pf-accent, #1d4ed8)) 65%, transparent);
+}
+
+.xarp-watch-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.xarp-watch-controls-left,
+.xarp-watch-controls-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.xarp-watch-btn,
+.xarp-watch-select {
+  appearance: none;
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  color: var(--xarp-ink, var(--pf-fg, #0f172a));
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  padding: 4px 9px;
+  font: 500 12.5px/1.2 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.xarp-watch-btn:hover:not(:disabled),
+.xarp-watch-select:hover {
+  background: var(--xarp-surface, var(--pf-surface, #f1f5f9));
+  border-color: currentColor;
+}
+
+.xarp-watch-btn[aria-pressed="true"],
+.xarp-watch-btn.is-primary {
+  border-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  font-weight: 600;
+}
+
+.xarp-watch-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.xarp-watch-btn:focus-visible,
+.xarp-watch-select:focus-visible,
+.xarp-watch-scrubber:focus-visible {
+  outline: 2px solid var(--pf-focus, #1d4ed8);
+  outline-offset: 1px;
+}
+
+.xarp-watch-time {
+  font: 500 12.5px/1 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.xarp-watch-status {
+  font: 500 11.5px/1.2 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  opacity: 0.74;
+}
+
+/* Sidebar: Chapters & Interactive Transcript */
+.xarp-watch-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: var(--xarp-paper, var(--pf-bg, #ffffff));
+  min-height: 0;
+  min-width: 0;
+}
+
+.xarp-watch-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.xarp-watch-tab {
+  appearance: none;
+  background: none;
+  color: inherit;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 12px;
+  font: 600 12px/1 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0.68;
+}
+
+.xarp-watch-tab[aria-selected="true"] {
+  opacity: 1;
+  border-bottom-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+}
+
+.xarp-watch-pane {
+  overflow-y: auto;
+  padding: 10px 0 20px;
+  min-height: 0;
+}
+
+.xarp-watch-pane[hidden] {
+  display: none !important;
+}
+
+.xarp-watch-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  color: inherit;
+  border: 0;
+  border-top: 1.5px solid color-mix(in srgb, currentColor 32%, transparent);
+  padding: 10px 14px 5px;
+  margin-top: 6px;
+  font: 650 13.5px/1.25 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+
+.xarp-watch-sec-head:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.xarp-watch-slide-item {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  background: none;
+  color: inherit;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: 6px 14px;
+  font: 450 13.5px/1.3 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.82;
+}
+
+.xarp-watch-slide-item:hover,
+.xarp-watch-line:hover {
+  background: var(--xarp-surface, var(--pf-surface, #f1f5f9));
+  opacity: 1;
+}
+
+.xarp-watch-slide-item.is-active,
+.xarp-watch-line.is-active {
+  border-left-color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  background: color-mix(in srgb, var(--xarp-accent, var(--pf-accent, #1d4ed8)) 10%, var(--xarp-paper, var(--pf-bg, #ffffff)));
+  font-weight: 600;
+  opacity: 1;
+}
+
+.xarp-watch-num,
+.xarp-watch-ts {
+  font: 500 11.5px/1 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.62;
+  flex: none;
+}
+
+.xarp-watch-num {
+  width: 22px;
+}
+
+.xarp-watch-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.xarp-watch-tr-slide {
+  padding: 10px 14px 3px;
+  font: 600 11px/1.2 var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+}
+
+.xarp-watch-line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  background: none;
+  color: inherit;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: 6px 14px;
+  font: 400 14px/1.42 var(--pf-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.xarp-watch-empty {
+  padding: 16px 14px;
+  font-size: 13.5px;
+  opacity: 0.7;
+}
+
+/* Mobile / narrow layout: pin 16:9 stage + transport on top, scroll transcript/chapters below */
+@media (max-width: 1023px) {
+  .xarp-watch-header {
+    padding: 0 12px;
+  }
+  .xarp-watch-sidebar-toggle,
+  .xarp-watch-now {
+    display: none !important;
+  }
+  .xarp-watch-main,
+  body.xarp-watch-theater .xarp-watch-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  body.xarp-watch-theater .xarp-watch-sidebar {
+    display: grid;
+  }
+  .xarp-watch-player-col {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  .xarp-watch-stage-area {
+    flex: none;
+    width: 100%;
+    height: auto;
+  }
+  .xarp-watch-caption-bar,
+  .xarp-watch-transport {
+    width: 100%;
+  }
+  .xarp-watch-caption-bar {
+    font-size: 14px;
+    min-height: 34px;
+    padding: 5px 10px;
+  }
+  .xarp-watch-sidebar {
+    border-left: 0;
+    border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  }
+}
+
+@media print {
+  .xarp-watch-launcher,
+  .xarp-watch-shell,
+  .xarp-watch-stage-overlay {
+    display: none !important;
+  }
+}

@@ -57,29 +57,6 @@ const SCHEME_TYPOGRAPHY = {
   manga:         { family: MANGA_FONT, scale: 0.845, spacing: "-0.02em", forceBold: true },
 };
 
-function renderMathMixedText(el, rawText, katexRef) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-  const doc = el.ownerDocument;
-  const s = String(rawText ?? "");
-  const kz = katexRef || (typeof globalThis !== "undefined" ? globalThis.katex : null);
-  if (!s.includes("$") || !kz || typeof kz.render !== "function") {
-    el.textContent = s.replace(/\\\$/g, "$");
-    return;
-  }
-  const parts = s.split(/(?<!\\)\$/);
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (!part) continue;
-    const span = doc.createElement("span");
-    if (i % 2 === 1) {
-      kz.render(part, span, { throwOnError: false, displayMode: false });
-    } else {
-      span.textContent = part.replace(/\\\$/g, "$");
-    }
-    el.appendChild(span);
-  }
-}
-
 function resolveColorOrRole(G, roleOrColor, mapColor) {
   if (!roleOrColor) return G ? G.P.fg : "#1f1d1a";
   let col = roleOrColor;
@@ -90,6 +67,63 @@ function resolveColorOrRole(G, roleOrColor, mapColor) {
     col = resolveRoleColor(G, col);
   }
   return typeof mapColor === "function" ? mapColor(col) : col;
+}
+
+function escapeTexRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyTexColorMap(tex, t2c, G, mapColor) {
+  if (!t2c || typeof t2c !== "object") return tex;
+  const keys = Object.keys(t2c).filter((k) => k.length > 0).sort((a, b) => b.length - a.length);
+  if (!keys.length) return tex;
+  const colorByKey = new Map();
+  const patterns = [];
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    colorByKey.set(k, resolveColorOrRole(G, t2c[k], mapColor));
+    const startsAlpha = /^[A-Za-z]/.test(k);
+    const endsAlpha = /[A-Za-z]$/.test(k);
+    const prefix = startsAlpha ? "(?<![\\\\A-Za-z])" : "";
+    const suffix = endsAlpha ? "(?![A-Za-z])" : "";
+    patterns.push(`${prefix}${escapeTexRegex(k)}${suffix}`);
+  }
+  const combined = new RegExp(patterns.join("|"), "g");
+  return tex.replace(combined, (matched) => {
+    const col = colorByKey.get(matched);
+    return col ? `\\textcolor{${col}}{${matched}}` : matched;
+  });
+}
+
+function renderMathMixedText(el, rawText, katexRef, G = null, mapColor = null, t2c = null) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  const doc = el.ownerDocument;
+  const s = String(rawText ?? "");
+  const kz = katexRef || (typeof globalThis !== "undefined" ? globalThis.katex : null);
+  if (!s.includes("$") || !kz || typeof kz.render !== "function") {
+    el.textContent = s.replace(/\\\$/g, "$");
+    return;
+  }
+  const macros = G ? {
+    "\\pfprimary": `\\textcolor{${resolveColorOrRole(G, "primary", mapColor)}}{#1}`,
+    "\\pfcaveat": `\\textcolor{${resolveColorOrRole(G, "caveat", mapColor)}}{#1}`,
+    "\\pfaux": `\\textcolor{${resolveColorOrRole(G, "auxiliary", mapColor)}}{#1}`,
+    "\\pfmuted": `\\textcolor{${resolveColorOrRole(G, "muted", mapColor)}}{#1}`,
+    "\\pfink": `\\textcolor{${resolveColorOrRole(G, "ink", mapColor)}}{#1}`,
+  } : undefined;
+  const parts = s.split(/(?<!\\)\$/);
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    const span = doc.createElement("span");
+    if (i % 2 === 1) {
+      const coloredTex = t2c ? applyTexColorMap(part, t2c, G, mapColor) : part;
+      kz.render(coloredTex, span, { throwOnError: false, displayMode: false, ...(macros ? { macros } : {}) });
+    } else {
+      span.textContent = part.replace(/\\\$/g, "$");
+    }
+    el.appendChild(span);
+  }
 }
 
 const ALIGN_X = { left: 0, start: 0, center: 50, middle: 50, right: 100, end: 100 };
@@ -129,12 +163,16 @@ export function createLabelLayer(overlayEl, opts = {}) {
         el.style.opacity = "0";
         el.style.willChange = "transform, opacity";
       }
-      overlayEl.appendChild(el);
+      const hostEl = cfg && cfg.fixedInFrame && opts.fixedOverlayEl ? opts.fixedOverlayEl : overlayEl;
+      hostEl.appendChild(el);
       entry = {
         key,
         el,
+        fixedInFrame: Boolean(cfg && cfg.fixedInFrame),
         text: null,
         plain: Boolean(cfg.plain),
+        t2c: (cfg && cfg.t2c) || null,
+        mathColorSig: "",
         font: cfg.font || "sans",
         size: 0,
         weight: 0,
@@ -161,12 +199,29 @@ export function createLabelLayer(overlayEl, opts = {}) {
 
   function syncEntryContent(entry, text, cfg) {
     const el = entry.el;
+    if (cfg && cfg.fixedInFrame !== undefined && opts.fixedOverlayEl && Boolean(cfg.fixedInFrame) !== entry.fixedInFrame) {
+      entry.fixedInFrame = Boolean(cfg.fixedInFrame);
+      (entry.fixedInFrame ? opts.fixedOverlayEl : overlayEl).appendChild(el);
+    }
     const nextPlain = cfg && cfg.plain !== undefined ? Boolean(cfg.plain) : entry.plain;
-    if (text !== undefined && text !== null && (entry.text !== text || entry.plain !== nextPlain)) {
+    const nextT2c = cfg && cfg.t2c !== undefined ? cfg.t2c : entry.t2c;
+    const candidateText = text !== undefined && text !== null ? String(text) : entry.text;
+    const hasColoredMath = !nextPlain && candidateText && candidateText.includes("$") && (
+      nextT2c || candidateText.includes("\\pf")
+    );
+    const nextMathSig = hasColoredMath
+      ? `${curG ? curG.key : ""}|${nextT2c ? JSON.stringify(nextT2c) : ""}`
+      : "";
+    if (
+      text !== undefined && text !== null &&
+      (entry.text !== text || entry.plain !== nextPlain || entry.mathColorSig !== nextMathSig)
+    ) {
       entry.text = text;
       entry.plain = nextPlain;
+      entry.t2c = nextT2c;
+      entry.mathColorSig = nextMathSig;
       if (nextPlain) el.textContent = String(text);
-      else renderMathMixedText(el, text, opts.katex);
+      else renderMathMixedText(el, text, opts.katex, curG, mapColor, nextT2c);
     }
     if (!el.style) return;
     const fs = Number((cfg && (cfg.size ?? cfg.fs)) || entry.size || 16);
@@ -429,7 +484,17 @@ export function createStageTimeline(opts = {}) {
           const parentDoc = slideSvg.ownerDocument;
           let lastFragCount = -1;
           let wasActive = false;
+          let wasWatch = false;
           const syncDeck = () => {
+            const isWatch = Boolean(parentDoc.body && parentDoc.body.classList.contains("xarp-watch-controlled"));
+            if (isWatch) {
+              wasWatch = true;
+              deckPaused = true;
+              stopLoop();
+              return;
+            }
+            const exitedWatch = wasWatch;
+            wasWatch = false;
             const isEdit = Boolean(
               parentDoc.body &&
               (parentDoc.body.classList.contains("talk-edit-active") || parentDoc.body.classList.contains("xarp-edit-active"))
@@ -443,16 +508,17 @@ export function createStageTimeline(opts = {}) {
               stopLoop();
               return;
             }
-            if (!wasActive || stepIdx !== lastFragCount) {
+            if (!wasActive || exitedWatch || stepIdx !== lastFragCount) {
               wasActive = true;
-              const steppedForward = lastFragCount >= 0 && stepIdx === lastFragCount + 1;
+              const steppedForward = !exitedWatch && lastFragCount >= 0 && stepIdx === lastFragCount + 1;
               lastFragCount = stepIdx;
-              if (prefersReduced || isEdit || (!steppedForward && stepIdx > 0)) snapSegment(stepIdx);
+              if (prefersReduced || isEdit || exitedWatch || (!steppedForward && stepIdx > 0)) snapSegment(stepIdx);
               else playSegment(stepIdx);
             }
           };
           const mo = new MutationObserver(syncDeck);
           mo.observe(slideSvg, { attributes: true, subtree: true, attributeFilter: ["class", "data-bespoke-marp-fragment"] });
+          if (parentDoc.body) mo.observe(parentDoc.body, { attributes: true, attributeFilter: ["class"] });
           cleanups.push(() => mo.disconnect());
           if (!hasExplicitUrl) syncDeck();
 
@@ -461,7 +527,12 @@ export function createStageTimeline(opts = {}) {
             if (
               ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === " " ||
               ev.key === "PageDown" || ev.key === "PageUp" ||
-              ev.key === "s" || ev.key === "S" || ev.key === "c" || ev.key === "C" || ev.key === "Escape"
+              ev.key === "s" || ev.key === "S" || ev.key === "c" || ev.key === "C" ||
+              ev.key === "w" || ev.key === "W" || ev.key === "k" || ev.key === "K" ||
+              ev.key === "j" || ev.key === "J" || ev.key === "l" || ev.key === "L" ||
+              ev.key === "m" || ev.key === "M" || ev.key === "t" || ev.key === "T" ||
+              ev.key === "v" || ev.key === "V" || ev.key === "f" || ev.key === "F" ||
+              ev.key === "Escape"
             ) {
               const targetWin = parentDoc.defaultView || parentDoc;
               targetWin.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, bubbles: true, cancelable: true }));
@@ -482,6 +553,8 @@ export function createStageTimeline(opts = {}) {
     playSegment,
     snapSegment,
     getTime: () => t,
+    getDuration: () => duration,
+    getSegments: () => segments.slice(),
     destroy() {
       stopLoop();
       for (let i = 0; i < cleanups.length; i++) cleanups[i]();
@@ -563,12 +636,49 @@ export function mountCraftStage(containerEl, spec = {}) {
       labelRoot.style.width = `${width}px`;
       labelRoot.style.height = `${height}px`;
       labelRoot.style.pointerEvents = "none";
+      labelRoot.style.transformOrigin = "0 0";
     }
     containerEl.appendChild(labelRoot);
   }
 
+  let fixedLabelRoot = containerEl.querySelector?.("[data-pf-fixed-labels]") || null;
+  if (!fixedLabelRoot) {
+    fixedLabelRoot = doc.createElement("div");
+    if (fixedLabelRoot.setAttribute) fixedLabelRoot.setAttribute("data-pf-fixed-labels", "1");
+    if (fixedLabelRoot.style) {
+      fixedLabelRoot.style.position = "absolute";
+      fixedLabelRoot.style.left = "0";
+      fixedLabelRoot.style.top = "0";
+      fixedLabelRoot.style.width = `${width}px`;
+      fixedLabelRoot.style.height = `${height}px`;
+      fixedLabelRoot.style.pointerEvents = "none";
+    }
+    containerEl.appendChild(fixedLabelRoot);
+  }
+
   const marks = createSvgMarks(svgEl, containerEl, curOverrides);
-  const labels = createLabelLayer(labelRoot, { katex: spec.katex });
+  const labels = createLabelLayer(labelRoot, { katex: spec.katex, fixedOverlayEl: fixedLabelRoot });
+  let appliedCamSig = "identity";
+
+  function applyCamera(cam) {
+    const cx = Number(cam && cam.x != null ? cam.x : width / 2);
+    const cy = Number(cam && cam.y != null ? cam.y : height / 2);
+    const zoom = Math.max(0.05, Number(cam && cam.zoom != null ? cam.zoom : 1));
+    const isIdentity = Math.abs(zoom - 1) < 1e-4 && Math.abs(cx - width / 2) < 0.05 && Math.abs(cy - height / 2) < 0.05;
+    const sig = isIdentity ? "identity" : `${Math.round(cx * 100)}|${Math.round(cy * 100)}|${Math.round(zoom * 10000)}`;
+    if (sig === appliedCamSig) return;
+    appliedCamSig = sig;
+    if (isIdentity) {
+      if (sceneGroup.removeAttribute) sceneGroup.removeAttribute("transform");
+      if (labelRoot.style) labelRoot.style.transform = "";
+    } else {
+      const tx = Math.round((width / 2 - cx * zoom) * 100) / 100;
+      const ty = Math.round((height / 2 - cy * zoom) * 100) / 100;
+      const z = Math.round(zoom * 10000) / 10000;
+      if (sceneGroup.setAttribute) sceneGroup.setAttribute("transform", `translate(${tx} ${ty}) scale(${z})`);
+      if (labelRoot.style) labelRoot.style.transform = `translate(${tx}px,${ty}px) scale(${z})`;
+    }
+  }
 
   function effectiveOverrides() {
     if (parentSection && (!curOverrides || !curOverrides.P)) {
@@ -589,11 +699,13 @@ export function mountCraftStage(containerEl, spec = {}) {
       const inStyledDeck = Boolean(parentSection && G.scheme !== "default" && spec.autoBackground !== true);
       containerEl.style.background = inStyledDeck ? "transparent" : G.P.bg;
     }
+    let frameCam = typeof spec.camera === "function" ? spec.camera(t) : (spec.camera || null);
     labels.begin(G, effOv && effOv.mapColor);
     spec.draw({
       marks,
       m: marks,
       labels,
+      camera(nextCam) { frameCam = nextCam; },
       t,
       dt: state ? state.dt : 0,
       segment: state ? state.segment : 0,
@@ -606,20 +718,24 @@ export function mountCraftStage(containerEl, spec = {}) {
       sceneGroup,
     });
     labels.end();
+    applyCamera(frameCam);
   }
 
+  const inMarpSlide = Boolean(containerEl.closest && containerEl.closest("svg[data-marpit-svg]"));
   const timeline = createStageTimeline({
     segments: spec.segments,
     duration: spec.duration ?? spec.cycle,
     loop: spec.loop ?? Boolean(spec.cycle && !spec.segments),
     printTime: spec.printTime,
     syncParentDeck: spec.syncParentDeck,
-    exposeGlobal: spec.exposeGlobal,
+    exposeGlobal: spec.exposeGlobal ?? !inMarpSlide,
     onFrame: renderAt,
   });
+  if (containerEl.dataset) containerEl.dataset.pfStage = "1";
+  containerEl.__videoCtl = timeline;
 
   const fit = () => {
-    if (!hasWin || !containerEl.style || spec.autoFit === false) return;
+    if (!hasWin || !containerEl.style || spec.autoFit === false || (inMarpSlide && spec.autoFit !== true)) return;
     const s = Math.min(window.innerWidth / width, window.innerHeight / height) || 1;
     containerEl.style.transform = Math.abs(s - 1) < 1e-3 ? "" : `scale(${s})`;
   };
@@ -652,7 +768,10 @@ export function mountCraftStage(containerEl, spec = {}) {
   }
 
   const onTheme = (ev) => {
-    const scheme = ev && ev.detail && typeof ev.detail.scheme === "string" ? ev.detail.scheme : null;
+    const detail = ev && ev.detail;
+    const scheme = detail && typeof (detail.scheme ?? detail.selected) === "string"
+      ? (detail.scheme ?? detail.selected)
+      : null;
     if (scheme !== null) setStyle(scheme);
     else renderAt(timeline.getTime(), null);
   };
@@ -661,7 +780,8 @@ export function mountCraftStage(containerEl, spec = {}) {
     fit();
     window.addEventListener("resize", fit);
     window.addEventListener("chao-theme-change", onTheme);
-    window.__setXarpColorScheme = setStyle;
+    window.addEventListener("xarp-color-scheme-change", onTheme);
+    if (!inMarpSlide) window.__setXarpColorScheme = setStyle;
   }
 
   return {
@@ -672,9 +792,11 @@ export function mountCraftStage(containerEl, spec = {}) {
     render: () => renderAt(timeline.getTime(), null),
     destroy() {
       timeline.destroy();
+      if (containerEl.__videoCtl === timeline) delete containerEl.__videoCtl;
       if (hasWin) {
         window.removeEventListener("resize", fit);
         window.removeEventListener("chao-theme-change", onTheme);
+        window.removeEventListener("xarp-color-scheme-change", onTheme);
         if (window.__setXarpColorScheme === setStyle) delete window.__setXarpColorScheme;
       }
     },

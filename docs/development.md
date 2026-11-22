@@ -2,7 +2,7 @@
 
 Use Node.js 24 or 26 and install from `package-lock.json` with `npm ci`. Run `npm run build` before tests. The build compiles TypeScript and bundles browser dependencies with esbuild.
 
-`npm test` checks source mapping, guarded edits, save receipts, concurrency, path containment, themes, sections, assets, and plugin ordering. `npm run test:browser` launches headless Chrome against temporary decks. `npm run test:package` installs the tarball into a separate project using production dependencies, then builds through the installed CLI and saves through the installed library.
+`npm test` checks source mapping, guarded edits, save receipts, concurrency, path containment, themes, sections, assets, plugin ordering, narration parsing, glossary normalization, WAV silence trimming, and piecewise clip caching. `npm run test:browser` launches headless Chrome against temporary decks, including Watch Mode audio, fragment, and continuous stage synchronization. `npm run test:package` installs the tarball into a separate project using production dependencies, then builds, narrates through the installed CLI, and saves through the installed library.
 
 Browser checks cover visual edits, undo after saving, Markdown fallback, stale source, drawing history, navigation, resize, pointer input, plugin combinations, offline assets, and preview updates. Programmatic pen and touch events test the browser event path. Physical tablets, Safari, and Firefox need separate verification.
 
@@ -28,4 +28,4 @@ The script copies the declared distributable files, records the upstream revisio
 
 ## Release artifacts
 
-`npm pack` creates `chaoxu-xarp-0.1.2.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.
+`npm pack` creates `chaoxu-xarp-0.2.0.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.

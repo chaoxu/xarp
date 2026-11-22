@@ -17,11 +17,11 @@ await build({
 });
 await build({
   absWorkingDir: root,
-  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js', 'src/browser/marks.js'],
+  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js', 'src/browser/marks.js', 'src/browser/narration.js'],
   outdir: destination, bundle: true, platform: 'browser', format: 'iife',
   legalComments: 'eof', target: ['es2022'],
 });
-for (const name of ['editing.css', 'drawing.css', 'color-schemes.css', 'palettes.css', 'sections.css', 'preview.js']) {
+for (const name of ['editing.css', 'drawing.css', 'color-schemes.css', 'narration.css', 'palettes.css', 'sections.css', 'preview.js']) {
   await copyFile(join(root, 'src/browser', name), join(destination, name));
 }
 const moveable = dirname(require.resolve('moveable/package.json'));

@@ -1,4 +1,4 @@
-import type { Plugin } from '../types.js';
+import type { JsonValue, NarrationOptions, Plugin } from '../types.js';
 
 const asset = (name: string) => new URL(`../browser/${name}`, import.meta.url);
 
@@ -36,5 +36,16 @@ export function colorSchemes(options: ColorSchemesOptions = {}): Plugin {
     styles: [asset('color-schemes.css')],
     scripts: [asset('color-schemes.js')],
     data: { persist: options.persist ?? true },
+  };
+}
+
+export type { NarrationOptions };
+
+export function narration(options: NarrationOptions = {}): Plugin {
+  return {
+    name: 'narration',
+    styles: [asset('narration.css')],
+    scripts: [asset('narration.js')],
+    data: options as unknown as JsonValue,
   };
 }

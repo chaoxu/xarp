@@ -11,6 +11,15 @@ import { hash, parseSource, requireValue, selectedMarkdown, selectSlides } from 
 import { containedFile, copyTree, isWithin, outputIsOwned, pathExists } from './files.js';
 import { contentSectionSelector } from './slide-dom.js';
 import { isColorScheme } from './color-schemes.js';
+import {
+  buildNarrationTimeline,
+  extractNarrationOptions,
+  formatWebVtt,
+  loadNarrationCache,
+  parseSlideNarration,
+  probeAudioDuration,
+  resolveNarrationDir,
+} from './narration.js';
 import type { BuildOptions, BuildResult, EditorMetadata, Plugin, Section } from './types.js';
 
 const run = promisify(execFile);
@@ -165,8 +174,9 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     const svgSlides = $('svg[data-marpit-svg]');
     // SVG foreignObject retains mixed case in parse5, unlike HTML selectors.
     const sections = svgSlides.children().children(contentSectionSelector);
+    const hasNarration = plugins.some(plugin => plugin.name === 'narration');
     const editingError = document.editingError ?? (svgSlides.length !== selected.length || sections.length !== selected.length ? 'Rendered slides do not match source boundaries. Source editing is disabled.' : undefined);
-    if (options.slides || options.sections) requireValue(!editingError, editingError ?? 'Slide mapping failed');
+    if (options.slides || options.sections || hasNarration) requireValue(!editingError, editingError ?? 'Slide mapping failed');
     if (theme === 'chao-ui') sections.addClass('pf-slide');
     $('head').append('<link rel="stylesheet" href="_xarp/theme/theme.css">');
     if (colorScheme !== 'default') $('html').attr('data-xarp-color-scheme', colorScheme);
@@ -207,9 +217,68 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
         $(element).append(nav);
       });
     }
+    let narrationJson: string | undefined;
+    if (hasNarration) {
+      const narrationOpts = extractNarrationOptions(options);
+      const cacheDir = await resolveNarrationDir(project.cwd, project.output, narrationOpts.dir);
+      const cache = await loadNarrationCache(cacheDir);
+      const customAudioDurations = new Map<string, number>();
+      for (const slide of selected) {
+        for (const beat of parseSlideNarration(slide.body, narrationOpts.glossary)) {
+          if (beat.audio && !customAudioDurations.has(beat.audio)) {
+            const customPath = await containedFile(project.cwd, beat.audio);
+            customAudioDurations.set(beat.audio, await probeAudioDuration(customPath));
+          }
+        }
+      }
+      const deckTitle = $('title').first().text().trim()
+        || (typeof document.frontmatter.title === 'string' ? document.frontmatter.title : project.viewId);
+      const slideInputs = selected.map((slide, index) => {
+        const heading = sections.eq(index).find('h1, h2, h3').first().text().replace(/\s+/g, ' ').trim();
+        const fallback = slide.body.match(/^#{1,6}\s+(.+)$/m)?.[1]?.replace(/[*_`]/g, '').trim() ?? slide.id;
+        return {
+          id: slide.id,
+          body: slide.body,
+          title: heading || fallback,
+          fragmentCount: svgSlides.eq(index).find('[data-marpit-fragment]').length,
+        };
+      });
+      const vttRel = `_xarp/narration/${project.viewId}.vtt`;
+      const { timeline, referencedClips, referencedCustomAudio } = buildNarrationTimeline({
+        viewId: project.viewId,
+        deckTitle,
+        slides: slideInputs,
+        sections: options.sections,
+        options: narrationOpts,
+        cache,
+        customAudioDurations,
+        vttUrl: vttRel,
+      });
+      const narrationStageDir = join(stage, '_xarp/narration');
+      await mkdir(narrationStageDir, { recursive: true });
+      for (const [clipHash, relFile] of referencedClips) {
+        const srcClip = join(cacheDir, relFile);
+        const destRel = `_xarp/narration/clips/${clipHash}${relFile.slice(relFile.lastIndexOf('.'))}`;
+        await mkdir(dirname(join(stage, destRel)), { recursive: true });
+        await copyFile(srcClip, join(stage, destRel));
+        assets.fingerprint.push([destRel, hash(await readFile(srcClip))]);
+      }
+      for (const [projectRel, destRel] of referencedCustomAudio) {
+        const srcAudio = await containedFile(project.cwd, projectRel);
+        await mkdir(dirname(join(stage, destRel)), { recursive: true });
+        await copyFile(srcAudio, join(stage, destRel));
+        assets.fingerprint.push([destRel, hash(await readFile(srcAudio))]);
+      }
+      const vttContent = formatWebVtt(timeline);
+      await writeFile(join(stage, vttRel), vttContent, 'utf8');
+      await writeFile(join(narrationStageDir, 'captions.vtt'), vttContent, 'utf8');
+      await writeFile(join(narrationStageDir, 'timeline.json'), JSON.stringify(timeline, null, 2) + '\n', 'utf8');
+      narrationJson = JSON.stringify(timeline).replace(/</g, '\\u003c');
+    }
     const buildRevision = hash(JSON.stringify({
       source: document.revision, version: packageInfo.version, theme,
       colorScheme: usesPalettes ? colorScheme : undefined, paletteHash,
+      narration: narrationJson ? hash(narrationJson) : undefined,
       themeBytes: hash(await readFile(customTheme ?? join(themeRoot, 'slides.css'))),
       themeSnapshot: hash(await readFile(join(themeRoot, 'upstream.json'))),
       slides: options.slides, sections: options.sections, plugins: assets.data, files: assets.fingerprint,
@@ -223,6 +292,7 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     for (const path of assets.styles) $('head').append($('<link rel="stylesheet">').attr('href', path));
     const json = JSON.stringify({ ...metadata, plugins: assets.data }).replace(/</g, '\\u003c');
     $('body').append(`<script id="xarp-meta" type="application/json">${json}</script>`);
+    if (narrationJson) $('body').append(`<script id="xarp-narration" type="application/json">${narrationJson}</script>`);
     for (const path of assets.scripts) $('body').append($('<script defer></script>').attr('src', path));
     await writeFile(htmlPath, $.html());
     await writeFile(join(stage, '.xarp-build.json'), JSON.stringify({ generator: '@chaoxu/xarp', version: packageInfo.version, buildRevision }) + '\n');

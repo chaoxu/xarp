@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, resolveProject } from '../build.js';
 import { containedFile, isWithin } from '../files.js';
+import { narrate } from '../narrate.js';
 import { hash, parseSource, requireValue, selectSlides, updateSlideInSource } from '../source.js';
 import { editDeck, type DeckAction } from './deck.js';
 import { storeImage } from './assets.js';
@@ -193,8 +194,11 @@ export async function sendResponse(response: Response, output: ServerResponse) {
 
 const contentTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp', '.gif': 'image/gif', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.mp4': 'video/mp4',
+  '.json': 'application/json', '.vtt': 'text/vtt; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
+  '.mp4': 'video/mp4', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.opus': 'audio/ogg; codecs=opus', '.webm': 'audio/webm',
 };
 
 export async function staticResponse(request: Request, output: string): Promise<Response> {
@@ -206,8 +210,33 @@ export async function staticResponse(request: Request, output: string): Promise<
   try {
     const file = await realpath(resolve(output, relativePath));
     if (!isWithin(await realpath(output), file)) return new Response('Forbidden', { status: 403 });
-    if (!(await stat(file)).isFile()) return new Response('Not found', { status: 404 });
-    return new Response(request.method === 'HEAD' ? null : await readFile(file), { headers: { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' } });
+    const info = await stat(file);
+    if (!info.isFile()) return new Response('Not found', { status: 404 });
+    const mime = contentTypes[extname(file).toLowerCase()] ?? 'application/octet-stream';
+    const range = request.headers.get('range');
+    if (range && range.startsWith('bytes=') && info.size > 0) {
+      const match = range.match(/^bytes=(\d*)-(\d*)$/);
+      if (!match) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
+      const start = match[1] ? Number(match[1]) : 0;
+      const end = match[2] ? Math.min(info.size - 1, Number(match[2])) : info.size - 1;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= info.size) {
+        return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
+      }
+      const bytes = request.method === 'HEAD' ? null : (await readFile(file)).subarray(start, end + 1);
+      return new Response(bytes, {
+        status: 206,
+        headers: {
+          'Content-Type': mime,
+          'Content-Range': `bytes ${start}-${end}/${info.size}`,
+          'Content-Length': String(end - start + 1),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+    return new Response(request.method === 'HEAD' ? null : await readFile(file), {
+      headers: { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' },
+    });
   } catch (error) {
     if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return new Response('Not found', { status: 404 });
     throw error;
@@ -238,19 +267,49 @@ export async function dev(options: DevOptions) {
     },
   }) : undefined;
   const requests = new Set<Promise<void>>();
+  const hasNarration = Boolean(options.plugins?.some(plugin => plugin.name === 'narration'));
+  let narrating = false;
   const handle = async (incoming: IncomingMessage, outgoing: ServerResponse) => {
     try {
       const request = await nodeRequest(incoming);
-      const hostname = new URL(request.url).hostname;
+      const url = new URL(request.url);
+      const hostname = url.hostname;
       if (!['127.0.0.1', 'localhost', '[::1]'].includes(hostname)) return await sendResponse(new Response('Forbidden host', { status: 403 }), outgoing);
-      const pathname = new URL(request.url).pathname;
+      const pathname = url.pathname;
       if (request.method === 'GET' && pathname === '/__xarp/version') return await sendResponse(Response.json({ version, sourceRevision: result.metadata.sourceRevision }, { headers: { 'Cache-Control': 'no-store' } }), outgoing);
       if (request.method === 'GET' && pathname === '/__xarp/preview.js') return await sendResponse(new Response(await readFile(fileURLToPath(new URL('../browser/preview.js', import.meta.url))), { headers: { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' } }), outgoing);
       if (request.method === 'GET' && ['/', '/index.html'].includes(pathname)) {
         const html = (await readFile(result.htmlPath, 'utf8')).replace('</body>', `<script defer src="/__xarp/preview.js" data-version="${version}"></script></body>`);
         return await sendResponse(new Response(html, { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } }), outgoing);
       }
-      if (building && request.method === 'POST' && pathname.startsWith('/__xarp/')) return await sendResponse(Response.json({ editorApi: true, mode: 'local', ok: false, saved: false, error: 'A rebuild is in progress. Retry shortly.' }, { status: 409 }), outgoing);
+      if (hasNarration && pathname === '/__xarp/narrate') {
+        const jsonReply = (body: object, status = 200) => sendResponse(Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } }), outgoing);
+        if (request.method === 'GET') {
+          if (url.searchParams.get('view') !== project.viewId) return await jsonReply({ ok: false, error: 'Different deck view' }, 409);
+          return await jsonReply({ ok: true, viewId: project.viewId });
+        }
+        if (request.method !== 'POST') return await jsonReply({ ok: false, error: 'Method not allowed' }, 405);
+        if (request.headers.get('origin') !== url.origin) return await jsonReply({ ok: false, error: 'Same-origin browser request required' }, 403);
+        if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') return await jsonReply({ ok: false, error: 'JSON body required' }, 415);
+        if (saving || building || narrating) return await jsonReply({ ok: false, error: 'Busy rebuilding or synthesizing' }, 409);
+        narrating = true;
+        try {
+          const payload = await readJson(request) as unknown as { viewId?: string; only?: unknown; force?: unknown };
+          if (payload.viewId !== project.viewId) return await jsonReply({ ok: false, error: 'Deck view mismatch' }, 409);
+          const only = Array.isArray(payload.only) ? payload.only.filter((x): x is string => typeof x === 'string') : undefined;
+          const force = payload.force === true;
+          const synth = await narrate({ ...options, ...(only ? { only } : {}), force, build: false });
+          building = true;
+          try { await rebuild(); } finally { building = false; }
+          const timelineRaw = await readFile(join(result.output, '_xarp/narration/timeline.json'), 'utf8');
+          return await jsonReply({ ok: true, synthesized: synth.synthesized, cached: synth.cached, timeline: JSON.parse(timelineRaw) });
+        } catch (err) {
+          return await jsonReply({ ok: false, error: (err as Error).message }, 400);
+        } finally {
+          narrating = false;
+        }
+      }
+      if ((building || narrating) && request.method === 'POST' && pathname.startsWith('/__xarp/')) return await sendResponse(Response.json({ editorApi: true, mode: 'local', ok: false, saved: false, error: 'A rebuild is in progress. Retry shortly.' }, { status: 409 }), outgoing);
       await sendResponse(await api?.(request) ?? await staticResponse(request, result.output), outgoing);
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500, { 'Content-Type': 'text/plain' });
