@@ -45,7 +45,7 @@ html[data-xarp-color-scheme="manga"] {
   --xarp-accent: #080808;
   --xarp-secondary: #e60012;
   --xarp-highlight: #383838;
-  --xarp-font: "Hiragino Kaku Gothic Std", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "IBM Plex Sans", system-ui, sans-serif;
   --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cg fill='%23080808' fill-opacity='0.15'%3E%3Cpolygon points='8,8 42,8 132,78'/%3E%3Cpolygon points='8,52 8,84 118,124'/%3E%3Cpolygon points='8,142 8,168 106,192'/%3E%3Cpolygon points='8,552 8,582 108,528'/%3E%3Cpolygon points='8,640 8,676 122,596'/%3E%3Cpolygon points='8,712 44,712 138,640'/%3E%3Cpolygon points='1272,8 1238,8 1148,78'/%3E%3Cpolygon points='1272,52 1272,84 1162,124'/%3E%3Cpolygon points='1272,142 1272,168 1174,192'/%3E%3Cpolygon points='1272,552 1272,582 1172,528'/%3E%3Cpolygon points='1272,640 1272,676 1158,596'/%3E%3Cpolygon points='1272,712 1236,712 1142,640'/%3E%3Cpolygon points='180,8 206,8 248,62'/%3E%3Cpolygon points='1100,8 1074,8 1032,62'/%3E%3Cpolygon points='180,712 206,712 248,658'/%3E%3Cpolygon points='1100,712 1074,712 1032,658'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
@@ -64,7 +64,7 @@ html[data-xarp-color-scheme="han-rubbing"] {
   --xarp-highlight: #deb878;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Songti SC", "STSong", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cg stroke='%23ebe6dc' stroke-opacity='0.06' stroke-width='0.8'%3E%3Cline x1='0' y1='120' x2='54' y2='0'/%3E%3Cline x1='40' y1='120' x2='94' y2='0'/%3E%3Cline x1='80' y1='120' x2='120' y2='32'/%3E%3Cpath d='M10 38 l16 -9 l14 5' fill='none' stroke-opacity='0.10'/%3E%3C/g%3E%3Cg fill='%23ebe6dc'%3E%3Ccircle cx='22' cy='19' r='1.1' fill-opacity='0.12'/%3E%3Ccircle cx='78' cy='34' r='1.5' fill-opacity='0.09'/%3E%3Ccircle cx='51' cy='86' r='0.9' fill-opacity='0.13'/%3E%3Ccircle cx='104' cy='92' r='1.3' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
@@ -138,8 +138,8 @@ html[data-xarp-color-scheme="shippo"] {
   --xarp-accent: #1b4980;
   --xarp-secondary: #c93624;
   --xarp-highlight: #a67318;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
-  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cg fill='none' stroke='%231b4980' stroke-opacity='0.115' stroke-width='0.9'%3E%3Ccircle cx='24' cy='24' r='24'/%3E%3Ccircle cx='0' cy='0' r='24'/%3E%3Ccircle cx='48' cy='0' r='24'/%3E%3Ccircle cx='0' cy='48' r='24'/%3E%3Ccircle cx='48' cy='48' r='24'/%3E%3C/g%3E%3Cpolygon points='24,20.5 27.5,24 24,27.5 20.5,24' fill='%23c93624' fill-opacity='0.14'/%3E%3C/svg%3E");
   --xarp-frame:
     inset 0 0 0 6px #1b4980,
@@ -154,8 +154,8 @@ html[data-xarp-color-scheme="kikko"] {
   --xarp-accent: #1f485b;
   --xarp-secondary: #b52b28;
   --xarp-highlight: #996914;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
-  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='83.14' viewBox='0 0 48 83.14'%3E%3Cg fill='none' stroke='%231f485b' stroke-opacity='0.12' stroke-width='0.9'%3E%3Cpolygon points='24,13.86 48,27.71 48,55.43 24,69.28 0,55.43 0,27.71'/%3E%3Cpolygon points='24,20.5 42,30.9 42,52.2 24,62.6 6,52.2 6,30.9' stroke-opacity='0.075'/%3E%3Cpath d='M24,0 L24,13.86 M24,69.28 L24,83.14'/%3E%3Cpolygon points='24,36.5 29,41.57 24,46.6 19,41.57' fill='%23b52b28' fill-opacity='0.11' stroke='none'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
     inset 0 0 0 6px #1f485b,
@@ -170,7 +170,7 @@ html[data-xarp-color-scheme="yagasuri"] {
   --xarp-accent: #7a1c42;
   --xarp-secondary: #c43022;
   --xarp-highlight: #1e4b6b;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cg fill='none' stroke='%237a1c42' stroke-opacity='0.11' stroke-width='0.9'%3E%3Cpath d='M12,0v48M36,0v48M0,0v48M24,0v48'/%3E%3Cpath d='M0,16l12-10 12,10M0,40l12-10 12,10M24,6l12,10 12-10M24,30l12,10 12-10'/%3E%3C/g%3E%3Cpolygon points='0,16 12,6 12,18 0,28' fill='%237a1c42' fill-opacity='0.045'/%3E%3Cpolygon points='24,6 36,16 36,28 24,18' fill='%231e4b6b' fill-opacity='0.045'/%3E%3C/svg%3E");
   --xarp-frame:
@@ -216,6 +216,8 @@ html[data-xarp-color-scheme="kimono"] {
   --xarp-accent: #993939;
   --xarp-secondary: #264653;
   --xarp-highlight: #d8a431;
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
+  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M0 16L16 0M-4 4L4 -4M12 20L20 12' stroke='%23993939' stroke-opacity='0.06' stroke-width='1'/%3E%3C/svg%3E");
 }
 
@@ -241,6 +243,8 @@ html[data-xarp-color-scheme="japandi"] {
   --xarp-accent: #264653;
   --xarp-secondary: #614a36;
   --xarp-highlight: #888888;
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
 }
 
 html[data-xarp-color-scheme="ukiyo-e"] {
@@ -288,8 +292,8 @@ html[data-xarp-color-scheme="yosegi"] {
   --xarp-accent: #7a3118;
   --xarp-secondary: #a82c1d;
   --xarp-highlight: #4d5e3c;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
-  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='55.43' height='96' viewBox='0 0 55.43 96'%3E%3Cg stroke='%235c3b22' stroke-opacity='0.13' stroke-width='0.75' stroke-linejoin='round'%3E%3Cpolygon points='27.71,32 0,16 27.71,0 55.43,16' fill='%23fffaf0' fill-opacity='0.22'/%3E%3Cpolygon points='27.71,32 27.71,64 0,48 0,16' fill='%23c8833b' fill-opacity='0.095'/%3E%3Cpolygon points='27.71,32 55.43,16 55.43,48 27.71,64' fill='%236e7355' fill-opacity='0.085'/%3E%3Cpolygon points='0,80 27.71,64 55.43,80 27.71,96' fill='%23fffaf0' fill-opacity='0.22'/%3E%3Cpolygon points='0,80 0,96 27.71,96' fill='%239e3822' fill-opacity='0.075'/%3E%3Cpolygon points='55.43,80 27.71,96 55.43,96' fill='%23c8833b' fill-opacity='0.09'/%3E%3Cpolygon points='0,80 0,48 27.71,64' fill='%236e7355' fill-opacity='0.08'/%3E%3Cpolygon points='55.43,80 27.71,64 55.43,48' fill='%239e3822' fill-opacity='0.075'/%3E%3Cpath d='M27.71 0v32M0 16l55.43 32M55.43 16L0 48M27.71 64v32' fill='none' stroke='%235c3b22' stroke-opacity='0.08' stroke-width='0.55'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
     inset 0 0 0 5px #2b1c12,
@@ -305,8 +309,8 @@ html[data-xarp-color-scheme="kumiko"] {
   --xarp-accent: #73461d;
   --xarp-secondary: #b53322;
   --xarp-highlight: #336148;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", "Hiragino Mincho ProN", Georgia, serif);
-  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", "Songti SC", serif);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='55.43' height='32' viewBox='0 0 55.43 32'%3E%3Cg fill='none' stroke='%23a67238' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M0 0v32M27.71 0v32M55.43 0v32M0 0l55.43 32M0 32L55.43 0' stroke-opacity='0.14' stroke-width='0.95'/%3E%3Cpath d='M9.24 16L0 0M9.24 16L0 32M9.24 16l18.47 0M46.19 16L55.43 0M46.19 16l9.24 16M46.19 16l-18.48 0M18.48 0l9.23 16M18.48 32l9.23-16M36.95 0l-9.24 16M36.95 32l-9.24-16' stroke-opacity='0.10' stroke-width='0.7'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
     inset 0 0 0 6px #c99a64,
@@ -322,7 +326,7 @@ html[data-xarp-color-scheme="zellij"] {
   --xarp-accent: #12527a;
   --xarp-secondary: #b83a24;
   --xarp-highlight: #0f766e;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none'%3E%3Cpolygon points='32,0 41.37,22.63 64,32 41.37,41.37 32,64 22.63,41.37 0,32 22.63,22.63' stroke='%230f766e' stroke-opacity='0.13' stroke-width='1.0'/%3E%3Crect x='21' y='21' width='22' height='22' stroke='%23154c79' stroke-opacity='0.10' stroke-width='0.85'/%3E%3Crect x='21' y='21' width='22' height='22' transform='rotate(45 32 32)' stroke='%23154c79' stroke-opacity='0.10' stroke-width='0.85'/%3E%3Cpath d='M0,11 L11,0 M53,0 L64,11 M64,53 L53,64 M11,64 L0,53' stroke='%23c98219' stroke-opacity='0.13' stroke-width='0.85'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
@@ -341,7 +345,7 @@ html[data-xarp-color-scheme="isfahan"] {
   --xarp-highlight: #f3c14b;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     radial-gradient(circle at 50% 45%, rgba(56, 226, 208, 0.06) 0%, transparent 62%),
@@ -360,7 +364,7 @@ html[data-xarp-color-scheme="sahara"] {
   --xarp-accent: #8c2f16;
   --xarp-secondary: #b82514;
   --xarp-highlight: #8a4b12;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     radial-gradient(ellipse at 50% 96%, rgba(255, 162, 60, 0.16) 0%, transparent 52%),
@@ -378,7 +382,7 @@ html[data-xarp-color-scheme="egypt"] {
   --xarp-accent: #145c63;
   --xarp-secondary: #b83b20;
   --xarp-highlight: #966912;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     linear-gradient(125deg, rgba(255, 232, 156, 0.18) 0%, transparent 46%),
@@ -397,8 +401,8 @@ html[data-xarp-color-scheme="maya"] {
   --xarp-accent: #196158;
   --xarp-secondary: #a82c1d;
   --xarp-highlight: #8f5c14;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
-  --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M4 12l18 2M38 8l2 16M14 44l22-2M48 38l-2 18M28 24l14 1' stroke='%236e4b2a' stroke-opacity='0.09' stroke-width='0.9' stroke-linecap='round'/%3E%3C/svg%3E");
   --xarp-frame:
     inset 0 0 0 5px #7c5533,
@@ -413,7 +417,7 @@ html[data-xarp-color-scheme="mughal"] {
   --xarp-accent: #173f52;
   --xarp-secondary: #b83223;
   --xarp-highlight: #966515;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110'%3E%3Cg fill='%23c99326'%3E%3Ccircle cx='18' cy='24' r='1.0' fill-opacity='0.28'/%3E%3Ccircle cx='76' cy='16' r='0.8' fill-opacity='0.22'/%3E%3Ccircle cx='94' cy='62' r='1.1' fill-opacity='0.25'/%3E%3Ccircle cx='42' cy='84' r='0.9' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
   --xarp-frame:
@@ -431,7 +435,7 @@ html[data-xarp-color-scheme="wayang"] {
   --xarp-accent: #5e280d;
   --xarp-secondary: #9e2116;
   --xarp-highlight: #8c540e;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern: radial-gradient(ellipse at 50% 38%, rgba(255, 250, 224, 0.42) 0%, transparent 56%, rgba(120, 68, 16, 0.20) 100%);
   --xarp-frame:
@@ -451,7 +455,7 @@ html[data-xarp-color-scheme="starry"] {
   --xarp-highlight: #73c7ff;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     radial-gradient(circle at 86% 16%, rgba(244, 196, 48, 0.16) 0%, transparent 26%),
@@ -471,7 +475,7 @@ html[data-xarp-color-scheme="scream"] {
   --xarp-highlight: #7db8e8;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     linear-gradient(180deg, rgba(217, 78, 40, 0.14) 0%, transparent 38%),
@@ -488,7 +492,7 @@ html[data-xarp-color-scheme="nitrate"] {
   --xarp-accent: #363027;
   --xarp-secondary: #8c2a20;
   --xarp-highlight: #664e2c;
-  --xarp-font: var(--pf-slide-font-serif, "IBM Plex Serif", Georgia, serif);
+  --xarp-font: Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif;
   --xarp-font-sc: var(--pf-slide-font-serif-sc, "Source Han Serif SC", serif);
   --xarp-pattern:
     radial-gradient(ellipse at 50% 50%, transparent 58%, rgba(20, 18, 15, 0.24) 100%),
@@ -511,7 +515,7 @@ html[data-xarp-color-scheme="blueprint"] {
   --xarp-highlight: #7bf2c9;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font: "Inconsolata", var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
   --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
   --xarp-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cdefs%3E%3Cpattern id='s' width='20' height='20' patternUnits='userSpaceOnUse'%3E%3Cpath d='M 20 0 L 0 0 0 20' fill='none' stroke='%237fd8ff' stroke-opacity='0.12' stroke-width='0.75'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23s)'/%3E%3Cpath d='M 100 0 L 0 0 0 100' fill='none' stroke='%239be4ff' stroke-opacity='0.26' stroke-width='1.15'/%3E%3C/svg%3E");
   --xarp-frame:
@@ -550,7 +554,7 @@ html[data-xarp-color-scheme="pixel-8bit"] {
   --xarp-highlight: #4ee05a;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --xarp-font: "Courier New", Courier, var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
   --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
   --xarp-pattern: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0 3px, rgba(0, 0, 0, 0.18) 3px 4px);
   --xarp-frame:
@@ -584,8 +588,8 @@ html[data-xarp-color-scheme="vaporwave"] {
   --xarp-highlight: #ffd166;
   --xarp-mode: dark;
   --xarp-inverse-mode: light;
-  --xarp-font: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
-  --xarp-font-sc: var(--pf-slide-font-code-sc, "Sarasa Mono SC", monospace);
+  --xarp-font: "Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif;
+  --xarp-font-sc: var(--pf-slide-font-sans-sc, "IBM Plex Sans SC", sans-serif);
   --xarp-pattern:
     radial-gradient(circle at 50% 74%, rgba(255, 78, 205, 0.18) 0%, transparent 38%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720' preserveAspectRatio='none'%3E%3Cg stroke='%2300f0ff' stroke-opacity='0.15' stroke-width='1'%3E%3Cline x1='0' y1='588' x2='1280' y2='588'/%3E%3Cline x1='0' y1='628' x2='1280' y2='628'/%3E%3Cline x1='0' y1='672' x2='1280' y2='672'/%3E%3Cline x1='640' y1='550' x2='120' y2='720'/%3E%3Cline x1='640' y1='550' x2='380' y2='720'/%3E%3Cline x1='640' y1='550' x2='640' y2='720'/%3E%3Cline x1='640' y1='550' x2='900' y2='720'/%3E%3Cline x1='640' y1='550' x2='1160' y2='720'/%3E%3C/g%3E%3C/svg%3E");
@@ -696,7 +700,9 @@ html:is(
   [data-xarp-color-scheme="kikko"],
   [data-xarp-color-scheme="yagasuri"],
   [data-xarp-color-scheme="edo"],
+  [data-xarp-color-scheme="kimono"],
   [data-xarp-color-scheme="wabi-sabi"],
+  [data-xarp-color-scheme="japandi"],
   [data-xarp-color-scheme="urushi"],
   [data-xarp-color-scheme="yosegi"],
   [data-xarp-color-scheme="kumiko"],
@@ -723,9 +729,23 @@ html:is(
 }
 
 /* Manga halftone screentone fills on panels, code blocks, and tables + crisp bold panel strokes. */
+html[data-xarp-color-scheme="manga"] svg[data-marpit-svg] > foreignObject > section :where(h1, h2, h3) {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
 html[data-xarp-color-scheme="manga"] svg[data-marpit-svg] > foreignObject > section :where(.pf-slide-panel, .pf-slide-theorem, pre, :not(pre) > code, th) {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7'%3E%3Crect width='7' height='7' fill='%23ffffff'/%3E%3Ccircle cx='3.5' cy='3.5' r='0.85' fill='%23080808'/%3E%3C/svg%3E") !important;
   border-color: #080808 !important;
+}
+
+/* Tighten advance-width slightly on wide fixed-pitch schemes so titles/prose do not wrap early. */
+html:is(
+  [data-xarp-color-scheme="oscilloscope"],
+  [data-xarp-color-scheme="pixel-8bit"],
+  [data-xarp-color-scheme="code-art"]
+) svg[data-marpit-svg] > foreignObject > section {
+  letter-spacing: -0.02em;
+  word-spacing: -0.04em;
 }
 
 /* Oscilloscope P1 phosphor bloom on headings and panels. */

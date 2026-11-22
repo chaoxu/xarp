@@ -48,10 +48,25 @@ section.pf-slide {
   color: var(--pf-slide-fg);
   background-color: var(--pf-slide-bg);
   font-family: var(--pf-slide-font-sans);
-  font-size: clamp(1.4rem, 2.1vw, 2rem);
   line-height: 1.35;
-  padding: var(--pf-slide-padding-block) var(--pf-slide-padding-inline);
   text-rendering: optimizeLegibility;
+}
+
+.pf-slides {
+  font-size: clamp(1.4rem, 2.1vw, 2rem);
+  padding: var(--pf-slide-padding-block) var(--pf-slide-padding-inline);
+}
+
+/* Marp / Xarp sections live inside a scaled SVG viewBox (1280x720 by default);
+   use fixed canvas units so vw/vh never reflows layout across window sizes or
+   double-shrinks text on phones and embedded players. */
+section.pf-slide {
+  font-size: 31px;
+  padding: 56px 80px;
+}
+
+section.pf-slide .pf-slide-grid {
+  gap: 40px;
 }
 
 section.pf-slide:lang(zh-CN),
@@ -271,7 +286,7 @@ section.pf-slide .pf-zh-hc .katex .cjk_fallback,
 .pf-slide-meta {
   color: var(--pf-slide-muted);
   font-family: var(--pf-slide-font-code);
-  font-size: 0.52em;
+  font-size: 0.56em;
   letter-spacing: 0.05em;
   line-height: 1.35;
 }
@@ -296,7 +311,7 @@ section.pf-slide .pf-zh-hc .katex .cjk_fallback,
 }
 
 @media (max-width: 760px) {
-  .pf-slide-grid {
+  .pf-slides .pf-slide-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

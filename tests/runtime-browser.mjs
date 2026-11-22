@@ -144,25 +144,35 @@ try {
     await page.select(select, 'manga');
     const manga = await style();
     assert.equal(manga.background, 'rgb(255, 255, 255)', theme);
+    assert.equal(manga.font.includes('Hiragino Sans'), true, theme);
     assert.notEqual(manga.image, 'none', theme);
     await page.select(select, 'blueprint');
     const blueprint = await style();
     assert.equal(blueprint.background, 'rgb(10, 52, 94)', theme);
+    assert.equal(blueprint.font.includes('Inconsolata'), true, theme);
     assert.equal(blueprint.font.includes('IBM Plex Mono'), true, theme);
     await page.select(select, 'han-rubbing');
     const hanRubbing = await style();
     assert.equal(hanRubbing.background, 'rgb(23, 22, 20)', theme);
     assert.equal(hanRubbing.ink, 'rgb(239, 233, 219)', theme);
+    assert.equal(hanRubbing.font.includes('Baskerville'), true, theme);
     await page.select(select, 'oscilloscope');
     const scope = await style();
     assert.equal(scope.background, 'rgb(6, 19, 11)', theme);
     assert.equal(scope.font.includes('IBM Plex Mono'), true, theme);
+    await page.select(select, 'pixel-8bit');
+    assert.equal((await style()).font.includes('Courier New'), true, theme);
     await page.select(select, 'win2000');
-    assert.equal((await style()).background, 'rgb(236, 233, 216)', theme);
+    const win2k = await style();
+    assert.equal(win2k.background, 'rgb(236, 233, 216)', theme);
+    assert.equal(win2k.font.includes('Tahoma'), true, theme);
     await page.select(select, 'yosegi');
     const yosegi = await style();
     assert.equal(yosegi.background, 'rgb(246, 235, 214)', theme);
+    assert.equal(yosegi.font.includes('Avenir Next'), true, theme);
     assert.notEqual(yosegi.image, 'none', theme);
+    await page.select(select, 'yagasuri');
+    assert.equal((await style()).font.includes('Georgia'), true, theme);
     await page.select(select, 'kumiko');
     assert.equal((await style()).background, 'rgb(250, 245, 235)', theme);
     await page.select(select, 'zellij');
@@ -177,6 +187,27 @@ try {
       assert.equal(await page.$eval('#semantic-fig', el => el.getAttribute('data-pf-hydrated')), null);
       assert.equal(await page.$eval('#semantic-fig .sem-dot', el => el.tagName.toLowerCase()), 'circle');
       assert.equal(await page.$eval('#semantic-fig .sem-bar', el => el.tagName.toLowerCase()), 'rect');
+
+      // Viewport-invariant Marp font-size (no double-shrinking on narrow/mobile screens)
+      await page.setViewport({ width: 1280, height: 720 });
+      const fsWide = await page.$eval('section', s => getComputedStyle(s).fontSize);
+      await page.setViewport({ width: 390, height: 844 });
+      const fsNarrow = await page.$eval('section', s => getComputedStyle(s).fontSize);
+      assert.equal(fsWide, '31px');
+      assert.equal(fsNarrow, '31px');
+      await page.setViewport({ width: 800, height: 600 });
+
+      // Non-default A -> B -> A round-trip idempotence when starting directly on ?colorScheme=A
+      await page.goto(`${base}/?colorScheme=kikko`);
+      const freshKikko = await style();
+      const freshKikkoSvg = await page.$eval('#semantic-fig', el => el.innerHTML);
+      assert.equal(freshKikko.font.includes('Avenir Next'), true);
+      await page.select(select, 'manga');
+      await page.select(select, 'oscilloscope');
+      await page.select(select, 'default');
+      await page.select(select, 'kikko');
+      assert.deepEqual(await style(), freshKikko);
+      assert.equal(await page.$eval('#semantic-fig', el => el.innerHTML), freshKikkoSvg);
     }
     await page.goto(`${base}/?colorScheme=qinglu`);
     assert.equal((await style()).background, 'rgb(226, 204, 163)', theme);

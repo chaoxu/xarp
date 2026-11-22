@@ -59,9 +59,31 @@ function showToast(scheme) {
 }
 
 const pendingFrames = new Set();
+const boundFrames = new WeakSet();
 let frameIdleHandle = 0;
 let frameIdleIsRic = false;
 let frameObserverInstalled = false;
+
+function bindSlideFrames(scope = document) {
+  const frames = scope === document
+    ? document.querySelectorAll('svg[data-marpit-svg] iframe')
+    : scope.querySelectorAll?.('iframe') ?? [];
+  for (const frame of frames) {
+    if (boundFrames.has(frame)) continue;
+    boundFrames.add(frame);
+    frame.addEventListener('load', () => {
+      const sel = currentSelected();
+      const hasActive = Boolean(document.querySelector('svg.bespoke-marp-active'));
+      if (!hasActive || frame.closest('svg.bespoke-marp-active')) {
+        applyFrameScheme(frame, sel);
+      } else {
+        frame.__xarpPendingScheme = sel;
+        pendingFrames.add(frame);
+        scheduleFrameIdle();
+      }
+    });
+  }
+}
 
 function applyFrameScheme(frame, selected) {
   delete frame.__xarpPendingScheme;
@@ -137,6 +159,7 @@ function syncSlideFrames(selected) {
   cancelFrameIdle();
   pendingFrames.clear();
   installFrameSlideObserver();
+  bindSlideFrames(document);
   const hasActive = Boolean(document.querySelector('svg.bespoke-marp-active'));
   for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
     if (!hasActive || frame.closest('svg.bespoke-marp-active')) {
@@ -202,19 +225,11 @@ function setDefault(scheme) {
   update();
 }
 setDefault(authored);
-
-for (const frame of document.querySelectorAll('svg[data-marpit-svg] iframe')) {
-  frame.addEventListener('load', () => {
-    const sel = currentSelected();
-    const hasActive = Boolean(document.querySelector('svg.bespoke-marp-active'));
-    if (!hasActive || frame.closest('svg.bespoke-marp-active')) {
-      applyFrameScheme(frame, sel);
-    } else {
-      frame.__xarpPendingScheme = sel;
-      pendingFrames.add(frame);
-      scheduleFrameIdle();
-    }
-  });
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    frameObserverInstalled = false;
+    update();
+  }, { once: true });
 }
 
 select.addEventListener('change', () => {
@@ -273,5 +288,15 @@ window.addEventListener('xarp-color-scheme-default', event => {
   if (isColorScheme(event.detail) && event.detail !== authored) setDefault(event.detail);
 });
 window.addEventListener('xarp-slide-patched', event => {
-  syncSlideMarks(event.detail?.section || document);
+  const section = event.detail?.section || document;
+  syncSlideMarks(section);
+  bindSlideFrames(section);
+  if (section !== document) {
+    const sel = currentSelected();
+    for (const frame of section.querySelectorAll?.('iframe') ?? []) {
+      applyFrameScheme(frame, sel);
+    }
+  } else {
+    syncSlideFrames(currentSelected());
+  }
 });

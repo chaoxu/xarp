@@ -6,10 +6,56 @@
    3. mountCraftStage(containerEl, spec) -> turnkey 33-style SVG + label + beat stage
    ========================================================================== */
 
-import { clamp } from "./diagrams.js";
-import { createSvgMarks, markGrammar, resolveRoleColor } from "./marks.js";
+import { clamp, palette } from "./diagrams.js";
+import { createSvgMarks, resolveRoleColor } from "./marks.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+const SERIF_FONT = '"IBM Plex Serif", "STIX Two Text", "Songti SC", "Hiragino Mincho ProN", Georgia, serif';
+const CLASSICAL_FONT = 'Baskerville, "Palatino Linotype", Palatino, "Hoefler Text", Georgia, "Songti SC", serif';
+const EDITORIAL_FONT = 'Georgia, "Iowan Old Style", Charter, "Palatino Linotype", "IBM Plex Serif", serif';
+const GEOMETRIC_FONT = '"Avenir Next", Futura, "Gill Sans", Optima, "IBM Plex Sans", system-ui, sans-serif';
+const DRAFTING_FONT = '"Inconsolata", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace';
+const MONO_FONT = '"IBM Plex Mono", "Inconsolata", ui-monospace, SFMono-Regular, Menlo, monospace';
+const PIXEL_FONT = '"Courier New", Courier, "IBM Plex Mono", ui-monospace, monospace';
+const UI_FONT = 'Tahoma, Verdana, "MS Sans Serif", "IBM Plex Sans", system-ui, sans-serif';
+const MANGA_FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Arial Black", "IBM Plex Sans", system-ui, sans-serif';
+
+const SCHEME_TYPOGRAPHY = {
+  "sumi-e":      { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  shuimo:        { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  "song-scroll": { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  qinglu:        { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  washi:         { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  edo:           { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  "wabi-sabi":   { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  urushi:        { family: SERIF_FONT, scale: 1, spacing: "-0.01em" },
+  "han-rubbing": { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  zellij:        { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  isfahan:       { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  egypt:         { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  mughal:        { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  nitrate:       { family: CLASSICAL_FONT, scale: 1, spacing: "-0.005em" },
+  yagasuri:      { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  kimono:        { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  sahara:        { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  wayang:        { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  starry:        { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  scream:        { family: EDITORIAL_FONT, scale: 0.93, spacing: "-0.01em" },
+  shippo:        { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  kikko:         { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  japandi:       { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  yosegi:        { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  kumiko:        { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  maya:          { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  vaporwave:     { family: GEOMETRIC_FONT, scale: 0.975, spacing: "-0.008em" },
+  blueprint:     { family: DRAFTING_FONT, scale: 0.96, spacing: "-0.02em" },
+  oscilloscope:  { family: MONO_FONT, scale: 0.90, spacing: "-0.04em" },
+  "code-art":    { family: MONO_FONT, scale: 0.90, spacing: "-0.04em" },
+  "pixel-8bit":  { family: PIXEL_FONT, scale: 0.91, spacing: "-0.045em" },
+  win2000:       { family: UI_FONT, scale: 0.955, spacing: "-0.015em" },
+  manga:         { family: MANGA_FONT, scale: 0.845, spacing: "-0.02em", forceBold: true },
+};
 
 function renderMathMixedText(el, rawText, katexRef) {
   while (el.firstChild) el.removeChild(el.firstChild);
@@ -92,6 +138,7 @@ export function createLabelLayer(overlayEl, opts = {}) {
         font: cfg.font || "sans",
         size: 0,
         weight: 0,
+        appliedTypoKey: "",
         ax: ALIGN_X[cfg.align || cfg.anchor || "left"] ?? 0,
         ay: ALIGN_Y[cfg.vAlign || "middle"] ?? 50,
         x: null,
@@ -122,25 +169,42 @@ export function createLabelLayer(overlayEl, opts = {}) {
       else renderMathMixedText(el, text, opts.katex);
     }
     if (!el.style) return;
-    const fs = Number((cfg && (cfg.size ?? cfg.fs)) || entry.size || 14.5);
-    if (entry.size !== fs) {
-      entry.size = fs;
-      el.style.fontSize = `${fs}px`;
-    }
+    const fs = Number((cfg && (cfg.size ?? cfg.fs)) || entry.size || 16);
     const fw = Number((cfg && cfg.weight) || entry.weight || 500);
-    if (entry.weight !== fw) {
-      entry.weight = fw;
-      el.style.fontWeight = String(fw);
-    }
     const fontKind = (cfg && cfg.font) || entry.font || "sans";
-    if (entry.font !== fontKind || !el.dataset?.pfFont) {
+    const schemeName = (curG && curG.scheme) || "default";
+    const typo = fontKind === "sans" ? SCHEME_TYPOGRAPHY[schemeName] || null : null;
+    const typoKey = `${fontKind}|${fs}|${fw}|${typo ? schemeName : "base"}`;
+    if (entry.size !== fs || entry.weight !== fw || entry.font !== fontKind || entry.appliedTypoKey !== typoKey) {
+      entry.size = fs;
+      entry.weight = fw;
       entry.font = fontKind;
+      entry.appliedTypoKey = typoKey;
       if (el.dataset) el.dataset.pfFont = fontKind;
       if (fontKind === "mono") {
-        el.style.fontFamily = '"IBM Plex Mono", "Inconsolata", ui-monospace, monospace';
+        el.style.fontFamily = MONO_FONT;
         el.style.fontVariantNumeric = "tabular-nums";
+        el.style.letterSpacing = "";
+        el.style.fontSize = `${fs}px`;
+        el.style.fontWeight = String(fw);
       } else if (fontKind === "serif") {
-        el.style.fontFamily = '"IBM Plex Serif", "STIX Two Text", Georgia, serif';
+        el.style.fontFamily = SERIF_FONT;
+        el.style.fontVariantNumeric = "";
+        el.style.letterSpacing = "";
+        el.style.fontSize = `${fs}px`;
+        el.style.fontWeight = String(fw);
+      } else if (typo) {
+        el.style.fontFamily = typo.family;
+        el.style.fontVariantNumeric = "";
+        el.style.letterSpacing = typo.spacing || "";
+        el.style.fontSize = typo.scale === 1 ? `${fs}px` : `${Math.round(fs * typo.scale * 100) / 100}px`;
+        el.style.fontWeight = String(typo.forceBold ? Math.max(700, fw) : fw);
+      } else {
+        el.style.fontFamily = "";
+        el.style.fontVariantNumeric = "";
+        el.style.letterSpacing = "";
+        el.style.fontSize = `${fs}px`;
+        el.style.fontWeight = String(fw);
       }
     }
     if (cfg && (cfg.align || cfg.anchor)) entry.ax = ALIGN_X[cfg.align || cfg.anchor] ?? entry.ax;
@@ -366,7 +430,10 @@ export function createStageTimeline(opts = {}) {
           let lastFragCount = -1;
           let wasActive = false;
           const syncDeck = () => {
-            const isEdit = Boolean(parentDoc.body && parentDoc.body.classList.contains("talk-edit-active"));
+            const isEdit = Boolean(
+              parentDoc.body &&
+              (parentDoc.body.classList.contains("talk-edit-active") || parentDoc.body.classList.contains("xarp-edit-active"))
+            );
             const isActive = slideSvg.classList.contains("bespoke-marp-active");
             const activeFrags = slideSvg.querySelectorAll('[data-bespoke-marp-fragment="active"]').length;
             const stepIdx = clamp(activeFrags, 0, segments.length - 1);
@@ -430,7 +497,31 @@ export function mountCraftStage(containerEl, spec = {}) {
   const doc = containerEl.ownerDocument;
   const width = Number(spec.width || 1240);
   const height = Number(spec.height || 628);
+  const hasWin = typeof window !== "undefined";
+  let parentSection = null;
+  let parentRoot = null;
+  if (hasWin) {
+    try {
+      const frame = window.frameElement;
+      if (frame && frame.closest && frame.closest("svg[data-marpit-svg]")) {
+        parentSection = frame.closest("section");
+        parentRoot = frame.ownerDocument && frame.ownerDocument.documentElement;
+      }
+    } catch (_) {}
+  }
+
   let curOverrides = spec.grammarOverrides || (spec.style ? { scheme: spec.style } : null);
+  if (!curOverrides && parentRoot && parentRoot.dataset) {
+    const inherited = parentRoot.dataset.xarpColorScheme || parentRoot.dataset.pfStyle || "";
+    if (inherited && inherited !== "default") curOverrides = { scheme: inherited };
+  }
+  if (containerEl.dataset) {
+    if (curOverrides && curOverrides.scheme && curOverrides.scheme !== "default") {
+      containerEl.dataset.pfStyle = curOverrides.scheme;
+    } else {
+      delete containerEl.dataset.pfStyle;
+    }
+  }
 
   if (containerEl.style) {
     containerEl.style.position = containerEl.style.position || "relative";
@@ -479,12 +570,26 @@ export function mountCraftStage(containerEl, spec = {}) {
   const marks = createSvgMarks(svgEl, containerEl, curOverrides);
   const labels = createLabelLayer(labelRoot, { katex: spec.katex });
 
-  function renderAt(t, state) {
-    const G = marks.frame(sceneGroup, curOverrides);
-    if (containerEl.style && spec.autoBackground !== false) {
-      containerEl.style.background = G.P.bg;
+  function effectiveOverrides() {
+    if (parentSection && (!curOverrides || !curOverrides.P)) {
+      const activeScheme = (curOverrides && curOverrides.scheme) ||
+        (parentRoot && parentRoot.dataset && (parentRoot.dataset.xarpColorScheme || parentRoot.dataset.pfStyle)) ||
+        "default";
+      if (activeScheme !== "default") {
+        return { ...(curOverrides || {}), scheme: activeScheme, P: palette(parentSection) };
+      }
     }
-    labels.begin(G, curOverrides && curOverrides.mapColor);
+    return curOverrides;
+  }
+
+  function renderAt(t, state) {
+    const effOv = effectiveOverrides();
+    const G = marks.frame(sceneGroup, effOv);
+    if (containerEl.style && spec.autoBackground !== false) {
+      const inStyledDeck = Boolean(parentSection && G.scheme !== "default" && spec.autoBackground !== true);
+      containerEl.style.background = inStyledDeck ? "transparent" : G.P.bg;
+    }
+    labels.begin(G, effOv && effOv.mapColor);
     spec.draw({
       marks,
       m: marks,
@@ -513,28 +618,50 @@ export function mountCraftStage(containerEl, spec = {}) {
     onFrame: renderAt,
   });
 
-  const hasWin = typeof window !== "undefined";
   const fit = () => {
     if (!hasWin || !containerEl.style || spec.autoFit === false) return;
     const s = Math.min(window.innerWidth / width, window.innerHeight / height) || 1;
     containerEl.style.transform = Math.abs(s - 1) < 1e-3 ? "" : `scale(${s})`;
   };
-  const onTheme = () => renderAt(timeline.getTime(), null);
+
+  function setStyle(schemeOrOverrides) {
+    if (typeof schemeOrOverrides === "string") {
+      const next = schemeOrOverrides || "default";
+      if (next === "default") {
+        if (curOverrides) {
+          const rest = { ...curOverrides };
+          delete rest.scheme;
+          curOverrides = Object.keys(rest).length ? rest : null;
+        }
+        if (containerEl.dataset) delete containerEl.dataset.pfStyle;
+      } else {
+        curOverrides = { ...(curOverrides || {}), scheme: next };
+        if (containerEl.dataset) containerEl.dataset.pfStyle = next;
+      }
+    } else {
+      curOverrides = schemeOrOverrides;
+      if (containerEl.dataset) {
+        if (curOverrides && curOverrides.scheme && curOverrides.scheme !== "default") {
+          containerEl.dataset.pfStyle = curOverrides.scheme;
+        } else {
+          delete containerEl.dataset.pfStyle;
+        }
+      }
+    }
+    renderAt(timeline.getTime(), null);
+  }
+
+  const onTheme = (ev) => {
+    const scheme = ev && ev.detail && typeof ev.detail.scheme === "string" ? ev.detail.scheme : null;
+    if (scheme !== null) setStyle(scheme);
+    else renderAt(timeline.getTime(), null);
+  };
 
   if (hasWin) {
     fit();
     window.addEventListener("resize", fit);
     window.addEventListener("chao-theme-change", onTheme);
-  }
-
-  function setStyle(schemeOrOverrides) {
-    curOverrides = typeof schemeOrOverrides === "string"
-      ? { ...(curOverrides || {}), scheme: schemeOrOverrides }
-      : schemeOrOverrides;
-    if (containerEl.dataset && curOverrides && curOverrides.scheme) {
-      containerEl.dataset.pfStyle = curOverrides.scheme;
-    }
-    renderAt(timeline.getTime(), null);
+    window.__setXarpColorScheme = setStyle;
   }
 
   return {
@@ -548,6 +675,7 @@ export function mountCraftStage(containerEl, spec = {}) {
       if (hasWin) {
         window.removeEventListener("resize", fit);
         window.removeEventListener("chao-theme-change", onTheme);
+        if (window.__setXarpColorScheme === setStyle) delete window.__setXarpColorScheme;
       }
     },
   };
