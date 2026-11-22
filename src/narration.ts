@@ -191,7 +191,7 @@ export function cleanCaptionText(raw: string): string {
       .replace(/<\/?[a-z][a-z0-9-]*\b[^>]*>/gi, ' ')
       .replace(/`([^`]+)`/g, '$1')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*\n]+)\*/g, '$1'),
+      .replace(/(^|[\s([{"'])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)\]}"'])/g, '$1$2'),
   ).replace(/\s+/g, ' ').trim();
 }
 
@@ -222,7 +222,7 @@ export function normalizeSpeechText(raw: string, glossary?: Record<string, strin
       .replace(/\\\$/g, '$')
       .replace(/`([^`]+)`/g, '$1')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*\n]+)\*/g, '$1'),
+      .replace(/(^|[\s([{"'])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)\]}"'])/g, '$1$2'),
   );
   out = applyGlossary(out, glossary);
   return out.replace(/\s+/g, ' ').trim();
