@@ -1,11 +1,11 @@
-import { editing, drawing } from '@chaoxu/xarp/plugins';
+import { editing, drawing, narration } from '@chaoxu/xarp/plugins';
 import { curveDemo } from './plugins/curve.mjs';
 
 export default {
   input: 'slides.md',
   output: 'dist',
   theme: 'showcase.css',
-  plugins: [editing(), drawing(), curveDemo()],
+  plugins: [editing(), drawing(), narration({ glossary: { KaTeX: 'Kay-tech' } }), curveDemo()],
   sections: [
     { label: 'Create', count: 6 },
     { label: 'Edit', count: 5 },

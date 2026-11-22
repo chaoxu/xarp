@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "narrate": "xarp narrate",
     "dev": "xarp dev",
     "dev:quick": "xarp dev --config xarp.quick.config.mjs --port 4176"
   },
   "devDependencies": {
-    "@chaoxu/xarp": "https://github.com/chaoxu/xarp/releases/download/v0.1.2/chaoxu-xarp-0.1.2.tgz"
+    "@chaoxu/xarp": "https://github.com/chaoxu/xarp/releases/download/v0.2.0/chaoxu-xarp-0.2.0.tgz"
   }
 }

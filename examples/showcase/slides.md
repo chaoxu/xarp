@@ -14,7 +14,11 @@ description: Try Markdown slides, visual editing, drawing, and browser plugins.
 
 <p class="intro">Markdown slides with visual editing and drawing.</p>
 
-<p class="hint"><kbd>←</kbd> <kbd>→</kbd> to explore. <kbd>E</kbd> to edit. <kbd>D</kbd> to draw.<br>The section bar jumps between topics.</p>
+<p class="hint"><kbd>←</kbd> <kbd>→</kbd> to explore. <kbd>E</kbd> to edit. <kbd>D</kbd> to draw. <kbd>W</kbd> to watch.<br>The section bar jumps between topics.</p>
+
+<!-- narration:
+- Welcome to Xarp: Markdown slides that stay live vector HTML, with in-place editing, drawing, and Watch Mode.
+-->
 
 <!-- This is a self-guided product demo, so short operating hints are part of the content. Every example is synthetic. In a live walkthrough, begin with the arrow keys and point to the section navigation. Source saving requires the local dev preview. Static copies offer visual changes and Copy Edits. -->
 
@@ -61,6 +65,12 @@ $$
 <p class="hint">Aligned equations and vector figures stay crisp when enlarged.</p>
 
 <!-- The shaded feasible region is exact. Adding the constraints gives 3x + 3y <= 12, hence x + y <= 4. The point (2,2) is feasible and attains 4. The displayed alignment is retained to make the objective and constraints legible. The figure is authored SVG, not a measurement or benchmark. -->
+
+<!-- narration:
+- Aligned KaTeX formulas and vector polygons remain crisp at any zoom level.
+- Adding the two constraints gives 3x + 3y <= 12, so x + y reaches its maximum 4 at (2, 2).
+  pause: 0.8
+-->
 
 ---
 
@@ -252,6 +262,14 @@ For $a,b\geq 0$:
 <p class="hint">Advance with <kbd>→</kbd>. Marp reveals each step.</p>
 
 <!-- The asterisk bullets are Marp fragments. Each step is valid for the stated nonnegative variables. Expanding the first line and adding 4ab proves the second. Taking square roots and dividing by 2 gives the third. Navigate backward to reverse the reveals. -->
+
+<!-- narration:
+- Begin with two nonnegative numbers a and b.
+- Every real square is nonnegative, so (a - b)^2 is at least 0.
+- Expanding and adding 4ab bounds (a + b)^2 from below.
+- Taking square roots and dividing by 2 yields the arithmetic-geometric mean inequality.
+  pause: 0.9
+-->
 
 ---
 
