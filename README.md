@@ -9,7 +9,7 @@ The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathemat
 Install Node.js 24 or 26, then install the release package in your project:
 
 ```sh
-npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.1.1/chaoxu-xarp-0.1.1.tgz
+npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.1.2/chaoxu-xarp-0.1.2.tgz
 ```
 
 Write `slides.md`:

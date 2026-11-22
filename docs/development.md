@@ -28,4 +28,4 @@ The script copies the declared distributable files, records the upstream revisio
 
 ## Release artifacts
 
-`npm pack` creates `chaoxu-xarp-0.1.1.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.
+`npm pack` creates `chaoxu-xarp-0.1.2.tgz`. The GitHub release distributes this installable artifact. The package name inside it is `@chaoxu/xarp`. Registry publication requires npm access to that scope.

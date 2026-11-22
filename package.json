@@ -1,6 +1,6 @@
 {
   "name": "@chaoxu/xarp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Marp presentations with visual editing and drawing",
   "license": "MIT",
   "type": "module",
