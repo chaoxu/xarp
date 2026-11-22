@@ -2,8 +2,9 @@
 
 .xarp-watch-launcher {
   position: fixed;
-  top: 12px;
-  left: 12px;
+  top: var(--xarp-launcher-top, 12px);
+  right: var(--xarp-launcher-right, 14px);
+  left: var(--xarp-launcher-left, auto);
   z-index: 9990;
   display: inline-flex;
   align-items: center;
