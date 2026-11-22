@@ -4,9 +4,12 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } fr
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { load } from 'cheerio';
 import { build, resolveProject } from './build.js';
+import { createEngine } from './engine.js';
 import { containedFile, pathExists } from './files.js';
 import {
+  buildNarrationTimeline,
   computeAsrErrorRate,
   computeClipHash,
   extractNarrationOptions,
@@ -14,14 +17,15 @@ import {
   parseSlideNarration,
   probeAudioDuration,
   resolveNarrationDir,
-  resolveTtsSignature,
+  resolveTtsRuntime,
   trimWavSilence,
   type AuthoredBeat,
   type CachedClipRecord,
+  type CustomAudioAssetInfo,
   type NarrationCache,
 } from './narration.js';
-import { parseSource, requireValue, selectSlides } from './source.js';
-import type { BuildOptions, BuildResult, NarrationOptions, NarrationTtsOptions } from './types.js';
+import { hash, parseSource, requireValue, selectedMarkdown, selectSlides } from './source.js';
+import type { BuildOptions, BuildResult, NarrationOptions, NarrationTimeline, NarrationTtsOptions } from './types.js';
 
 const run = promisify(execFile);
 
@@ -49,7 +53,9 @@ export interface NarrateOptions extends BuildOptions {
   prune?: boolean;
   /** Inspect planned synthesis and cache state without calling TTS or writing files. */
   dryRun?: boolean;
-  /** Run `build()` after updating clips. Defaults to `true` unless `dryRun` is enabled. */
+  /** Validate beat steps, custom audio assets, and cached clip coverage without synthesizing. */
+  check?: boolean;
+  /** Run `build()` after updating clips. Defaults to `true` unless `dryRun` or `check` is enabled. */
   build?: boolean;
   onProgress?: (event: NarrateProgressEvent) => void;
 }
@@ -63,6 +69,8 @@ export interface NarrateResult {
   customAudio: number;
   missing: number;
   pruned: number;
+  issues: string[];
+  timeline?: NarrationTimeline;
   buildResult?: BuildResult;
 }
 
@@ -98,10 +106,10 @@ async function synthesizeRawAudio(
   scratchDir: string,
   attempt: number,
 ): Promise<string> {
-  const sig = resolveTtsSignature(tts);
-  const promptText = `${ttsText}${sig.promptSuffix}`;
+  const rt = resolveTtsRuntime(tts);
+  const promptText = `${ttsText}${rt.promptSuffix}`;
 
-  if (sig.provider === 'command') {
+  if (rt.provider === 'command') {
     const cmd = tts?.command;
     requireValue(Array.isArray(cmd) && cmd.length > 0 && typeof cmd[0] === 'string', 'Configure tts.command for provider "command"');
     const outPath = join(scratchDir, `raw-${attempt}.wav`);
@@ -113,8 +121,8 @@ async function synthesizeRawAudio(
         XARP_TTS_TEXT: promptText,
         XARP_TTS_RAW_TEXT: ttsText,
         XARP_TTS_OUT: outPath,
-        XARP_TTS_VOICE: sig.voice,
-        XARP_TTS_SPEED: String(sig.speed),
+        XARP_TTS_VOICE: rt.voice,
+        XARP_TTS_SPEED: String(rt.speed),
         XARP_TTS_ATTEMPT: String(attempt),
       },
     });
@@ -122,8 +130,8 @@ async function synthesizeRawAudio(
     return outPath;
   }
 
-  if (sig.provider === 'openai') {
-    const url = sig.url || 'https://api.openai.com/v1/audio/speech';
+  if (rt.provider === 'openai') {
+    const url = rt.url || 'https://api.openai.com/v1/audio/speech';
     const apiKey = process.env.XARP_TTS_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -131,11 +139,11 @@ async function synthesizeRawAudio(
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: sig.model || 'tts-1',
-        voice: sig.voice || 'alloy',
-        input: promptText,
+        model: rt.model || 'tts-1',
+        voice: rt.voice || 'alloy',
+        input: ttsText,
         response_format: 'wav',
-        speed: sig.speed,
+        speed: rt.speed,
       }),
     });
     if (!response.ok) {
@@ -149,19 +157,19 @@ async function synthesizeRawAudio(
     return outPath;
   }
 
-  if (sig.provider === 'http') {
-    requireValue(sig.url.length > 0, 'Set tts.url or XARP_TTS_URL for HTTP TTS synthesis');
+  if (rt.provider === 'http') {
+    requireValue(rt.url.length > 0, 'Set tts.url or XARP_TTS_URL for HTTP TTS synthesis');
     const apiKey = process.env.XARP_TTS_API_KEY ?? '';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
     const payload: Record<string, unknown> = {
-      ...(sig.body ?? {}),
+      ...(rt.body ?? {}),
       text: promptText,
-      speed: sig.speed,
-      ...(sig.voice ? { voice: sig.voice } : {}),
-      ...(sig.model ? { model: sig.model } : {}),
+      speed: rt.speed,
+      ...(rt.voice ? { voice: rt.voice } : {}),
+      ...(rt.model ? { model: rt.model } : {}),
     };
-    const response = await fetch(sig.url, {
+    const response = await fetch(rt.url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -184,8 +192,8 @@ async function synthesizeRawAudio(
   const aiffPath = join(scratchDir, `raw-${attempt}.aiff`);
   const wavPath = join(scratchDir, `raw-${attempt}.wav`);
   const sayArgs = ['-o', aiffPath];
-  if (sig.voice) sayArgs.push('-v', sig.voice);
-  if (sig.speed !== 1) sayArgs.push('-r', String(Math.max(80, Math.min(400, Math.round(180 * sig.speed)))));
+  if (rt.voice) sayArgs.push('-v', rt.voice);
+  if (rt.speed !== 1) sayArgs.push('-r', String(Math.max(80, Math.min(400, Math.round(180 * rt.speed)))));
   sayArgs.push('--', ttsText);
   await run('/usr/bin/say', sayArgs, { maxBuffer: 8 * 1024 * 1024 });
   if (await hasFfmpeg()) {
@@ -204,13 +212,12 @@ async function processAudioClip(
   scratchDir: string,
   attempt: number,
 ): Promise<{ relFile: string; fullPath: string; duration: number }> {
-  const sig = resolveTtsSignature(tts);
   const normalize = tts?.normalize !== false;
   let workingPath = rawPath;
 
   const rawBuf = await readFile(rawPath);
   if (normalize && rawBuf.length >= 44 && rawBuf.toString('ascii', 0, 4) === 'RIFF') {
-    const trimmed = trimWavSilence(rawBuf, { trimFillerTail: sig.promptSuffix.length > 0 });
+    const trimmed = trimWavSilence(rawBuf, { trimFillerTail: tts?.trimFillerTail === true });
     if (trimmed !== rawBuf) {
       workingPath = join(scratchDir, `trimmed-${attempt}.wav`);
       await writeFile(workingPath, trimmed);
@@ -219,12 +226,13 @@ async function processAudioClip(
 
   const ffmpeg = await hasFfmpeg();
   const wantFormat = tts?.format ?? (ffmpeg ? 'm4a' : 'wav');
-  const finalExt = wantFormat === 'm4a' && ffmpeg ? '.m4a' : (extname(workingPath).toLowerCase() || '.wav');
+  const workingExt = extname(workingPath).toLowerCase() || '.wav';
+  const finalExt = ffmpeg ? (wantFormat === 'm4a' ? '.m4a' : '.wav') : workingExt;
   const relFile = `clips/${clipHash}${finalExt}`;
   const fullPath = join(destDir, relFile);
   const tmpOut = join(scratchDir, `final-${attempt}${finalExt}`);
 
-  if (ffmpeg && (finalExt === '.m4a' || normalize)) {
+  if (ffmpeg && (finalExt === '.m4a' || normalize || workingExt !== finalExt)) {
     let preDuration = 1;
     try { preDuration = await probeAudioDuration(workingPath); } catch { /* fallback to standard filter */ }
     const filterArgs = normalize
@@ -280,6 +288,8 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
   const rawSource = await readFile(project.input, 'utf8');
   const document = parseSource(rawSource);
   const selected = selectSlides(document, options.slides);
+  const isCheck = Boolean(options.check);
+  const readOnly = Boolean(options.dryRun || isCheck);
 
   const onlySet = options.only?.length ? new Set(options.only.map(item => item.trim()).filter(Boolean)) : undefined;
   if (onlySet) {
@@ -292,9 +302,25 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
 
   const cache = await loadNarrationCache(cacheDir);
   const activeHashes = new Set<string>();
-  const sig = resolveTtsSignature(narrationOpts.tts);
+  const rt = resolveTtsRuntime(narrationOpts.tts);
   const maxErrorRate = narrationOpts.tts?.verify?.maxErrorRate ?? 0.35;
   const maxRetries = Math.max(0, narrationOpts.tts?.verify?.retries ?? 2);
+  const issues: string[] = [];
+
+  let checkFragments: number[] | undefined;
+  let checkTitles: string[] | undefined;
+  const checkCustomAudio = new Map<string, CustomAudioAssetInfo>();
+  if (isCheck) {
+    const rendered = createEngine().render(selectedMarkdown(document, options.slides));
+    const $ = load(rendered.html);
+    const svgSlides = $('svg[data-marpit-svg]');
+    checkFragments = selected.map((_, idx) => svgSlides.eq(idx).find('[data-marpit-fragment]').length);
+    checkTitles = selected.map((slide, idx) => {
+      const heading = svgSlides.eq(idx).find('h1, h2, h3').first().text().replace(/\s+/g, ' ').trim();
+      const fallback = slide.body.match(/^#{1,6}\s+(.+)$/m)?.[1]?.replace(/[*_`]/g, '').trim() ?? slide.id;
+      return heading || fallback;
+    });
+  }
 
   let totalBeats = 0;
   let spokenBeats = 0;
@@ -303,12 +329,27 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
   let customAudio = 0;
   let missing = 0;
 
-  const scratchRoot = options.dryRun ? '' : await mkdtemp(join(tmpdir(), 'xarp-narrate-'));
+  const scratchRoot = readOnly ? '' : await mkdtemp(join(tmpdir(), 'xarp-narrate-'));
   try {
     for (const [slideIndex, slide] of selected.entries()) {
       const slideNumber = slideIndex + 1;
       const inFilter = !onlySet || onlySet.has(slide.id) || onlySet.has(String(slideNumber));
       const beats: AuthoredBeat[] = parseSlideNarration(slide.body, narrationOpts.glossary);
+
+      if (isCheck && inFilter && checkFragments) {
+        const fragCount = checkFragments[slideIndex] ?? 0;
+        for (const [beatIndex, beat] of beats.entries()) {
+          if (beat.step !== undefined && beat.step > fragCount) {
+            issues.push(`Slide ${slideNumber} (${slide.id}) beat ${beatIndex + 1}: explicit step ${beat.step} exceeds fragment count (${fragCount})`);
+          }
+        }
+        if (fragCount > 0 && beats.length > 0) {
+          const maxStep = Math.max(...beats.map((b, idx) => b.step ?? idx));
+          if (maxStep < fragCount) {
+            issues.push(`Slide ${slideNumber} (${slide.id}): narration reaches step ${maxStep} of ${fragCount} fragments`);
+          }
+        }
+      }
 
       for (const [beatIndex, beat] of beats.entries()) {
         totalBeats++;
@@ -316,18 +357,32 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
 
         if (beat.audio) {
           spokenBeats++;
-          const customPath = await containedFile(project.cwd, beat.audio);
-          const dur = await probeAudioDuration(customPath);
-          customAudio++;
-          options.onProgress?.({
-            type: 'custom',
-            slideId: slide.id,
-            slideNumber,
-            beatIndex,
-            caption: beat.caption,
-            tts: beat.tts,
-            duration: dur,
-          });
+          try {
+            const customPath = await containedFile(project.cwd, beat.audio);
+            const dur = await probeAudioDuration(customPath);
+            if (isCheck && !checkCustomAudio.has(beat.audio)) {
+              checkCustomAudio.set(beat.audio, { duration: dur, contentHash: hash(await readFile(customPath)) });
+            }
+            customAudio++;
+            options.onProgress?.({
+              type: 'custom',
+              slideId: slide.id,
+              slideNumber,
+              beatIndex,
+              caption: beat.caption,
+              tts: beat.tts,
+              duration: dur,
+            });
+          } catch (error) {
+            if (isCheck) {
+              if (inFilter) {
+                const msg = error instanceof Error ? error.message : String(error);
+                issues.push(`Slide ${slideNumber} (${slide.id}) beat ${beatIndex + 1}: custom audio "${beat.audio}" invalid (${msg})`);
+              }
+            } else {
+              throw error;
+            }
+          }
           continue;
         }
 
@@ -358,8 +413,11 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
           continue;
         }
 
-        if (options.dryRun) {
+        if (readOnly) {
           missing++;
+          if (isCheck) {
+            issues.push(`Slide ${slideNumber} (${slide.id}) beat ${beatIndex + 1}: missing cached audio clip (${clipHash.slice(0, 10)})`);
+          }
           continue;
         }
 
@@ -417,7 +475,9 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
         requireValue(bestCandidate, `Synthesis produced no candidate for ${slide.id} beat ${beatIndex + 1}`);
         const finalDest = join(cacheDir, bestCandidate.relFile);
         await mkdir(dirname(finalDest), { recursive: true });
-        await copyFile(bestCandidate.fullPath, finalDest);
+        const tmpDest = join(dirname(finalDest), `.tmp-${clipHash}-${randomUUID()}${extname(finalDest)}`);
+        await copyFile(bestCandidate.fullPath, tmpDest);
+        await rename(tmpDest, finalDest);
 
         if (bestCandidate.errorRate !== undefined && bestCandidate.errorRate > maxErrorRate) {
           options.onProgress?.({
@@ -440,9 +500,9 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
           duration: bestCandidate.duration,
           caption: beat.caption,
           tts: beat.tts,
-          provider: sig.provider,
-          ...(sig.voice ? { voice: sig.voice } : {}),
-          speed: sig.speed,
+          provider: rt.provider,
+          ...(rt.voice ? { voice: rt.voice } : {}),
+          speed: rt.speed,
           updatedAt: new Date().toISOString(),
           ...(bestCandidate.transcript !== undefined ? { asrTranscript: bestCandidate.transcript } : {}),
           ...(bestCandidate.errorRate !== undefined ? { asrErrorRate: bestCandidate.errorRate } : {}),
@@ -466,7 +526,7 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
     }
 
     let pruned = 0;
-    if (options.prune && !onlySet && !options.dryRun && await pathExists(cacheDir)) {
+    if (options.prune && !onlySet && !readOnly && await pathExists(cacheDir)) {
       // Keep clips referenced by ANY slide in the source document, so multi-view configs stay safe.
       const allDocHashes = new Set<string>(activeHashes);
       for (const slide of document.slides) {
@@ -496,8 +556,29 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
       if (pruned > 0) await saveNarrationCache(cacheDir, cache);
     }
 
-    const shouldBuild = options.build ?? !options.dryRun;
+    let checkTimeline: NarrationTimeline | undefined;
+    if (isCheck && checkFragments && checkTitles) {
+      const deckTitle = typeof document.frontmatter.title === 'string' ? document.frontmatter.title : project.viewId;
+      checkTimeline = buildNarrationTimeline({
+        viewId: project.viewId,
+        deckTitle,
+        slides: selected.map((slide, idx) => ({
+          id: slide.id,
+          body: slide.body,
+          title: checkTitles[idx] ?? slide.id,
+          fragmentCount: checkFragments[idx] ?? 0,
+        })),
+        sections: options.sections,
+        options: narrationOpts,
+        cache,
+        customAudio: checkCustomAudio,
+        vttUrl: '',
+      }).timeline;
+    }
+
+    const shouldBuild = options.build ?? !readOnly;
     const buildResult = shouldBuild ? await build(options) : undefined;
+    const timeline = buildResult?.narration ?? checkTimeline;
     return {
       cacheDir,
       totalBeats,
@@ -507,6 +588,8 @@ export async function narrate(options: NarrateOptions): Promise<NarrateResult> {
       customAudio,
       missing,
       pruned,
+      issues,
+      ...(timeline ? { timeline } : {}),
       ...(buildResult ? { buildResult } : {}),
     };
   } finally {

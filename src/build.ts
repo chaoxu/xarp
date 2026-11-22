@@ -19,8 +19,9 @@ import {
   parseSlideNarration,
   probeAudioDuration,
   resolveNarrationDir,
+  type CustomAudioAssetInfo,
 } from './narration.js';
-import type { BuildOptions, BuildResult, EditorMetadata, Plugin, Section } from './types.js';
+import type { BuildOptions, BuildResult, EditorMetadata, NarrationTimeline, Plugin, Section } from './types.js';
 
 const run = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -218,16 +219,21 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       });
     }
     let narrationJson: string | undefined;
+    let builtNarration: NarrationTimeline | undefined;
     if (hasNarration) {
       const narrationOpts = extractNarrationOptions(options);
       const cacheDir = await resolveNarrationDir(project.cwd, project.output, narrationOpts.dir);
       const cache = await loadNarrationCache(cacheDir);
-      const customAudioDurations = new Map<string, number>();
+      const customAudio = new Map<string, CustomAudioAssetInfo>();
+      const customAudioSources = new Map<string, { path: string; contentHash: string }>();
       for (const slide of selected) {
         for (const beat of parseSlideNarration(slide.body, narrationOpts.glossary)) {
-          if (beat.audio && !customAudioDurations.has(beat.audio)) {
+          if (beat.audio && !customAudio.has(beat.audio)) {
             const customPath = await containedFile(project.cwd, beat.audio);
-            customAudioDurations.set(beat.audio, await probeAudioDuration(customPath));
+            const contentHash = hash(await readFile(customPath));
+            const duration = await probeAudioDuration(customPath);
+            customAudio.set(beat.audio, { duration, contentHash });
+            customAudioSources.set(beat.audio, { path: customPath, contentHash });
           }
         }
       }
@@ -243,7 +249,6 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
           fragmentCount: svgSlides.eq(index).find('[data-marpit-fragment]').length,
         };
       });
-      const vttRel = `_xarp/narration/${project.viewId}.vtt`;
       const { timeline, referencedClips, referencedCustomAudio } = buildNarrationTimeline({
         viewId: project.viewId,
         deckTitle,
@@ -251,9 +256,13 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
         sections: options.sections,
         options: narrationOpts,
         cache,
-        customAudioDurations,
-        vttUrl: vttRel,
+        customAudio,
+        vttUrl: '',
       });
+      const vttContent = formatWebVtt(timeline);
+      const vttHash = hash(vttContent);
+      const vttRel = `_xarp/narration/captions-${vttHash.slice(0, 16)}.vtt`;
+      timeline.vttUrl = vttRel;
       const narrationStageDir = join(stage, '_xarp/narration');
       await mkdir(narrationStageDir, { recursive: true });
       for (const [clipHash, relFile] of referencedClips) {
@@ -264,15 +273,16 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
         assets.fingerprint.push([destRel, hash(await readFile(srcClip))]);
       }
       for (const [projectRel, destRel] of referencedCustomAudio) {
-        const srcAudio = await containedFile(project.cwd, projectRel);
+        const resolved = customAudioSources.get(projectRel);
+        const srcAudio = resolved ? resolved.path : await containedFile(project.cwd, projectRel);
+        const audioHash = resolved ? resolved.contentHash : hash(await readFile(srcAudio));
         await mkdir(dirname(join(stage, destRel)), { recursive: true });
         await copyFile(srcAudio, join(stage, destRel));
-        assets.fingerprint.push([destRel, hash(await readFile(srcAudio))]);
+        assets.fingerprint.push([destRel, audioHash]);
       }
-      const vttContent = formatWebVtt(timeline);
       await writeFile(join(stage, vttRel), vttContent, 'utf8');
-      await writeFile(join(narrationStageDir, 'captions.vtt'), vttContent, 'utf8');
-      await writeFile(join(narrationStageDir, 'timeline.json'), JSON.stringify(timeline, null, 2) + '\n', 'utf8');
+      assets.fingerprint.push([vttRel, vttHash]);
+      builtNarration = timeline;
       narrationJson = JSON.stringify(timeline).replace(/</g, '\\u003c');
     }
     const buildRevision = hash(JSON.stringify({
@@ -305,7 +315,7 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     try { await rename(stage, project.output); }
     catch (error) { if (exists) await rename(backup, project.output); throw error; }
     if (exists) await rm(backup, { recursive: true, force: true });
-    return { output: project.output, htmlPath: join(project.output, 'index.html'), metadata };
+    return { output: project.output, htmlPath: join(project.output, 'index.html'), metadata, ...(builtNarration ? { narration: builtNarration } : {}) };
   } finally {
     await rm(stage, { recursive: true, force: true });
   }

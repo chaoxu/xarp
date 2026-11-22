@@ -2,19 +2,9 @@ export { build } from './build.js';
 export { dev } from './editor/server.js';
 export { narrate } from './narrate.js';
 export {
-  applyGlossary,
   buildNarrationTimeline,
-  cleanCaptionText,
-  computeAsrErrorRate,
-  computeClipHash,
-  estimateSpeechDuration,
   formatWebVtt,
-  normalizeSpeechText,
-  parseMp4Duration,
   parseSlideNarration,
-  parseWavDuration,
-  probeAudioDuration,
-  trimWavSilence,
 } from './narration.js';
 export { parseSource, selectSlides, updateSlideInSource } from './source.js';
 export { COLOR_SCHEMES, isColorScheme } from './color-schemes.js';
@@ -24,8 +14,13 @@ export type {
   EditorMetadata,
   JsonValue,
   NarrationOptions,
+  NarrationTimeline,
+  NarrationTimelineBeat,
+  NarrationTimelineSection,
+  NarrationTimelineSlide,
   NarrationTtsOptions,
   NarrationVerifyOptions,
+  NarrationViewerOptions,
   Plugin,
   Section,
   SoundCueKind,
@@ -35,9 +30,5 @@ export type {
   AuthoredBeat,
   CachedClipRecord,
   NarrationCache,
-  NarrationTimeline,
-  NarrationTimelineBeat,
-  NarrationTimelineSection,
-  NarrationTimelineSlide,
 } from './narration.js';
 export type { ColorScheme } from './color-schemes.js';

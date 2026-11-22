@@ -295,7 +295,7 @@ body.xarp-watch-captions-off .xarp-watch-caption-bar {
   border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
 }
 
-.xarp-watch-Timeline-wrap {
+.xarp-watch-timeline-wrap {
   position: relative;
   display: flex;
   align-items: center;
@@ -539,22 +539,24 @@ body.xarp-watch-captions-off .xarp-watch-caption-bar {
   opacity: 0.7;
 }
 
-/* Mobile / narrow layout: pin 16:9 stage + transport on top, scroll transcript/chapters below */
+/* Mobile / narrow layout: pin stage + transport on top, scroll transcript/chapters below (or hide sidebar in theater mode) */
 @media (max-width: 1023px) {
   .xarp-watch-header {
     padding: 0 12px;
   }
-  .xarp-watch-sidebar-toggle,
   .xarp-watch-now {
     display: none !important;
   }
-  .xarp-watch-main,
-  body.xarp-watch-theater .xarp-watch-main {
+  .xarp-watch-main {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
+  body.xarp-watch-theater .xarp-watch-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
   body.xarp-watch-theater .xarp-watch-sidebar {
-    display: grid;
+    display: none;
   }
   .xarp-watch-player-col {
     padding: 10px 12px;

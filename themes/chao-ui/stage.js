@@ -6,8 +6,8 @@
    3. mountCraftStage(containerEl, spec) -> turnkey 33-style SVG + label + beat stage
    ========================================================================== */
 
-import { clamp, palette } from "./diagrams.js";
-import { createSvgMarks, resolveRoleColor } from "./marks.js";
+import { clamp, ease, lerp, palette, seg as segProgress } from "./diagrams.js";
+import { createSvgMarks, parseRgb, resolveRoleColor } from "./marks.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -69,6 +69,18 @@ function resolveColorOrRole(G, roleOrColor, mapColor) {
   return typeof mapColor === "function" ? mapColor(col) : col;
 }
 
+function toKatexHex(rawColor) {
+  if (!rawColor) return "#1f1d1a";
+  const s = String(rawColor).trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  }
+  const [r, g, b] = parseRgb(s, [31, 29, 26]);
+  const hex2 = (n) => clamp(Math.round(n), 0, 255).toString(16).padStart(2, "0");
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+
 function escapeTexRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -78,14 +90,17 @@ function applyTexColorMap(tex, t2c, G, mapColor) {
   const keys = Object.keys(t2c).filter((k) => k.length > 0).sort((a, b) => b.length - a.length);
   if (!keys.length) return tex;
   const colorByKey = new Map();
-  const patterns = [];
+  // Preserve existing \textcolor{...}{...} and \color{...} arguments untouched before token matching.
+  const patterns = ["\\\\textcolor\\s*\\{[^{}]*\\}\\s*\\{[^{}]*\\}", "\\\\color\\s*\\{[^{}]*\\}"];
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
-    colorByKey.set(k, resolveColorOrRole(G, t2c[k], mapColor));
+    colorByKey.set(k, toKatexHex(resolveColorOrRole(G, t2c[k], mapColor)));
     const startsAlpha = /^[A-Za-z]/.test(k);
     const endsAlpha = /[A-Za-z]$/.test(k);
-    const prefix = startsAlpha ? "(?<![\\\\A-Za-z])" : "";
-    const suffix = endsAlpha ? "(?![A-Za-z])" : "";
+    const startsDigit = /^[0-9]/.test(k);
+    const endsDigit = /[0-9]$/.test(k);
+    const prefix = startsAlpha ? "(?<![\\\\A-Za-z])" : startsDigit ? "(?<![0-9])" : "";
+    const suffix = endsAlpha ? "(?![A-Za-z])" : endsDigit ? "(?![0-9])" : "";
     patterns.push(`${prefix}${escapeTexRegex(k)}${suffix}`);
   }
   const combined = new RegExp(patterns.join("|"), "g");
@@ -105,11 +120,11 @@ function renderMathMixedText(el, rawText, katexRef, G = null, mapColor = null, t
     return;
   }
   const macros = G ? {
-    "\\pfprimary": `\\textcolor{${resolveColorOrRole(G, "primary", mapColor)}}{#1}`,
-    "\\pfcaveat": `\\textcolor{${resolveColorOrRole(G, "caveat", mapColor)}}{#1}`,
-    "\\pfaux": `\\textcolor{${resolveColorOrRole(G, "auxiliary", mapColor)}}{#1}`,
-    "\\pfmuted": `\\textcolor{${resolveColorOrRole(G, "muted", mapColor)}}{#1}`,
-    "\\pfink": `\\textcolor{${resolveColorOrRole(G, "ink", mapColor)}}{#1}`,
+    "\\pfprimary": `\\textcolor{${toKatexHex(resolveColorOrRole(G, "primary", mapColor))}}{#1}`,
+    "\\pfcaveat": `\\textcolor{${toKatexHex(resolveColorOrRole(G, "caveat", mapColor))}}{#1}`,
+    "\\pfaux": `\\textcolor{${toKatexHex(resolveColorOrRole(G, "auxiliary", mapColor))}}{#1}`,
+    "\\pfmuted": `\\textcolor{${toKatexHex(resolveColorOrRole(G, "muted", mapColor))}}{#1}`,
+    "\\pfink": `\\textcolor{${toKatexHex(resolveColorOrRole(G, "ink", mapColor))}}{#1}`,
   } : undefined;
   const parts = s.split(/(?<!\\)\$/);
   for (let i = 0; i < parts.length; i++) {
@@ -429,10 +444,24 @@ export function createStageTimeline(opts = {}) {
     emit(0);
   }
 
-  function seek(timeSec) {
+  function segmentAtTime(timeSec) {
+    let idx = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (timeSec >= seg.from && (timeSec < seg.to || i === segments.length - 1)) {
+        idx = i;
+      }
+    }
+    return idx;
+  }
+
+  function seek(timeSec, explicitSegment = undefined) {
     stopLoop();
     t = clamp(Number(timeSec) || 0, 0, Math.max(duration, printTime));
     targetT = t;
+    curSeg = explicitSegment !== undefined && explicitSegment !== null
+      ? clamp(explicitSegment | 0, 0, segments.length - 1)
+      : segmentAtTime(t);
     playing = false;
     emit(0);
   }
@@ -524,19 +553,10 @@ export function createStageTimeline(opts = {}) {
 
           const onKey = (ev) => {
             if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-            if (
-              ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === " " ||
-              ev.key === "PageDown" || ev.key === "PageUp" ||
-              ev.key === "s" || ev.key === "S" || ev.key === "c" || ev.key === "C" ||
-              ev.key === "w" || ev.key === "W" || ev.key === "k" || ev.key === "K" ||
-              ev.key === "j" || ev.key === "J" || ev.key === "l" || ev.key === "L" ||
-              ev.key === "m" || ev.key === "M" || ev.key === "t" || ev.key === "T" ||
-              ev.key === "v" || ev.key === "V" || ev.key === "f" || ev.key === "F" ||
-              ev.key === "Escape"
-            ) {
-              const targetWin = parentDoc.defaultView || parentDoc;
-              targetWin.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, bubbles: true, cancelable: true }));
-            }
+            const tgt = ev.target;
+            if (tgt && tgt.closest && (tgt.closest("input,textarea,select,[contenteditable=true]") || tgt.isContentEditable)) return;
+            const targetWin = parentDoc.defaultView || parentDoc;
+            targetWin.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, bubbles: true, cancelable: true }));
           };
           window.addEventListener("keydown", onKey);
           cleanups.push(() => window.removeEventListener("keydown", onKey));
@@ -700,12 +720,22 @@ export function mountCraftStage(containerEl, spec = {}) {
       containerEl.style.background = inStyledDeck ? "transparent" : G.P.bg;
     }
     let frameCam = typeof spec.camera === "function" ? spec.camera(t) : (spec.camera || null);
+    const camFn = (nextCam) => { frameCam = nextCam; };
+    camFn.to = (target, timeVal = t, a = 0, b = 1, fromCam = null) => {
+      const u = ease(segProgress(timeVal, a, b));
+      const f = fromCam || { x: width / 2, y: height / 2, zoom: 1 };
+      frameCam = {
+        x: lerp(f.x ?? width / 2, target.x ?? width / 2, u),
+        y: lerp(f.y ?? height / 2, target.y ?? height / 2, u),
+        zoom: lerp(f.zoom ?? 1, target.zoom ?? 1, u),
+      };
+    };
     labels.begin(G, effOv && effOv.mapColor);
     spec.draw({
       marks,
       m: marks,
       labels,
-      camera(nextCam) { frameCam = nextCam; },
+      camera: camFn,
       t,
       dt: state ? state.dt : 0,
       segment: state ? state.segment : 0,

@@ -1,6 +1,8 @@
-import type { JsonValue, NarrationOptions, Plugin } from '../types.js';
+import type { NarrationOptions, NarrationViewerOptions, Plugin } from '../types.js';
 
 const asset = (name: string) => new URL(`../browser/${name}`, import.meta.url);
+
+export const NARRATION_BUILD_OPTIONS = Symbol.for('xarp.narration.buildOptions');
 
 export interface EditingOptions {
   textSelectors?: string[];
@@ -39,13 +41,25 @@ export function colorSchemes(options: ColorSchemesOptions = {}): Plugin {
   };
 }
 
-export type { NarrationOptions };
+export type { NarrationOptions, NarrationViewerOptions };
 
 export function narration(options: NarrationOptions = {}): Plugin {
-  return {
+  const viewerData = {
+    captions: options.captions ?? true,
+    sidebar: options.sidebar ?? true,
+    cues: options.cues ?? false,
+  };
+  const plugin: Plugin = {
     name: 'narration',
     styles: [asset('narration.css')],
     scripts: [asset('narration.js')],
-    data: options as unknown as JsonValue,
+    data: viewerData,
   };
+  Object.defineProperty(plugin, NARRATION_BUILD_OPTIONS, {
+    value: options,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return plugin;
 }

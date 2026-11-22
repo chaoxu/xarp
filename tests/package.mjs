@@ -31,14 +31,17 @@ for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(i * 0.12) * 800
 writeFileSync(process.env.XARP_TTS_OUT, buf);
 `);
   await writeFile(join(directory, 'slides.md'), '# Consumer\n\nFormula $x^2$.\n\n<!-- beat: Consumer opening beat. -->\n\n---\n\n# Other slide\n');
-  await writeFile(join(directory, 'xarp.config.mjs'), `import { editing, drawing, narration } from '@chaoxu/xarp/plugins';\nexport default { input: 'slides.md', plugins: [editing(), drawing(), narration({ tts: { provider: 'command', command: [process.execPath, 'mock-tts.mjs'], format: 'wav' } })] };\n`);
+  await writeFile(join(directory, 'xarp.config.mjs'), `import { editing, drawing, narration } from '@chaoxu/xarp/plugins';\nexport default { input: 'slides.md', plugins: [editing(), drawing(), narration()], narration: { tts: { provider: 'command', command: [process.execPath, 'mock-tts.mjs'], format: 'wav' } } };\n`);
   await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'narrate', '--theme', 'gaia', '--color-scheme', 'ukiyo-e'], { cwd: directory });
+  await run(process.execPath, ['node_modules/@chaoxu/xarp/lib/cli.js', 'narrate', '--check'], { cwd: directory });
   const html = await readFile(join(directory, 'dist/index.html'), 'utf8');
   assert(html.includes('Consumer') && html.includes('katex') && html.includes('_xarp/plugins/editing.js') && html.includes('_xarp/plugins/narration.js'));
+  assert(!html.includes('mock-tts.mjs'), 'TTS command must not leak into exported HTML');
   assert(html.includes('id="xarp-narration"'));
   assert(html.includes('data-xarp-color-scheme="ukiyo-e"'));
   assert((await readFile(join(directory, 'dist/_xarp/palettes.css'), 'utf8')).includes('--xarp-paper'));
-  assert((await readFile(join(directory, 'dist/_xarp/narration/captions.vtt'), 'utf8')).includes('Consumer opening beat.'));
+  const narrationPayload = JSON.parse(html.match(/<script id="xarp-narration" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert((await readFile(join(directory, 'dist', narrationPayload.vttUrl), 'utf8')).includes('Consumer opening beat.'));
   const notices = await readFile(join(directory, 'dist/_xarp/plugins/LICENSES.txt'), 'utf8');
   for (const name of ['drauu 1.0.0', 'nanoevents 9.1.0', 'perfect-freehand 1.2.2', 'roughjs 4.6.6', 'perfect-freehand 1.2.3']) assert(notices.includes(name), `Missing browser dependency notice: ${name}`);
   await writeFile(join(directory, 'check.mjs'), `
@@ -63,5 +66,5 @@ try {
 } finally { await preview.close(); }
 `);
   await run(process.execPath, ['check.mjs'], { cwd: directory, maxBuffer: 4 * 1024 * 1024 });
-  console.log(`PASS clean package: ${packed.files.length} files, ${packed.size} packed bytes, production-only install, CLI build, source save and static confinement`);
+  console.log(`PASS clean package: ${packed.files.length} files, ${packed.size} packed bytes, production-only install, CLI build, --check, source save and static confinement`);
 } finally { await rm(directory, { recursive: true, force: true }); }

@@ -36,11 +36,22 @@ export interface NarrationTtsOptions {
   format?: 'm4a' | 'wav';
   /** Trim silence and normalize loudness (`-16 LUFS` when `ffmpeg` is installed). Defaults to `true`. */
   normalize?: boolean;
+  /** Trim isolated short filler bursts after a long trailing pause (e.g. from neural TTS prompt suffixes). Defaults to `false`. */
+  trimFillerTail?: boolean;
   /** Optional ASR round-trip check for synthesized clips. */
   verify?: NarrationVerifyOptions;
 }
 
-export interface NarrationOptions {
+export interface NarrationViewerOptions {
+  /** Show subtitles by default in Watch Mode. Defaults to `true`. */
+  captions?: boolean;
+  /** Show Chapters and Transcript sidebar by default in Watch Mode. Defaults to `true`. */
+  sidebar?: boolean;
+  /** Play subtle Web Audio transition cues by default in Watch Mode. Defaults to `false`. */
+  cues?: boolean;
+}
+
+export interface NarrationOptions extends NarrationViewerOptions {
   /** Project-relative directory storing content-addressed per-beat clips. Defaults to `'narration'`. */
   dir?: string;
   /** Hold duration in seconds for silent slides or un-narrated fragment steps. Defaults to `2.4`. */
@@ -51,12 +62,6 @@ export interface NarrationOptions {
   slideLeadIn?: number;
   /** Pronunciation lexicon applied to spoken text (supports Unicode and bilingual CJK). */
   glossary?: Record<string, string>;
-  /** Show subtitles by default in Watch Mode. Defaults to `true`. */
-  captions?: boolean;
-  /** Show Chapters and Transcript sidebar by default in Watch Mode. Defaults to `true`. */
-  sidebar?: boolean;
-  /** Play subtle Web Audio transition cues by default in Watch Mode. Defaults to `false`. */
-  cues?: boolean;
   /** Synthesis configuration used by `xarp narrate` and deterministic clip hashing. */
   tts?: NarrationTtsOptions;
 }
@@ -86,6 +91,8 @@ export interface BuildOptions {
   sections?: Section[];
   assets?: string[];
   plugins?: Plugin[];
+  /** Build and synthesis configuration for narrated decks (kept out of browser metadata). */
+  narration?: NarrationOptions;
 }
 
 export interface EditorMetadata {
@@ -102,8 +109,67 @@ export interface EditorMetadata {
   editingError?: string;
 }
 
+export interface NarrationTimelineBeat {
+  index: number;
+  globalIndex: number;
+  slideIndex: number;
+  step: number;
+  seg?: number;
+  fit?: boolean;
+  caption: string;
+  tts: string;
+  silent: boolean;
+  synthesized: boolean;
+  start: number;
+  end: number;
+  duration: number;
+  clipStart: number;
+  clipDuration: number;
+  pause: number;
+  clipHash?: string;
+  clipUrl?: string;
+  cue?: SoundCueKind;
+}
+
+export interface NarrationTimelineSlide {
+  index: number;
+  number: number;
+  id: string;
+  title: string;
+  section?: string;
+  sectionIndex?: number;
+  fragmentCount: number;
+  start: number;
+  end: number;
+  duration: number;
+  beats: NarrationTimelineBeat[];
+}
+
+export interface NarrationTimelineSection {
+  index: number;
+  label: string;
+  start: number;
+  end: number;
+  slideNumbers: number[];
+}
+
+export interface NarrationTimeline {
+  version: 1;
+  viewId: string;
+  title: string;
+  duration: number;
+  beatCount: number;
+  spokenBeatCount: number;
+  synthesizedCount: number;
+  hasAudio: boolean;
+  vttUrl: string;
+  sections: NarrationTimelineSection[];
+  slides: NarrationTimelineSlide[];
+}
+
 export interface BuildResult {
   output: string;
   htmlPath: string;
   metadata: EditorMetadata;
+  narration?: NarrationTimeline;
 }

@@ -216,9 +216,22 @@ export async function staticResponse(request: Request, output: string): Promise<
     const range = request.headers.get('range');
     if (range && range.startsWith('bytes=') && info.size > 0) {
       const match = range.match(/^bytes=(\d*)-(\d*)$/);
-      if (!match) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
-      const start = match[1] ? Number(match[1]) : 0;
-      const end = match[2] ? Math.min(info.size - 1, Number(match[2])) : info.size - 1;
+      if (!match || (!match[1] && !match[2])) {
+        return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
+      }
+      let start: number;
+      let end: number;
+      if (!match[1] && match[2]) {
+        const suffix = Number(match[2]);
+        if (!Number.isSafeInteger(suffix) || suffix <= 0) {
+          return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
+        }
+        start = Math.max(0, info.size - suffix);
+        end = info.size - 1;
+      } else {
+        start = Number(match[1]);
+        end = match[2] ? Math.min(info.size - 1, Number(match[2])) : info.size - 1;
+      }
       if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= info.size) {
         return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
       }
@@ -293,6 +306,7 @@ export async function dev(options: DevOptions) {
         if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') return await jsonReply({ ok: false, error: 'JSON body required' }, 415);
         if (saving || building || narrating) return await jsonReply({ ok: false, error: 'Busy rebuilding or synthesizing' }, 409);
         narrating = true;
+        if (timer) { clearTimeout(timer); timer = undefined; }
         try {
           const payload = await readJson(request) as unknown as { viewId?: string; only?: unknown; force?: unknown };
           if (payload.viewId !== project.viewId) return await jsonReply({ ok: false, error: 'Deck view mismatch' }, 409);
@@ -301,12 +315,12 @@ export async function dev(options: DevOptions) {
           const synth = await narrate({ ...options, ...(only ? { only } : {}), force, build: false });
           building = true;
           try { await rebuild(); } finally { building = false; }
-          const timelineRaw = await readFile(join(result.output, '_xarp/narration/timeline.json'), 'utf8');
-          return await jsonReply({ ok: true, synthesized: synth.synthesized, cached: synth.cached, timeline: JSON.parse(timelineRaw) });
+          return await jsonReply({ ok: true, synthesized: synth.synthesized, cached: synth.cached, sourceRevision: result.metadata.sourceRevision, timeline: result.narration ?? null });
         } catch (err) {
           return await jsonReply({ ok: false, error: (err as Error).message }, 400);
         } finally {
           narrating = false;
+          if (pendingChanges) schedule();
         }
       }
       if ((building || narrating) && request.method === 'POST' && pathname.startsWith('/__xarp/')) return await sendResponse(Response.json({ editorApi: true, mode: 'local', ok: false, saved: false, error: 'A rebuild is in progress. Retry shortly.' }, { status: 409 }), outgoing);
@@ -328,7 +342,7 @@ export async function dev(options: DevOptions) {
     pendingChanges = true;
     if (timer) clearTimeout(timer);
     timer = undefined;
-    if (saving || building) return;
+    if (saving || building || narrating) return;
     timer = setTimeout(() => {
       timer = undefined;
       if (stopped) return;

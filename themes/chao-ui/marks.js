@@ -4419,16 +4419,8 @@ function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
       seed: opts.seed,
     });
     if (opts.showHead !== false) {
-      let headPt;
-      if (typeof source === "function") {
-        const raw = source(p);
-        headPt = sc ? sc.pt(raw[0], raw[1]) : raw;
-      } else {
-        const exact = p * (fullPts.length - 1);
-        const i0 = Math.min(fullPts.length - 2, Math.max(0, Math.floor(exact)));
-        const f = exact - i0;
-        headPt = [lerp(fullPts[i0][0], fullPts[i0 + 1][0], f), lerp(fullPts[i0][1], fullPts[i0 + 1][1], f)];
-      }
+      const sliced = slicePolyline(fullPts, p);
+      const headPt = sliced.length ? sliced[sliced.length - 1] : fullPts[0];
       api.dot(headPt[0], headPt[1], Number(opts.headRadius ?? 5.2), {
         role: opts.headRole || opts.role || "primary",
         opacity: baseOp,
@@ -4438,18 +4430,18 @@ function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
   };
 
   /**
-   * 3b1b-style transient attention highlight (`Indicate` / `Circumscribe`).
-   * Pass `pulse` in `[0..1]` (e.g. `bump(t, a, b)` for a smooth there-and-back emphasis).
-   * `target` can be `[x, y]` (expanding halo ring) or `{ x, y, w, h }` (progressive circumscribing frame).
+   * 3b1b-style attention highlight (`Indicate` / `Circumscribe`).
+   * `pulse` in `[0..1]` sets highlight strength directly (`1` = full strength; pass `bump(t, a, b)` for there-and-back).
+   * `target` can be `[x, y]` (halo ring) or `{ x, y, w, h }` (progressive circumscribing frame).
    */
   api.indicate = function indicate(target, pulse = 1, opts = {}) {
-    const u = clamp(pulse ?? 0, 0, 1);
+    const u = clamp(pulse ?? 1, 0, 1);
     if (u <= 0.005 || !target) return undefined;
-    const baseOp = (opts.opacity ?? 1) * Math.min(1, Math.sin(Math.PI * clamp(u, 0.02, 0.98)) * 1.25 || u);
+    const baseOp = (opts.opacity ?? 1) * u;
     const role = opts.role || "caveat";
     if (Array.isArray(target)) {
       const baseR = Number(opts.r ?? 14);
-      const r = baseR * (1 + 0.45 * u);
+      const r = baseR * (1 + 0.35 * (1 - u));
       return api.ring(target[0], target[1], r, {
         role,
         stroke: opts.stroke,
@@ -4464,7 +4456,7 @@ function attachMarkMethods(api, getG, emitFn, emitStampFn = null) {
       role,
       stroke: opts.stroke,
       strokeWidth: opts.strokeWidth ?? 2.2,
-      progress: Math.min(1, u * 1.35),
+      progress: opts.progress != null ? clamp(opts.progress, 0, 1) : Math.min(1, u * 1.25),
       opacity: baseOp,
     });
   };

@@ -23,18 +23,17 @@ async function main() {
       force: { type: 'boolean' },
       prune: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      check: { type: 'boolean' },
       'no-build': { type: 'boolean' },
       provider: { type: 'string' },
       'tts-url': { type: 'string' },
-      voice: { type: 'string' },
-      speed: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
   if (values.help) {
     console.log(
       'Usage: xarp <build|dev|narrate> [slides.md] [--config xarp.config.mjs] [--output dist] [--port 4175] [--theme name-or-css] [--color-scheme name]\n' +
-      '       xarp narrate [slides.md] [--only id1,id2] [--force] [--prune] [--dry-run] [--provider http|openai|say|command] [--tts-url url] [--voice name] [--speed 1.0] [--no-build]',
+      '       xarp narrate [slides.md] [--only id1,id2] [--force] [--prune] [--dry-run] [--check] [--provider http|openai|say|command] [--tts-url url] [--no-build]',
     );
     return;
   }
@@ -77,21 +76,21 @@ async function main() {
       ttsOverride.provider = values.provider as NarrationTtsOptions['provider'];
     }
     if (values['tts-url'] !== undefined) ttsOverride.url = values['tts-url'];
-    if (values.voice !== undefined) ttsOverride.voice = values.voice;
-    if (values.speed !== undefined) {
-      const spd = Number(values.speed);
-      if (!Number.isFinite(spd) || spd <= 0) throw new Error(`Invalid speed: ${values.speed}`);
-      ttsOverride.speed = spd;
-    }
     const mergedNarration: NarrationOptions = {
       ...baseNarration,
       ...(Object.keys(ttsOverride).length ? { tts: ttsOverride } : {}),
     };
     const plugins = [...(options.plugins ?? [])];
-    const existingIdx = plugins.findIndex(plugin => plugin.name === 'narration');
-    if (existingIdx >= 0) plugins[existingIdx] = narrationPlugin(mergedNarration);
-    else plugins.push(narrationPlugin(mergedNarration));
+    if (!plugins.some(plugin => plugin.name === 'narration')) {
+      plugins.push(narrationPlugin({
+        captions: mergedNarration.captions,
+        sidebar: mergedNarration.sidebar,
+        cues: mergedNarration.cues,
+      }));
+    }
 
+    const isCheck = values.check === true;
+    const isDryRun = values['dry-run'] === true;
     const only = values.only ? values.only.split(',').map(item => item.trim()).filter(Boolean) : undefined;
     const result = await narrate({
       ...options,
@@ -100,27 +99,44 @@ async function main() {
       ...(only?.length ? { only } : {}),
       force: values.force === true,
       prune: values.prune === true,
-      dryRun: values['dry-run'] === true,
-      build: values['no-build'] !== true && values['dry-run'] !== true,
+      dryRun: isDryRun,
+      check: isCheck,
+      build: values['no-build'] !== true && !isDryRun && !isCheck,
       onProgress(ev) {
+        if (isCheck) return;
         const tag = `[#${ev.slideNumber} ${ev.slideId}:${ev.beatIndex + 1}]`;
         if (ev.type === 'synthesized') {
           console.log(`${tag} synthesized (${ev.duration?.toFixed(2)}s) ${ev.caption || ev.tts}`);
         } else if (ev.type === 'asr-warning') {
-          console.warn(`${tag} ASR warning (WER ${(ev.asrErrorRate! * 100).toFixed(0)}%): "${ev.asrTranscript}"`);
+          console.warn(`${tag} ASR warning (edit rate ${(ev.asrErrorRate! * 100).toFixed(0)}%): "${ev.asrTranscript}"`);
         } else if (ev.type === 'retry-asr') {
-          console.warn(`${tag} ASR retry #${ev.attempt} (WER ${(ev.asrErrorRate! * 100).toFixed(0)}%): "${ev.asrTranscript}"`);
+          console.warn(`${tag} ASR retry #${ev.attempt} (edit rate ${(ev.asrErrorRate! * 100).toFixed(0)}%): "${ev.asrTranscript}"`);
         }
       },
     });
+
+    if (isCheck && result.timeline) {
+      for (const slide of result.timeline.slides) {
+        const spoken = slide.beats.filter(b => !b.silent).length;
+        const frags = slide.fragmentCount > 0 ? `, ${slide.fragmentCount} frag` : '';
+        console.log(`  #${String(slide.number).padStart(2, '0')} ${slide.id.padEnd(20)} ${slide.duration.toFixed(1).padStart(5)}s  (${spoken}/${slide.beats.length} spoken${frags})`);
+      }
+    }
+
     const parts = [
-      `${result.synthesized} synthesized`,
+      ...(isCheck ? [] : [`${result.synthesized} synthesized`]),
       `${result.cached} cached`,
       ...(result.customAudio ? [`${result.customAudio} custom`] : []),
       ...(result.missing ? [`${result.missing} unsynthesized`] : []),
       ...(result.pruned ? [`${result.pruned} pruned`] : []),
     ];
-    console.log(`Xarp narrate: ${parts.join(', ')} (${result.spokenBeats} spoken / ${result.totalBeats} authored beats)`);
+    const totalDur = result.timeline ? `, ${result.timeline.duration.toFixed(1)}s total` : '';
+    console.log(`Xarp narrate${isCheck ? ' --check' : ''}: ${parts.join(', ')} (${result.spokenBeats} spoken / ${result.totalBeats} authored beats${totalDur})`);
+    if (result.issues.length > 0) {
+      for (const issue of result.issues) console.error(`  ! ${issue}`);
+      process.exitCode = 1;
+      return;
+    }
     if (result.buildResult) console.log(result.buildResult.htmlPath);
     return;
   }

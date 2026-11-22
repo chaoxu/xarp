@@ -43,6 +43,7 @@
   let sidebarOn = readPref('sidebar', String(pluginOpts.sidebar !== false)) !== 'false';
   let cuesOn = readPref('cues', String(pluginOpts.cues === true)) === 'true';
   let activeTab = timeline.spokenBeatCount > 0 ? 'transcript' : 'chapters';
+  let knownSourceRevision = meta.sourceRevision || '';
 
   let rafId = 0;
   let lastRafNow = 0;
@@ -51,7 +52,9 @@
   let lastUiSlideIdx = -1;
   let lastUiBeatGlobal = -1;
   let lastSectionIdx = -1;
-  let syncingPopstate = false;
+
+  // Tiny 44-byte silent PCM WAV used to unlock HTMLAudioElement synchronously on user gesture during lead-in/silent beats.
+  const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
   // Persistent single HTMLAudioElement preserves vocal pitch across 0.75x..2x and avoids iOS per-clip autoplay blocks.
   const voiceAudio = new Audio();
@@ -61,29 +64,27 @@
   voiceAudio.muted = muted;
   voiceAudio.playbackRate = playbackRate;
 
+  let audioUnlocked = false;
+  let internalAudioOp = false;
   let activeAudioBeatGlobal = -1;
+  let activeAudioClipDuration = 0;
   let activeAudioReady = false;
+  let activeAudioFailed = false;
+  let activeAudioStartPerf = 0;
   let audioPlayToken = 0;
-  const blobUrlCache = new Map();
-  const createdBlobUrls = [];
 
-  function resolveClipSrc(clipUrl) {
-    if (!clipUrl) return Promise.resolve('');
-    if (blobUrlCache.has(clipUrl)) return blobUrlCache.get(clipUrl);
-    if (location.protocol === 'file:') return Promise.resolve(clipUrl);
-    const promise = fetch(clipUrl)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.blob();
-      })
-      .then(blob => {
-        const objUrl = URL.createObjectURL(blob);
-        createdBlobUrls.push(objUrl);
-        return objUrl;
-      })
-      .catch(() => clipUrl);
-    blobUrlCache.set(clipUrl, promise);
-    return promise;
+  // Bounded HTTP cache warm-up window (avoids Blob URL memory leaks while keeping transitions instant).
+  const prefetchedUrls = new Set();
+  function warmHttpCache(clipUrl) {
+    if (!clipUrl || location.protocol === 'file:' || prefetchedUrls.has(clipUrl)) return;
+    if (prefetchedUrls.size >= 64) {
+      const oldest = prefetchedUrls.values().next().value;
+      if (oldest !== undefined) prefetchedUrls.delete(oldest);
+    }
+    prefetchedUrls.add(clipUrl);
+    fetch(clipUrl, { credentials: 'same-origin' })
+      .then(res => (res.ok ? res.arrayBuffer() : null))
+      .catch(() => {});
   }
 
   function allBeatsFlat() {
@@ -97,11 +98,24 @@
   let flatBeats = allBeatsFlat();
 
   function prefetchAround(globalIdx) {
-    for (let i = globalIdx; i < Math.min(flatBeats.length, globalIdx + 5); i++) {
+    for (let i = globalIdx; i < Math.min(flatBeats.length, globalIdx + 4); i++) {
       const b = flatBeats[i];
-      if (b?.clipUrl) void resolveClipSrc(b.clipUrl);
+      if (b?.clipUrl) warmHttpCache(b.clipUrl);
     }
   }
+
+  voiceAudio.addEventListener('error', () => {
+    if (activeAudioBeatGlobal >= 0) activeAudioFailed = true;
+  });
+
+  voiceAudio.addEventListener('pause', () => {
+    if (internalAudioOp || !watchActive || !playing || scrubbing) return;
+    if (activeAudioBeatGlobal >= 0 && activeAudioReady && !voiceAudio.ended) {
+      if (voiceAudio.currentTime < Math.max(0, activeAudioClipDuration - 0.08)) {
+        pause();
+      }
+    }
+  });
 
   // Optional subtle Web Audio procedural cues
   let audioCtx = null;
@@ -165,6 +179,13 @@
     if (view && view !== '') return false;
     if (document.querySelector('.bespoke-marp-overview[data-open="1"]')) return false;
     return true;
+  }
+
+  function getDeckAspectRatio() {
+    const svg = document.querySelector('svg[data-marpit-svg]');
+    const vb = svg?.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+    if (vb && vb.length === 4 && vb[2] > 0 && vb[3] > 0) return vb[2] / vb[3];
+    return 16 / 9;
   }
 
   function currentDeckSlideIndex() {
@@ -251,7 +272,7 @@
   captionBar.setAttribute('aria-live', 'polite');
 
   const transport = el('div', 'xarp-watch-transport');
-  const timelineWrap = el('div', 'xarp-watch-Timeline-wrap');
+  const timelineWrap = el('div', 'xarp-watch-timeline-wrap');
   const ticksEl = el('div', 'xarp-watch-ticks');
   const scrubber = el('input', 'xarp-watch-scrubber');
   scrubber.type = 'range';
@@ -309,7 +330,7 @@
   ccBtn.setAttribute('aria-pressed', String(captionsOn));
 
   const vttLink = el('a', 'xarp-watch-btn', 'VTT');
-  vttLink.href = timeline.vttUrl || '_xarp/narration/captions.vtt';
+  vttLink.href = timeline.vttUrl || '';
   vttLink.download = `${meta.viewId || 'slides'}.vtt`;
   vttLink.title = 'Download WebVTT subtitles';
 
@@ -370,11 +391,12 @@
 
   function rebuildTimelineDom() {
     flatBeats = allBeatsFlat();
+    titleEl.textContent = timeline.title || document.title || 'Presentation';
     launcherDur.textContent = fmtTime(timeline.duration);
     bigPlayLabel.textContent = `▶ Play (${fmtTime(timeline.duration)})`;
     scrubber.max = String(Math.max(0.1, timeline.duration));
-    vttLink.href = timeline.vttUrl || '_xarp/narration/captions.vtt';
-    vttLink.hidden = timeline.spokenBeatCount === 0;
+    vttLink.href = timeline.vttUrl || '';
+    vttLink.hidden = timeline.spokenBeatCount === 0 || !timeline.vttUrl;
 
     if (timeline.spokenBeatCount > 0 && timeline.synthesizedCount < timeline.spokenBeatCount) {
       statusEl.textContent = timeline.synthesizedCount === 0
@@ -410,7 +432,7 @@
       );
       btn.addEventListener('click', () => {
         seek(slide.start);
-        void play();
+        play();
       });
       slideItemButtons.push({ btn, slideIndex: slide.index });
       chaptersPane.append(btn);
@@ -423,7 +445,7 @@
         head.append(el('span', '', sec.label), el('span', 'xarp-watch-ts', fmtTime(sec.start)));
         head.addEventListener('click', () => {
           seek(sec.start);
-          void play();
+          play();
         });
         chaptersPane.append(head);
         for (const num of sec.slideNumbers) {
@@ -450,7 +472,7 @@
         btn.append(el('span', 'xarp-watch-ts', fmtTime(beat.start)), el('span', 'xarp-watch-label', beat.caption));
         btn.addEventListener('click', () => {
           seek(beat.start);
-          void play();
+          play();
         });
         transcriptButtons.push({ btn, globalIndex: beat.globalIndex });
         transcriptPane.append(btn);
@@ -484,17 +506,18 @@
   function syncStageRect() {
     if (!watchActive) return;
     const isNarrow = window.innerWidth <= 1023;
+    const aspect = getDeckAspectRatio();
     const colRect = playerCol.getBoundingClientRect();
     const cs = getComputedStyle(playerCol);
-    const padX = ( parseFloat(cs.paddingLeft) || 0 ) + ( parseFloat(cs.paddingRight) || 0 );
-    const padY = ( parseFloat(cs.paddingTop) || 0 ) + ( parseFloat(cs.paddingBottom) || 0 );
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     const gap = parseFloat(cs.rowGap || cs.gap) || 8;
     const capH = captionsOn ? captionBar.offsetHeight + gap : 0;
     const transH = transport.offsetHeight + gap;
-    const availW = Math.max(16, (isNarrow ? window.innerWidth - 24 : colRect.width - padX));
-    const availH = Math.max(9, isNarrow ? window.innerHeight * 0.36 : colRect.height - padY - capH - transH);
-    const fitW = Math.max(16, Math.floor(Math.min(availW, availH * (16 / 9))));
-    const fitH = Math.max(9, Math.floor(fitW * (9 / 16)));
+    const availW = Math.max(16, isNarrow ? window.innerWidth - 24 : colRect.width - padX);
+    const availH = Math.max(9, isNarrow && sidebarOn ? window.innerHeight * 0.36 : colRect.height - padY - capH - transH);
+    const fitW = Math.max(16, Math.floor(Math.min(availW, availH * aspect)));
+    const fitH = Math.max(9, Math.floor(fitW / aspect));
     stageSlot.style.width = `${fitW}px`;
     stageSlot.style.height = `${fitH}px`;
     const rect = stageSlot.getBoundingClientRect();
@@ -511,10 +534,38 @@
   function stopVoiceAudio() {
     audioPlayToken++;
     activeAudioBeatGlobal = -1;
+    activeAudioClipDuration = 0;
     activeAudioReady = false;
+    activeAudioFailed = false;
     if (!voiceAudio.paused) {
+      internalAudioOp = true;
       try { voiceAudio.pause(); } catch {}
+      internalAudioOp = false;
     }
+  }
+
+  function unlockAudioFromGesture() {
+    if (audioUnlocked) return;
+    internalAudioOp = true;
+    try {
+      voiceAudio.src = SILENT_WAV;
+      voiceAudio.removeAttribute('data-clip');
+      voiceAudio.muted = muted;
+      const p = voiceAudio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          audioUnlocked = true;
+          if (activeAudioBeatGlobal === -1) {
+            internalAudioOp = true;
+            try { voiceAudio.pause(); } catch {}
+            internalAudioOp = false;
+          }
+        }).catch(() => {});
+      } else {
+        audioUnlocked = true;
+      }
+    } catch {}
+    internalAudioOp = false;
   }
 
   function startBeatAudio(beat, offsetSec) {
@@ -524,43 +575,70 @@
     }
     const token = ++audioPlayToken;
     activeAudioBeatGlobal = beat.globalIndex;
+    activeAudioClipDuration = beat.clipDuration || 0;
     activeAudioReady = false;
-    prefetchAround(beat.globalIndex);
+    activeAudioFailed = false;
+    activeAudioStartPerf = performance.now();
+    prefetchAround(beat.globalIndex + 1);
 
-    void resolveClipSrc(beat.clipUrl).then(src => {
-      if (token !== audioPlayToken || !watchActive || !playing) return;
-      if (voiceAudio.getAttribute('data-clip') !== beat.clipUrl) {
-        voiceAudio.src = src;
-        voiceAudio.setAttribute('data-clip', beat.clipUrl);
-      }
-      voiceAudio.muted = muted;
-      voiceAudio.playbackRate = playbackRate;
-      const clampedOffset = Math.max(0, Math.min(Math.max(0, beat.clipDuration - 0.02), offsetSec));
-      const applyPlay = () => {
-        if (token !== audioPlayToken || !watchActive || !playing) return;
-        try {
-          if (Math.abs(voiceAudio.currentTime - clampedOffset) > 0.04) {
-            voiceAudio.currentTime = clampedOffset;
-          }
-        } catch {}
-        const p = voiceAudio.play();
-        if (p && typeof p.then === 'function') {
-          p.then(() => {
-            if (token === audioPlayToken) activeAudioReady = true;
-          }).catch(() => {
-            // Autoplay blocked before user gesture: pause cleanly and show big Play button.
-            if (token === audioPlayToken && !hasStarted) {
-              pause();
-              bigPlayBtn.hidden = false;
-            }
-          });
-        } else {
-          activeAudioReady = true;
+    internalAudioOp = true;
+    if (voiceAudio.getAttribute('data-clip') !== beat.clipUrl) {
+      voiceAudio.src = beat.clipUrl;
+      voiceAudio.setAttribute('data-clip', beat.clipUrl);
+    }
+    voiceAudio.muted = muted;
+    voiceAudio.playbackRate = playbackRate;
+    const clampedOffset = Math.max(0, Math.min(Math.max(0, beat.clipDuration - 0.02), offsetSec));
+
+    const seekIfNeeded = () => {
+      if (token !== audioPlayToken) return;
+      try {
+        if (Math.abs(voiceAudio.currentTime - clampedOffset) > 0.04) {
+          voiceAudio.currentTime = clampedOffset;
         }
-      };
-      if (voiceAudio.readyState >= 1) applyPlay();
-      else voiceAudio.addEventListener('loadedmetadata', applyPlay, { once: true });
-    });
+      } catch {}
+    };
+
+    if (voiceAudio.readyState >= 1) {
+      seekIfNeeded();
+    } else if (clampedOffset > 0.02) {
+      voiceAudio.addEventListener('loadedmetadata', seekIfNeeded, { once: true });
+    }
+
+    let playPromise;
+    try {
+      playPromise = voiceAudio.play();
+    } catch (err) {
+      internalAudioOp = false;
+      activeAudioFailed = true;
+      return;
+    }
+    internalAudioOp = false;
+
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.then(() => {
+        if (token !== audioPlayToken) return;
+        audioUnlocked = true;
+        hasStarted = true;
+        activeAudioReady = true;
+        syncLayoutClasses();
+      }).catch(err => {
+        if (token !== audioPlayToken || !watchActive || !playing) return;
+        const name = err && typeof err === 'object' ? err.name : '';
+        if (name === 'AbortError') return;
+        if (name === 'NotAllowedError') {
+          hasStarted = false;
+          pause();
+          bigPlayBtn.hidden = false;
+          return;
+        }
+        activeAudioFailed = true;
+      });
+    } else {
+      audioUnlocked = true;
+      hasStarted = true;
+      activeAudioReady = true;
+    }
   }
 
   function findStageControllers(slideSvg) {
@@ -586,13 +664,8 @@
     if (fragmentIndex > 0) url.searchParams.set('f', String(fragmentIndex));
     else url.searchParams.delete('f');
     url.hash = `#${slideIndex + 1}`;
-    syncingPopstate = true;
-    try {
-      history.replaceState(null, '', url);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    } finally {
-      syncingPopstate = false;
-    }
+    history.replaceState(null, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
   function applyVisualState(time, allowCue = false) {
@@ -621,11 +694,37 @@
     for (const ctl of findStageControllers(activeSvg)) {
       const segs = typeof ctl.getSegments === 'function' ? ctl.getSegments() : null;
       if (Array.isArray(segs) && segs.length > 0) {
-        const segIdx = Math.max(0, Math.min(segs.length - 1, beat.step));
+        const rawSeg = beat.seg !== undefined ? beat.seg : beat.step;
+        const segIdx = Math.max(0, Math.min(segs.length - 1, rawSeg));
         const seg = segs[segIdx];
-        const elapsed = Math.max(0, loc.time - beat.start);
-        const targetT = Math.min(seg.to, seg.from + elapsed * (seg.speed || 1));
-        ctl.seek(targetT);
+        const slideBeats = slide.beats;
+        let groupStart = beat.start;
+        let groupEnd = beat.end;
+        let anyFit = Boolean(beat.fit);
+        let bStartIdx = loc.beatIndex;
+        while (bStartIdx > 0) {
+          const prev = slideBeats[bStartIdx - 1];
+          const prevSeg = Math.max(0, Math.min(segs.length - 1, prev.seg !== undefined ? prev.seg : prev.step));
+          if (prevSeg !== segIdx) break;
+          bStartIdx--;
+          groupStart = prev.start;
+          if (prev.fit) anyFit = true;
+        }
+        let bEndIdx = loc.beatIndex;
+        while (bEndIdx + 1 < slideBeats.length) {
+          const next = slideBeats[bEndIdx + 1];
+          const nextSeg = Math.max(0, Math.min(segs.length - 1, next.seg !== undefined ? next.seg : next.step));
+          if (nextSeg !== segIdx) break;
+          bEndIdx++;
+          groupEnd = next.end;
+          if (next.fit) anyFit = true;
+        }
+        const elapsed = Math.max(0, loc.time - groupStart);
+        const span = Math.max(0.05, groupEnd - groupStart);
+        const targetT = (anyFit || bEndIdx > bStartIdx)
+          ? seg.from + (seg.to - seg.from) * Math.max(0, Math.min(1, elapsed / span))
+          : Math.min(seg.to, seg.from + elapsed * (seg.speed || 1));
+        ctl.seek(targetT, segIdx);
       } else if (typeof ctl.getDuration === 'function') {
         const dur = Number(ctl.getDuration()) || 0;
         ctl.seek(Math.min(dur, Math.max(0, loc.time - slide.start)));
@@ -686,17 +785,22 @@
       if (activeAudioBeatGlobal !== beat.globalIndex) {
         startBeatAudio(beat, currentTime - beat.clipStart);
       }
-      if (activeAudioBeatGlobal === beat.globalIndex && activeAudioReady && !voiceAudio.paused && !voiceAudio.ended) {
-        currentTime = Math.min(clipEnd, beat.clipStart + voiceAudio.currentTime);
-      } else if (activeAudioBeatGlobal === beat.globalIndex && voiceAudio.ended) {
-        currentTime = clipEnd;
-        stopVoiceAudio();
-      } else {
-        currentTime += dt;
+      if (activeAudioBeatGlobal === beat.globalIndex) {
+        if (activeAudioFailed) {
+          currentTime += dt;
+        } else if (voiceAudio.ended) {
+          currentTime = Math.max(currentTime, clipEnd);
+          stopVoiceAudio();
+        } else if (activeAudioReady && !voiceAudio.paused) {
+          currentTime = Math.max(beat.clipStart, Math.min(clipEnd, beat.clipStart + voiceAudio.currentTime));
+        } else if (now - activeAudioStartPerf > 4000) {
+          activeAudioFailed = true;
+          currentTime += dt;
+        }
+        // Otherwise freeze virtual clock while clip buffers so audio never rewinds after load.
       }
     } else {
       if (activeAudioBeatGlobal !== -1) stopVoiceAudio();
-      // Pre-warm upcoming clip during lead-in
       if (beat.clipUrl && currentTime < beat.clipStart) prefetchAround(beat.globalIndex);
       currentTime += dt;
     }
@@ -712,21 +816,47 @@
     rafId = requestAnimationFrame(tick);
   }
 
+  function updateWatchQueryParam(enabled, includeTime = false) {
+    try {
+      const url = new URL(location.href);
+      if (enabled) {
+        url.searchParams.set('watch', '1');
+        if (includeTime && currentTime > 0.05) url.searchParams.set('t', currentTime.toFixed(1));
+        else if (includeTime) url.searchParams.delete('t');
+      } else {
+        url.searchParams.delete('watch');
+        url.searchParams.delete('mode');
+        url.searchParams.delete('autoplay');
+        url.searchParams.delete('t');
+        if (appliedFragIdx <= 0) url.searchParams.delete('f');
+      }
+      history.replaceState(null, '', url);
+    } catch {}
+  }
+
   function play() {
     if (!watchActive) openWatch({ fromCurrentSlide: false });
+    if (!watchActive) return;
     if (document.body.classList.contains('xarp-drawing-active')) {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }));
     }
     if (currentTime >= timeline.duration - 0.02) currentTime = 0;
-    hasStarted = true;
     playing = true;
+    const loc = locateTime(currentTime);
+    const hasImmediateClip = Boolean(
+      loc.beat.clipUrl && loc.beat.clipDuration > 0
+      && currentTime >= loc.beat.clipStart
+      && currentTime < loc.beat.clipStart + loc.beat.clipDuration,
+    );
+    if (!hasImmediateClip) {
+      hasStarted = true;
+      unlockAudioFromGesture();
+      prefetchAround(loc.beat.globalIndex);
+    }
     syncLayoutClasses();
     syncStageRect();
-    const loc = locateTime(currentTime);
-    if (loc.beat.clipUrl && loc.beat.clipDuration > 0 && currentTime >= loc.beat.clipStart && currentTime < loc.beat.clipStart + loc.beat.clipDuration) {
+    if (hasImmediateClip) {
       startBeatAudio(loc.beat, currentTime - loc.beat.clipStart);
-    } else {
-      prefetchAround(loc.beat.globalIndex);
     }
     cancelLoop();
     rafId = requestAnimationFrame(tick);
@@ -737,6 +867,7 @@
     cancelLoop();
     stopVoiceAudio();
     syncLayoutClasses();
+    if (watchActive) updateWatchQueryParam(true, true);
   }
 
   function togglePlay() {
@@ -747,8 +878,8 @@
   function seek(targetSec) {
     currentTime = Math.max(0, Math.min(timeline.duration, Number(targetSec) || 0));
     stopVoiceAudio();
-    lastUiBeatGlobal = -1;
     applyVisualState(currentTime, false);
+    if (watchActive && !scrubbing) updateWatchQueryParam(true, true);
     if (playing && !scrubbing) {
       const loc = locateTime(currentTime);
       if (loc.beat.clipUrl && loc.beat.clipDuration > 0 && currentTime >= loc.beat.clipStart && currentTime < loc.beat.clipStart + loc.beat.clipDuration) {
@@ -769,18 +900,6 @@
     const nextIdx = Math.max(0, Math.min(flatBeats.length - 1, curGlobal + delta));
     const target = flatBeats[nextIdx];
     if (target) seek(target.start);
-  }
-
-  function updateWatchQueryParam(enabled) {
-    try {
-      const url = new URL(location.href);
-      if (enabled) url.searchParams.set('watch', '1');
-      else {
-        url.searchParams.delete('watch');
-        url.searchParams.delete('t');
-      }
-      history.replaceState(null, '', url);
-    } catch {}
   }
 
   function openWatch(opts = {}) {
@@ -804,7 +923,7 @@
       currentTime = timeline.slides[sIdx]?.start ?? 0;
     }
 
-    updateWatchQueryParam(true);
+    updateWatchQueryParam(true, currentTime > 0.05);
     syncLayoutClasses();
     requestAnimationFrame(() => {
       syncStageRect();
@@ -844,7 +963,6 @@
   scrubber.addEventListener('input', () => {
     scrubbing = true;
     currentTime = Number(scrubber.value) || 0;
-    lastUiBeatGlobal = -1;
     applyVisualState(currentTime, false);
   });
   const finishScrub = () => {
@@ -853,7 +971,9 @@
     seek(Number(scrubber.value) || 0);
   };
   scrubber.addEventListener('change', finishScrub);
+  scrubber.addEventListener('pointercancel', finishScrub);
   window.addEventListener('pointerup', finishScrub);
+  window.addEventListener('blur', finishScrub);
 
   muteBtn.addEventListener('click', () => {
     muted = !muted;
@@ -983,10 +1103,44 @@
     }
   }, true);
 
+  let refreshDevStatus = null;
+  let synthesizing = false;
+
+  // Live timeline refresh after Slide Markdown saves in Edit Mode
+  window.addEventListener('xarp-narration-update', event => {
+    const raw = event.detail;
+    const next = raw?.timeline ?? raw;
+    if (typeof raw?.sourceRevision === 'string') knownSourceRevision = raw.sourceRevision;
+    if (!next || !Array.isArray(next.slides) || next.slides.length === 0) return;
+    timeline = next;
+    prefetchedUrls.clear();
+    rebuildTimelineDom();
+    currentTime = Math.max(0, Math.min(timeline.duration, currentTime));
+    lastUiSlideIdx = -1;
+    lastUiBeatGlobal = -1;
+    if (watchActive) {
+      syncStageRect();
+      applyVisualState(currentTime, false);
+    }
+    refreshDevStatus?.();
+  });
+
+  // Coordinate with `xarp dev` live-reload polling
+  window.addEventListener('xarp-preview-update', event => {
+    if (synthesizing || (event.detail?.sourceRevision && event.detail.sourceRevision === knownSourceRevision)) {
+      event.preventDefault();
+      if (event.detail) event.detail.notify = false;
+      return;
+    }
+    if (watchActive) {
+      updateWatchQueryParam(true, true);
+      if (playing) event.preventDefault();
+    }
+  });
+
   // Optional local `xarp dev` live synthesis integration
   if (['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) {
-    let synthesizing = false;
-    const refreshDevStatus = () => {
+    refreshDevStatus = () => {
       fetch(`/__xarp/narrate?view=${encodeURIComponent(meta.viewId || '')}`)
         .then(res => (res.ok ? res.json() : null))
         .then(info => {
@@ -1020,9 +1174,10 @@
         });
         const payload = await res.json();
         if (!res.ok || !payload?.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+        if (typeof payload.sourceRevision === 'string') knownSourceRevision = payload.sourceRevision;
         if (payload.timeline) {
           timeline = payload.timeline;
-          blobUrlCache.clear();
+          prefetchedUrls.clear();
           rebuildTimelineDom();
           const newSlide = timeline.slides.find(s => s.id === slideId) ?? timeline.slides[loc.slideIndex] ?? timeline.slides[0];
           currentTime = newSlide ? newSlide.start : 0;
@@ -1047,7 +1202,7 @@
   }
 
   window.addEventListener('pagehide', () => {
-    for (const u of createdBlobUrls) URL.revokeObjectURL(u);
+    if (watchActive) updateWatchQueryParam(true, true);
   });
 
   // Boot into Watch Mode automatically when ?watch=1 or ?mode=watch is present

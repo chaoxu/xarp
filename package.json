@@ -1,6 +1,6 @@
 {
   "name": "@chaoxu/xarp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Marp presentations with visual editing, drawing, and narrated Watch Mode",
   "license": "MIT",
   "type": "module",

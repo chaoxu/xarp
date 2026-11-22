@@ -160,6 +160,16 @@ import { contentSections } from '../slide-dom.js';
     window.dispatchEvent(new CustomEvent("xarp-color-scheme-default", {
       detail: latestRendering.documentElement.dataset.xarpColorScheme ?? "default",
     }));
+    const nextNarration = latestRendering.getElementById("xarp-narration");
+    const curNarration = document.getElementById("xarp-narration");
+    if (nextNarration && curNarration && curNarration.textContent !== nextNarration.textContent) {
+      curNarration.textContent = nextNarration.textContent;
+      try {
+        window.dispatchEvent(new CustomEvent("xarp-narration-update", {
+          detail: { timeline: JSON.parse(nextNarration.textContent || "{}"), sourceRevision },
+        }));
+      } catch (_) {}
+    }
     staleSlides.delete(savedIndex);
     patchRendering(savedIndex, latestRendering);
     if (!Array.isArray(data.changedSlides) || typeof data.deckStyleChanged !== "boolean") reloadRequired = true;

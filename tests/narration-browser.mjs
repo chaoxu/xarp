@@ -78,6 +78,7 @@ try {
 <script type="module">
 import { mountCraftStage } from '../_xarp/theme/stage.js';
 window.__lastStageT = -1;
+window.__lastStageSeg = -1;
 mountCraftStage(document.getElementById('stage'), {
   width: 960,
   height: 360,
@@ -85,11 +86,12 @@ mountCraftStage(document.getElementById('stage'), {
     { from: 0, to: 1.0, speed: 1 },
     { from: 1.0, to: 2.0, speed: 1 },
   ],
-  draw({ t, marks, labels }) {
+  draw({ t, segment, marks, labels }) {
     window.__lastStageT = t;
+    window.__lastStageSeg = segment;
     const x = 120 + (t / 2.0) * 680;
     marks.dot(x, 180, 16, { role: 'primary' });
-    labels.place('readout', \`Stage t = \${t.toFixed(2)}s\`, 480, 70, 1, { size: 22, align: 'center', role: 'ink' });
+    labels.place('readout', \`Stage seg=\${segment} t = \${t.toFixed(2)}s\`, 480, 70, 1, { size: 22, align: 'center', role: 'ink' });
   }
 });
 </script></body></html>`);
@@ -134,9 +136,13 @@ For $a, b \\geq 0$:
 
 <!-- narration:
 - Segment zero moves the point across the first half of the stage.
+  seg: 0
   duration: 1.2
-- Segment one completes the trajectory smoothly at sixty frames per second.
-  duration: 1.2
+- Segment one stretches smoothly across a two second fitted beat.
+  step: 0
+  seg: 1
+  fit: true
+  duration: 2.0
 -->
 `);
 
@@ -152,12 +158,21 @@ For $a, b \\geq 0$:
       { label: 'Concept', count: 1 },
       { label: 'Sync', count: 2 },
     ],
-    plugins: [editing(), drawing(), colorSchemes(), narration(narrationCfg)],
+    plugins: [editing(), drawing(), colorSchemes(), narration()],
+    narration: narrationCfg,
   };
 
   const synth = await narrate(deckOptions);
   assert.equal(synth.synthesized, 7);
   staticDir = synth.buildResult.output;
+
+  // Verify HTTP Range support (standard + suffix + invalid) on staticResponse
+  const clipUrlRel = synth.buildResult.narration.slides[0].beats[0].clipUrl;
+  const suffixRes = await fetch(`${staticBase}/${clipUrlRel}`, { headers: { Range: 'bytes=-128' } });
+  assert.equal(suffixRes.status, 206);
+  assert.equal((await suffixRes.arrayBuffer()).byteLength, 128);
+  const badRangeRes = await fetch(`${staticBase}/${clipUrlRel}`, { headers: { Range: 'bytes=-' } });
+  assert.equal(badRangeRes.status, 416);
 
   const page = await browser.newPage();
   const pageErrors = [];
@@ -166,7 +181,7 @@ For $a, b \\geq 0$:
   await page.setRequestInterception(true);
   page.on('request', req => {
     const u = req.url();
-    if (!u.startsWith(staticBase) && !u.startsWith('blob:') && !u.startsWith('data:')) {
+    if (!u.startsWith(staticBase) && !u.startsWith('data:')) {
       externalRequests.push(u);
       void req.abort();
     } else {
@@ -207,18 +222,29 @@ For $a, b \\geq 0$:
   await page.evaluate(t => window.__xarpNarration.seek(t + 0.05), s2.beats[2].start);
   assert.equal(await page.$$eval('svg.bespoke-marp-active [data-bespoke-marp-fragment="active"]', els => els.length), 2);
   assert.match(await page.$eval('.xarp-watch-caption-bar', el => el.textContent), /Adding four a b/);
+  // Seeking updates ?t= in URL so dev reloads keep timestamp
+  assert.match(await page.evaluate(() => location.search), /t=/);
 
-  // 3. Continuous stage __videoCtl seeking on Slide 3
+  // 3. Continuous stage __videoCtl seeking + explicit `seg: 1` + `fit: true` on Slide 3
   const s3 = tl.slides[2];
   await page.evaluate(t => window.__xarpNarration.seek(t + 0.45), s3.beats[0].start);
-  const stageT0 = await page.evaluate(() => document.querySelector('svg.bespoke-marp-active iframe').contentWindow.__lastStageT);
-  assert(stageT0 > 0.4 && stageT0 < 0.55, `Expected interpolated stage t ~ 0.45, got ${stageT0}`);
+  const stage0 = await page.evaluate(() => {
+    const w = document.querySelector('svg.bespoke-marp-active iframe').contentWindow;
+    return { t: w.__lastStageT, seg: w.__lastStageSeg };
+  });
+  assert.equal(stage0.seg, 0);
+  assert(stage0.t > 0.4 && stage0.t < 0.55, `Expected interpolated stage t ~ 0.45, got ${stage0.t}`);
 
-  await page.evaluate(t => window.__xarpNarration.seek(t + 0.55), s3.beats[1].start);
-  const stageT1 = await page.evaluate(() => document.querySelector('svg.bespoke-marp-active iframe').contentWindow.__lastStageT);
-  assert(stageT1 > 1.5 && stageT1 < 1.65, `Expected interpolated stage t ~ 1.55, got ${stageT1}`);
+  // Beat 1 has duration: 2.0, seg: 1 ([1.0..2.0]), fit: true -> at +1.0s (halfway), stage t must be ~1.50 and seg === 1!
+  await page.evaluate(t => window.__xarpNarration.seek(t + 1.0), s3.beats[1].start);
+  const stage1 = await page.evaluate(() => {
+    const w = document.querySelector('svg.bespoke-marp-active iframe').contentWindow;
+    return { t: w.__lastStageT, seg: w.__lastStageSeg };
+  });
+  assert.equal(stage1.seg, 1);
+  assert(stage1.t > 1.45 && stage1.t < 1.55, `Expected fitted stage t ~ 1.50, got ${stage1.t}`);
 
-  // 4. Real audio playback advances clock, and live color-scheme switch themes both shell & slide
+  // 4. Real audio playback advances clock monotonically without backward jumps, and live color-scheme switch themes shell & slide
   await page.evaluate(() => window.__xarpNarration.seek(0));
   await page.click('.xarp-watch-controls .xarp-watch-btn.is-primary');
   await page.waitForFunction(() => window.__xarpNarration.getState().playing && window.__xarpNarration.getState().currentTime > 0.25, { timeout: 5000 });
@@ -230,7 +256,7 @@ For $a, b \\geq 0$:
   await page.evaluate(() => window.__xarpNarration.pause());
   await page.screenshot({ path: join(outputShots, 'watch-desktop-ukiyo-e.png') });
 
-  // 5. Drawing (`D`) pauses playback and draws over the 16:9 Watch stage
+  // 5. Drawing (`D`) pauses playback and draws over the Watch stage
   await page.evaluate(() => window.__xarpNarration.play());
   await page.keyboard.press('d');
   await page.waitForSelector('body.xarp-drawing-active');
@@ -246,68 +272,61 @@ For $a, b \\geq 0$:
   await page.waitForSelector('.xarp-drawing-ink > path');
   await page.keyboard.press('d');
 
-  // 6. Narrow mobile portrait layout keeps 16:9 stage above scrollable transcript
+  // 6. Narrow mobile portrait layout keeps stage above scrollable transcript, AND Theater toggle hides sidebar on mobile too!
   await page.setViewport({ width: 390, height: 844 });
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   await page.screenshot({ path: join(outputShots, 'watch-mobile.png') });
+  await page.click('.xarp-watch-sidebar-toggle');
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  assert.equal(await page.$eval('.xarp-watch-sidebar', el => getComputedStyle(el).display), 'none');
+  await page.click('.xarp-watch-sidebar-toggle');
 
-  // 7. Direct URL ?watch=1&t=... entry
+  // 7. Direct URL ?watch=1&t=... entry and clean exit query cleanup
   await page.setViewport({ width: 1280, height: 800 });
   await page.goto(`${staticBase}/?watch=1&t=${s2.beats[1].start.toFixed(2)}`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('body.xarp-watch-active');
   const bootState = await page.evaluate(() => window.__xarpNarration.getState());
   assert.equal(bootState.slideId, 'proof');
   assert.equal(bootState.beatIndex, 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => location.search), '?f=1');
 
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(externalRequests, []);
   await page.close();
 
-  // 8. Live synthesis endpoint `/__xarp/narrate` inside `xarp dev`
+  // 8. Live Slide Markdown save in Edit Mode updates Watch Mode timeline in place without reloading, plus `/__xarp/narrate` synthesis
   preview = await dev({ ...deckOptions, port: 0, watch: false });
   ttsRequests.length = 0;
-  await writeFile(join(cwd, 'slides.md'), `---
-title: Piece-by-Piece Web Cinema
----
-
-<!-- slide: intro -->
-# Updated Intro
-
-<!-- beat: Brand new sentence synthesized from the browser dev button. -->
-
----
-
-<!-- slide: proof -->
-# Stepwise Fragment Sync
-
-* $(a - b)^2 \\geq 0$
-* $(a + b)^2 \\geq 4ab$
-
-<!-- narration:
-- Start from two nonnegative real numbers a and b.
-- Any real square is nonnegative.
-- Adding four a b bounds the squared sum from below.
--->
-
----
-
-<!-- slide: motion -->
-# Continuous Stage Seek
-
-<iframe src="assets/stage.html" style="width:960px;height:360px;border:0"></iframe>
-
-<!-- narration:
-- Segment zero moves the point across the first half of the stage.
-  duration: 1.2
-- Segment one completes the trajectory smoothly at sixty frames per second.
-  duration: 1.2
--->
-`);
 
   const devPage = await browser.newPage();
   await devPage.setViewport({ width: 1280, height: 800 });
-  await devPage.goto(`${preview.url}?watch=1`, { waitUntil: 'networkidle0' });
+  await devPage.goto(preview.url, { waitUntil: 'networkidle0' });
+  await devPage.evaluate(() => { window.__noReloadSentinel = 'intact'; });
+
+  // Open Edit Mode (`E`), open Slide Markdown drawer, edit Slide 1's beat, and Save Source
+  await devPage.keyboard.press('e');
+  await devPage.waitForSelector('body.xarp-edit-active');
+  await devPage.click('#te-source');
+  await devPage.waitForFunction(() => document.getElementById('te-textarea').value.includes('Welcome to Watch Mode'));
+  await devPage.evaluate(() => {
+    const ta = document.getElementById('te-textarea');
+    ta.value = '# Updated Intro\n\n<!-- beat: Brand new sentence saved live from Slide Markdown. -->\n';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await devPage.click('#te-save-src');
+  await devPage.waitForFunction(() => document.getElementById('te-status')?.classList.contains('is-saved'));
+  await devPage.click('#te-done');
+
+  // Enter Watch Mode (`W`) -> timeline already reflects saved beat without reload!
+  await devPage.keyboard.press('w');
   await devPage.waitForSelector('body.xarp-watch-active');
+  assert.equal(await devPage.evaluate(() => window.__noReloadSentinel), 'intact');
+  assert.equal(
+    await devPage.evaluate(() => window.__xarpNarration.getTimeline().slides[0].beats[0].caption),
+    'Brand new sentence saved live from Slide Markdown.',
+  );
+
   // Click "Synthesize slide" in Watch header -> synthesizes ONLY intro's 1 changed beat!
   await devPage.waitForFunction(() => {
     const btns = [...document.querySelectorAll('.xarp-watch-header .xarp-watch-btn')];
@@ -319,10 +338,10 @@ title: Piece-by-Piece Web Cinema
   });
   await devPage.waitForFunction(() => document.querySelector('.xarp-watch-status')?.textContent?.includes('Synthesized 1 clip'));
   assert.equal(ttsRequests.length, 1);
-  assert.match(ttsRequests[0], /Brand new sentence/);
+  assert.match(ttsRequests[0], /Brand new sentence saved live from Slide Markdown/);
   await devPage.close();
 
-  console.log('PASS narration-browser: Watch Mode layout, fragment sync, continuous stage seek, audio clock, live style switch, drawing, mobile layout, and dev synthesis');
+  console.log('PASS narration-browser: Watch Mode layout, fragment sync, stage seg+fit, audio clock, live style switch, drawing, mobile theater, live editor sync, and dev synthesis');
 } finally {
   await preview?.close();
   await browser.close();

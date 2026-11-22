@@ -1,18 +1,24 @@
 import { createServer } from 'node:http';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   build,
+  formatWebVtt,
+  narrate,
+  parseSlideNarration,
+} from '../lib/index.js';
+import {
+  applyGlossary,
+  buildNarrationTimeline,
   cleanCaptionText,
   computeAsrErrorRate,
-  narrate,
   normalizeSpeechText,
-  parseSlideNarration,
   parseWavDuration,
+  resolveNarrationDir,
   trimWavSilence,
-} from '../lib/index.js';
+} from '../lib/narration.js';
 import { narration } from '../lib/plugins/index.js';
 
 const directories: string[] = [];
@@ -51,7 +57,7 @@ function makePcmWav(segments: { sec: number; amp: number; freq?: number }[], sam
 }
 
 describe('narration parsing, speech normalization, and WAV trimming', () => {
-  test('parses beat and narration comments with colons while ignoring code fences and presenter notes', () => {
+  test('parses beat and narration comments with math pipes, capitalized colons, seg/fit, and pause-only holds', () => {
     const md = `
 # Linear program
 
@@ -59,6 +65,8 @@ describe('narration parsing, speech normalization, and WAV trimming', () => {
 
 <!-- narration:
 - Step 1: plot $2x + y \\leq 6$ on the first quadrant.
+- Duration: two seconds of intuition &mdash; with $a < b & c > d$.
+- Audio: crisp voiceover without triggering a file path.
 - Optimal vertex (2, 2): objective reaches $x + y = 4$.
   tts: Optimal vertex two comma two, objective reaches X plus Y equals four.
   pause: 0.5
@@ -69,49 +77,89 @@ describe('narration parsing, speech normalization, and WAV trimming', () => {
 <!-- beat: Inside a code block; must be ignored! -->
 \`\`\`
 
-<!-- beat: One more check: $a^2 \\geq 0$ by Chao Xu. | step: 2 -->
+<!-- beat: Norm $\\|v\\| \\geq |x|$ by Chao Xu. | step: 2 | seg: 3 | fit: true -->
+<!-- beat: pause: 1 -->
 `;
     const beats = parseSlideNarration(md, { 'Chao Xu': '许超' });
-    expect(beats).toHaveLength(3);
+    expect(beats).toHaveLength(6);
     expect(beats[0]!.caption).toBe('Step 1: plot 2x + y ≤ 6 on the first quadrant.');
     expect(beats[0]!.tts).toContain('less than or equal to 6');
-    expect(beats[1]!.caption).toBe('Optimal vertex (2, 2): objective reaches x + y = 4.');
-    expect(beats[1]!.tts).toBe('Optimal vertex two comma two, objective reaches X plus Y equals four.');
-    expect(beats[1]!.pause).toBe(0.5);
-    expect(beats[1]!.cue).toBe('chime');
-    expect(beats[2]!.step).toBe(2);
-    expect(beats[2]!.tts).toContain('a squared greater than or equal to 0 by 许超.');
+    expect(beats[1]!.caption).toBe('Duration: two seconds of intuition — with a < b & c > d.');
+    expect(beats[1]!.duration).toBeUndefined();
+    expect(beats[2]!.caption).toBe('Audio: crisp voiceover without triggering a file path.');
+    expect(beats[2]!.audio).toBeUndefined();
+    expect(beats[3]!.caption).toBe('Optimal vertex (2, 2): objective reaches x + y = 4.');
+    expect(beats[3]!.tts).toBe('Optimal vertex two comma two, objective reaches X plus Y equals four.');
+    expect(beats[3]!.pause).toBe(0.5);
+    expect(beats[3]!.cue).toBe('chime');
+    expect(beats[4]!.caption).toBe('Norm ‖v‖ ≥ |x| by Chao Xu.');
+    expect(beats[4]!.step).toBe(2);
+    expect(beats[4]!.seg).toBe(3);
+    expect(beats[4]!.fit).toBe(true);
+    expect(beats[4]!.tts).toContain('norm of v greater than or equal to absolute value of x by 许超.');
+    expect(beats[5]!.silent).toBe(true);
+    expect(beats[5]!.pause).toBe(1);
+
+    const { timeline } = buildNarrationTimeline({
+      viewId: 'deck',
+      deckTitle: 'Deck',
+      slides: [{ id: 's1', body: md, title: 'Linear program', fragmentCount: 2 }],
+      vttUrl: '_xarp/narration/captions.vtt',
+    });
+    expect(timeline.slides[0]!.beats[5]!.duration).toBe(1);
+    const vtt = formatWebVtt(timeline);
+    expect(vtt).toContain('a &lt; b &amp; c &gt; d');
   });
 
-  test('normalizes math, links, and glossary boundaries cleanly', () => {
+  test('normalizes math, links, and single-pass glossary boundaries without re-expansion', () => {
     const glossary = { AI: 'artificial intelligence', 'TC^0': 'T C zero', 'Chao Xu': '许超' };
     expect(normalizeSpeechText('MAIN domain uses AI in $TC^0$ with [Chao Xu](https://example.com).', glossary))
       .toBe('MAIN domain uses artificial intelligence in T C zero with 许超.');
-    expect(cleanCaptionText('Bound $\\dfrac{a+b}{2} \\geq \\sqrt{ab}$ in **bold**.'))
-      .toBe('Bound (a+b)/(2) ≥ √(ab) in bold.');
+    expect(applyGlossary('a and b', { a: 'ab', b: 'bc' })).toBe('ab and bc');
+    expect(cleanCaptionText('Bound $\\left(\\dfrac{a-b}{2}\\right)^2 \\geq 0$ in **bold**.'))
+      .toBe('Bound ((a-b)/(2))² ≥ 0 in bold.');
+    expect(normalizeSpeechText('Difference $a - b < c$.')).toContain('a minus b less than c');
   });
 
-  test('measures WAV duration, trims filler tail bursts, and computes bilingual ASR error rate', () => {
+  test('measures WAV duration (including streaming size=0), trims filler tail opt-in only, and rejects symlinked cache dir', async () => {
     const raw = makePcmWav([
       { sec: 0.12, amp: 0 },      // leading silence
       { sec: 1.0, amp: 0.35 },    // main speech
       { sec: 0.4, amp: 0 },       // >= 280ms silence gap
-      { sec: 0.25, amp: 0.2 },    // trailing filler burst from prompt suffix
+      { sec: 0.25, amp: 0.2 },    // trailing speech / filler burst
       { sec: 0.1, amp: 0 },
     ]);
     expect(parseWavDuration(raw)).toBeCloseTo(1.87, 2);
+
+    // Default trimFillerTail=false preserves natural multi-clause speech after a 400ms pause!
+    const preserved = trimWavSilence(raw);
+    expect(parseWavDuration(preserved)!).toBeGreaterThan(1.6);
+
+    // Explicit trimFillerTail=true removes the isolated post-gap filler burst
     const trimmed = trimWavSilence(raw, { trimFillerTail: true });
     const trimmedDur = parseWavDuration(trimmed)!;
     expect(trimmedDur).toBeGreaterThan(1.0);
     expect(trimmedDur).toBeLessThan(1.2);
 
+    // Streaming WAV header with data chunk size = 0
+    const streamingWav = Buffer.from(raw);
+    streamingWav.writeUInt32LE(0, 40);
+    expect(parseWavDuration(streamingWav)).toBeCloseTo(1.87, 2);
+
     expect(computeAsrErrorRate('Hello 许超 world', 'hello 许超 world!')).toBe(0);
     expect(computeAsrErrorRate('alpha beta gamma delta', 'alpha beta delta')).toBeCloseTo(0.25, 2);
+
+    // Symlink escape check on narration cache directory
+    const rootDir = await mkdtemp(join(tmpdir(), 'xarp-symlink-parent-'));
+    const outsideDir = await mkdtemp(join(tmpdir(), 'xarp-symlink-outside-'));
+    directories.push(rootDir, outsideDir);
+    await symlink(outsideDir, join(rootDir, 'narration'));
+    await expect(resolveNarrationDir(rootDir, join(rootDir, 'dist'), 'narration')).rejects.toThrow(/outside the project/);
   });
 });
 
-describe('piecewise synthesis, incremental caching, ASR retry, and multi-view builds', () => {
-  test('only synthesizes changed beats, retries bad ASR draws, shares clips across views, and prunes orphans', async () => {
+describe('piecewise synthesis, zero metadata leak, env-independent hashes, and --check mode', () => {
+  test('never leaks TTS config to HTML, resolves cached clips without env vars, stages distinct VTTs, and lints with check', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'xarp-narrate-test-'));
     directories.push(cwd);
 
@@ -124,7 +172,7 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
       for await (const c of req) chunks.push(c as Buffer);
       const bodyBuf = Buffer.concat(chunks);
 
-      if (req.url === '/tts') {
+      if (req.url === '/secret-tts-endpoint') {
         const body = JSON.parse(bodyBuf.toString('utf8')) as { text: string };
         ttsCalls.push(body.text);
         const durSec = body.text.includes('Slide two') ? 0.9 : 0.7;
@@ -138,7 +186,7 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
         return;
       }
 
-      if (req.url === '/asr') {
+      if (req.url === '/secret-asr-endpoint') {
         const transcript = lastAudioTranscript.get(ttsCalls.length) ?? '';
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ text: transcript }));
@@ -151,8 +199,9 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
 
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
     const port = (server.address() as { port: number }).port;
-    const ttsUrl = `http://127.0.0.1:${port}/tts`;
-    const asrUrl = `http://127.0.0.1:${port}/asr`;
+    const ttsUrl = `http://127.0.0.1:${port}/secret-tts-endpoint`;
+    const asrUrl = `http://127.0.0.1:${port}/secret-asr-endpoint`;
+    const prevEnvUrl = process.env.XARP_TTS_URL;
 
     try {
       const initialMd = [
@@ -169,6 +218,7 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
         '<!-- narration:',
         '- Slide two base state.',
         '- Slide two first step.',
+        '- Slide two second step.',
         '-->',
         '',
         '---',
@@ -179,40 +229,84 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
       ].join('\n');
       await writeFile(join(cwd, 'slides.md'), initialMd);
 
+      // Configure WITHOUT url in config; supply XARP_TTS_URL only during `narrate`
       const narrationConfig = {
+        glossary: { secretGlossaryTerm: 'spoken-secret' },
         tts: {
-          provider: 'http' as const,
-          url: ttsUrl,
           format: 'wav' as const,
           promptSuffix: ' 。。。',
+          trimFillerTail: true,
           verify: { url: asrUrl, maxErrorRate: 0.25, retries: 2 },
         },
       };
 
-      // 1. Initial synthesis: 4 spoken beats + 1 ASR retry on s1 = 5 HTTP TTS calls
+      // 0. Before synthesis, `--check` reports 5 missing clips
+      const preCheck = await narrate({
+        cwd,
+        input: 'slides.md',
+        output: 'dist',
+        check: true,
+        plugins: [narration({ captions: true, cues: false })],
+        narration: narrationConfig,
+      });
+      expect(preCheck.missing).toBe(5);
+      expect(preCheck.issues.length).toBe(5);
+
+      // 1. Initial synthesis with XARP_TTS_URL in env: 5 spoken beats + 1 ASR retry on s1 = 6 HTTP TTS calls
+      process.env.XARP_TTS_URL = ttsUrl;
       const first = await narrate({
         cwd,
         input: 'slides.md',
         output: 'dist',
+        // Also pass narrationConfig directly into narration() to verify legacy callers still never leak secrets!
         plugins: [narration(narrationConfig)],
       });
-      expect(first.spokenBeats).toBe(4);
-      expect(first.synthesized).toBe(4);
+      expect(first.spokenBeats).toBe(5);
+      expect(first.synthesized).toBe(5);
       expect(first.cached).toBe(0);
-      expect(ttsCalls).toHaveLength(5);
+      expect(ttsCalls).toHaveLength(6);
 
-      const timeline1 = JSON.parse(await readFile(join(cwd, 'dist/_xarp/narration/timeline.json'), 'utf8'));
+      // Verify ZERO secret/endpoint/glossary leak in exported index.html!
+      const builtHtml = await readFile(join(cwd, 'dist/index.html'), 'utf8');
+      expect(builtHtml).not.toContain('secret-tts-endpoint');
+      expect(builtHtml).not.toContain('secret-asr-endpoint');
+      expect(builtHtml).not.toContain('secretGlossaryTerm');
+      expect(builtHtml).not.toContain('promptSuffix');
+
+      const timeline1 = first.buildResult!.narration!;
       expect(timeline1.hasAudio).toBe(true);
-      expect(timeline1.synthesizedCount).toBe(4);
-      expect(timeline1.slides).toHaveLength(3);
-      expect(timeline1.slides[1].fragmentCount).toBe(2);
-      expect(timeline1.slides[1].beats[1].step).toBe(1);
+      expect(timeline1.synthesizedCount).toBe(5);
+      expect(timeline1.vttUrl).toMatch(/^_xarp\/narration\/captions-[a-f0-9]{16}\.vtt$/);
+      const vtt1 = await readFile(join(cwd, 'dist', timeline1.vttUrl), 'utf8');
+      expect(vtt1).toContain('WEBVTT');
+      expect(vtt1).toContain('Slide two first step.');
 
-      const vtt = await readFile(join(cwd, 'dist/_xarp/narration/slides.vtt'), 'utf8');
-      expect(vtt).toContain('WEBVTT');
-      expect(vtt).toContain('Slide two first step.');
+      // 2. Unset XARP_TTS_URL completely (simulating CI or a fresh shell) and run `build()`:
+      //    environment-independent clip hash MUST still resolve all 5 cached clips!
+      delete process.env.XARP_TTS_URL;
+      const ciBuild = await build({
+        cwd,
+        input: 'slides.md',
+        output: 'dist-ci',
+        plugins: [narration()],
+        narration: narrationConfig,
+      });
+      expect(ciBuild.narration!.hasAudio).toBe(true);
+      expect(ciBuild.narration!.synthesizedCount).toBe(5);
 
-      // 2. Edit ONLY s2's second beat -> only 1 new TTS call, other 3 beats come straight from cache!
+      // `--check` now passes with 0 issues!
+      const cleanCheck = await narrate({
+        cwd,
+        input: 'slides.md',
+        output: 'dist',
+        check: true,
+        plugins: [narration()],
+        narration: narrationConfig,
+      });
+      expect(cleanCheck.issues).toEqual([]);
+
+      // 3. Edit ONLY s2's second beat -> only 1 new TTS call, other 4 beats come straight from cache!
+      process.env.XARP_TTS_URL = ttsUrl;
       ttsCalls.length = 0;
       const updatedMd = initialMd.replace('Slide two first step.', 'Slide two revised inequality.');
       await writeFile(join(cwd, 'slides.md'), updatedMd);
@@ -221,39 +315,58 @@ describe('piecewise synthesis, incremental caching, ASR retry, and multi-view bu
         cwd,
         input: 'slides.md',
         output: 'dist',
-        plugins: [narration(narrationConfig)],
+        plugins: [narration()],
+        narration: narrationConfig,
       });
       expect(second.synthesized).toBe(1);
-      expect(second.cached).toBe(3);
+      expect(second.cached).toBe(4);
       expect(ttsCalls).toHaveLength(1);
       expect(ttsCalls[0]).toContain('Slide two revised inequality.');
 
-      // 3. Build a subset view (s1 + s3 only) -> 0 TTS calls, and dist-sub stages ONLY 2 clips!
+      // 4. Build a subset view (s1 + s3 only) -> 0 TTS calls, stages ONLY 2 clips, and produces a distinct VTT filename!
+      delete process.env.XARP_TTS_URL;
       ttsCalls.length = 0;
-      await build({
+      const subBuild = await build({
         cwd,
         input: 'slides.md',
         output: 'dist-sub',
         slides: ['s1', 's3'],
-        plugins: [narration(narrationConfig)],
+        plugins: [narration()],
+        narration: narrationConfig,
       });
       expect(ttsCalls).toHaveLength(0);
+      expect(subBuild.narration!.vttUrl).not.toBe(second.buildResult!.narration!.vttUrl);
       const subClips = await readdir(join(cwd, 'dist-sub/_xarp/narration/clips'));
       expect(subClips).toHaveLength(2);
 
-      // 4. Prune removes the superseded "Slide two first step." clip while keeping all 4 active clips
+      // 5. Prune removes the superseded "Slide two first step." clip while keeping all 5 active clips
       const pruned = await narrate({
         cwd,
         input: 'slides.md',
         output: 'dist',
         prune: true,
         build: false,
-        plugins: [narration(narrationConfig)],
+        plugins: [narration()],
+        narration: narrationConfig,
       });
       expect(pruned.pruned).toBe(1);
       const cachedFiles = await readdir(join(cwd, 'narration/clips'));
-      expect(cachedFiles).toHaveLength(4);
+      expect(cachedFiles).toHaveLength(5);
+
+      // 6. `--check` catches explicit out-of-range `step:`
+      await writeFile(join(cwd, 'slides.md'), updatedMd.replace('Slide three takeaway.', 'Slide three takeaway. | step: 4'));
+      const badStepCheck = await narrate({
+        cwd,
+        input: 'slides.md',
+        output: 'dist',
+        check: true,
+        plugins: [narration()],
+        narration: narrationConfig,
+      });
+      expect(badStepCheck.issues.some(msg => msg.includes('explicit step 4 exceeds fragment count (0)'))).toBe(true);
     } finally {
+      if (prevEnvUrl === undefined) delete process.env.XARP_TTS_URL;
+      else process.env.XARP_TTS_URL = prevEnvUrl;
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
   });

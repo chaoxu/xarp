@@ -9,7 +9,7 @@ The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathemat
 Install Node.js 24 or 26, then install the release package in your project:
 
 ```sh
-npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.2.0/chaoxu-xarp-0.2.0.tgz
+npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.2.1/chaoxu-xarp-0.2.1.tgz
 ```
 
 Write `slides.md`:
@@ -100,6 +100,7 @@ Paths in a configuration file are relative to that file. A CLI input argument ov
 | `sections` | None | Bottom progress navigation as `{ label, count }` entries |
 | `assets` | Adjacent `assets/`, when present | Project-relative paths to copy |
 | `plugins` | None | Browser features to include |
+| `narration` | None | Build and TTS synthesis options for narrated decks (kept out of browser metadata) |
 
 Section counts must sum to the number of selected slides. Named selection uses markers such as `<!-- slide: introduction -->` at the start of a slide. Ordinary decks need no markers. Duplicate IDs and unknown selected IDs fail the build.
 
@@ -157,40 +158,35 @@ For $a, b \geq 0$:
 -->
 ```
 
-Single beats also work inline with `<!-- beat: Explain this step. -->`, silent holds with `<!-- narration: silent 2.0 -->`, and custom recorded snippets with `audio: path/to/clip.m4a` inside a beat block. Ordinary speaker notes without `narration:` or `beat:` stay presenter-only.
+Single beats also work inline with `<!-- beat: Explain this step. -->`, silent holds with `<!-- narration: silent 2.0 -->`, and custom recorded snippets with `audio: path/to/clip.m4a` inside a beat block. For slides hosting a `chao-ui` `Stage.mount(...)` animation, set `seg: 2` to select a stage segment independently of Marp fragment `step`, and `fit: true` to stretch `[seg.from, seg.to]` over the beat's spoken duration; consecutive beats sharing the same segment interpolate smoothly across the combined span. Ordinary speaker notes without `narration:` or `beat:` stay presenter-only.
 
-Configure `narration()` in `xarp.config.mjs`:
+Configure viewer defaults on `narration()` and synthesis options on top-level `narration` in `xarp.config.mjs` (browser `#xarp-meta` receives only `{ captions, sidebar, cues }`, never TTS endpoints, commands, or glossaries):
 
 ```js
 import { editing, drawing, colorSchemes, narration } from '@chaoxu/xarp/plugins';
 
 export default {
   input: 'slides.md',
-  plugins: [
-    editing(),
-    drawing(),
-    colorSchemes(),
-    narration({
-      glossary: { KaTeX: 'Kay-tech' },
-      tts: {
-        provider: 'http', // 'http', 'openai', 'say' (macOS), or 'command'
-        url: process.env.XARP_TTS_URL,
-        speed: 0.95,
-      },
-    }),
-  ],
+  plugins: [editing(), drawing(), colorSchemes(), narration()],
+  narration: {
+    glossary: { KaTeX: 'Kay-tech' },
+    tts: {
+      speed: 0.95, // pass endpoint at synthesis time via XARP_TTS_URL or --tts-url
+    },
+  },
 };
 ```
 
-Synthesize audio clips and build the presentation:
+Synthesize audio clips, lint beat alignment, and build the presentation:
 
 ```sh
-npx xarp narrate
+XARP_TTS_URL=https://tts.example/api/tts npx xarp narrate
 npx xarp narrate --only welcome,proof
+npx xarp narrate --check
 npx xarp narrate --prune
 ```
 
-`narrate` stores content-addressed clips under `narration/clips/` (`narration/cache.json`). Editing one sentence regenerates only that beat's clip; reordering slides, editing slide layout or CSS (`npx xarp build`), or building a subset `slides` view reuses existing clips without calling TTS. When `ffmpeg` is installed, clips are trimmed and loudness-normalized (`-16 LUFS` AAC `.m4a`). Optional `tts.verify` (`url` or `command`) runs an ASR transcript check and retries bad draws automatically.
+`narrate` stores content-addressed clips under `narration/clips/` (`narration/cache.json`) using an environment-independent clip hash, so subsequent `npx xarp build` or CI builds resolve cached clips without `XARP_TTS_URL` set. Editing one sentence regenerates only that beat's clip; reordering slides, editing slide layout or CSS (`npx xarp build`), or building a subset `slides` view reuses existing clips without calling TTS. `npx xarp narrate --check` validates fragment step counts, custom audio paths, and cached clip coverage without calling TTS. When `ffmpeg` is installed, clips are trimmed and loudness-normalized (`-16 LUFS` AAC `.m4a`). Optional `tts.verify` (`url` or `command`) runs an ASR transcript edit-rate check and retries bad draws automatically.
 
 Open `?watch=1` (or press **W** in the deck) to enter Watch Mode:
 

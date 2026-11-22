@@ -4,8 +4,21 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { slideParser } from './editor/slide-edits.js';
 import { isWithin, pathExists } from './files.js';
+import { NARRATION_BUILD_OPTIONS } from './plugins/index.js';
 import { hash, requireValue } from './source.js';
-import type { BuildOptions, NarrationOptions, NarrationTtsOptions, Section, SoundCueKind } from './types.js';
+import type {
+  BuildOptions,
+  NarrationOptions,
+  NarrationTimeline,
+  NarrationTimelineBeat,
+  NarrationTimelineSection,
+  NarrationTimelineSlide,
+  NarrationTtsOptions,
+  Section,
+  SoundCueKind,
+} from './types.js';
+
+export type { NarrationTimeline, NarrationTimelineBeat, NarrationTimelineSection, NarrationTimelineSlide };
 
 const run = promisify(execFile);
 
@@ -18,6 +31,8 @@ export interface AuthoredBeat {
   audio?: string;
   cue?: SoundCueKind;
   step?: number;
+  seg?: number;
+  fit?: boolean;
   silent: boolean;
 }
 
@@ -40,62 +55,6 @@ export interface NarrationCache {
   clips: Record<string, CachedClipRecord>;
 }
 
-export interface NarrationTimelineBeat {
-  index: number;
-  globalIndex: number;
-  slideIndex: number;
-  step: number;
-  caption: string;
-  tts: string;
-  silent: boolean;
-  synthesized: boolean;
-  start: number;
-  end: number;
-  duration: number;
-  clipStart: number;
-  clipDuration: number;
-  pause: number;
-  clipHash?: string;
-  clipUrl?: string;
-  cue?: SoundCueKind;
-}
-
-export interface NarrationTimelineSlide {
-  index: number;
-  number: number;
-  id: string;
-  title: string;
-  section?: string;
-  sectionIndex?: number;
-  fragmentCount: number;
-  start: number;
-  end: number;
-  duration: number;
-  beats: NarrationTimelineBeat[];
-}
-
-export interface NarrationTimelineSection {
-  index: number;
-  label: string;
-  start: number;
-  end: number;
-  slideNumbers: number[];
-}
-
-export interface NarrationTimeline {
-  version: 1;
-  viewId: string;
-  title: string;
-  duration: number;
-  beatCount: number;
-  spokenBeatCount: number;
-  synthesizedCount: number;
-  hasAudio: boolean;
-  vttUrl: string;
-  sections: NarrationTimelineSection[];
-  slides: NarrationTimelineSlide[];
-}
-
 const VALID_CUES = new Set<SoundCueKind>(['chime', 'brush', 'thud', 'none']);
 
 const r3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -104,36 +63,62 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&quot;/gi, '"')
+    .replace(/&(apos|#39);/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, code: string) => {
+      const cp = Number(code);
+      return Number.isSafeInteger(cp) && cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => {
+      const cp = parseInt(hex, 16);
+      return Number.isSafeInteger(cp) && cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : _;
+    })
+    .replace(/&amp;/gi, '&');
+}
+
+/** Single-pass longest-key-first glossary replacement so replacements containing keys never re-expand. */
 export function applyGlossary(text: string, glossary?: Record<string, string>): string {
   if (!glossary) return text;
   const entries = Object.entries(glossary)
     .filter(([key]) => key.trim().length > 0)
     .sort((a, b) => b[0].length - a[0].length);
   if (!entries.length) return text;
-  let result = text;
-  for (const [key, replacement] of entries) {
+  const byKey = new Map(entries);
+  const patterns = entries.map(([key]) => {
     const startsWord = /^[A-Za-z0-9_]/.test(key);
     const endsWord = /[A-Za-z0-9_]$/.test(key);
-    const pattern = `${startsWord ? '(?<![A-Za-z0-9_])' : ''}${escapeRegExp(key)}${endsWord ? '(?![A-Za-z0-9_])' : ''}`;
-    result = result.replace(new RegExp(pattern, 'g'), () => replacement);
-  }
-  return result;
+    return `${startsWord ? '(?<![A-Za-z0-9_])' : ''}${escapeRegExp(key)}${endsWord ? '(?![A-Za-z0-9_])' : ''}`;
+  });
+  return text.replace(new RegExp(patterns.join('|'), 'g'), matched => byKey.get(matched) ?? matched);
 }
 
 function readableMathForCaption(tex: string): string {
-  let out = tex.trim();
+  let out = tex
+    .trim()
+    .replace(/\\(?:left|right|[bB]igg?|[dD]isplaystyle|[tT]extstyle)\b/g, '')
+    .replace(/\\\|/g, '‖');
   for (let i = 0; i < 3; i++) {
     out = out
       .replace(/\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)')
       .replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)')
-      .replace(/\\text\s*\{([^{}]*)\}/g, '$1')
-      .replace(/\\mathrm\s*\{([^{}]*)\}/g, '$1');
+      .replace(/\\(?:text|mathrm|mathbf|mathit|mathbb|mathcal)\s*\{([^{}]*)\}/g, '$1');
   }
   return out
     .replace(/\\(?:geq|ge)\b/g, '≥')
     .replace(/\\(?:leq|le)\b/g, '≤')
     .replace(/\\(?:neq|ne)\b/g, '≠')
     .replace(/\\approx\b/g, '≈')
+    .replace(/\\in\b/g, '∈')
+    .replace(/\\sum\b/g, '∑')
+    .replace(/\\prod\b/g, '∏')
+    .replace(/\\int\b/g, '∫')
     .replace(/\\times\b/g, '×')
     .replace(/\\cdot\b/g, '·')
     .replace(/\\(?:to|rightarrow)\b/g, '→')
@@ -148,12 +133,17 @@ function readableMathForCaption(tex: string): string {
 }
 
 function spokenMath(tex: string): string {
-  let out = tex.trim();
+  let out = tex
+    .trim()
+    .replace(/\\(?:left|right|[bB]igg?|[dD]isplaystyle|[tT]extstyle)\b/g, ' ')
+    .replace(/\\\|\s*([^\\|]+?)\s*\\\|/g, ' norm of $1 ')
+    .replace(/\\\|/g, ' norm ')
+    .replace(/\|\s*([^|]+?)\s*\|/g, ' absolute value of $1 ');
   for (let i = 0; i < 3; i++) {
     out = out
       .replace(/\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, ' $1 over $2 ')
       .replace(/\\sqrt\s*\{([^{}]*)\}/g, ' square root of $1 ')
-      .replace(/\\(?:text|mathrm|mathbf|mathit)\s*\{([^{}]*)\}/g, ' $1 ');
+      .replace(/\\(?:text|mathrm|mathbf|mathit|mathbb|mathcal)\s*\{([^{}]*)\}/g, ' $1 ');
   }
   return out
     .replace(/\^\{2\}|\^2(?![0-9])/g, ' squared ')
@@ -162,6 +152,10 @@ function spokenMath(tex: string): string {
     .replace(/\^([A-Za-z0-9]+)/g, ' to the $1 ')
     .replace(/_\{([^{}]+)\}/g, ' sub $1 ')
     .replace(/_([A-Za-z0-9]+)/g, ' sub $1 ')
+    .replace(/\\sum\b|∑/g, ' sum ')
+    .replace(/\\prod\b|∏/g, ' product ')
+    .replace(/\\int\b|∫/g, ' integral ')
+    .replace(/\\in\b|∈/g, ' in ')
     .replace(/\\(?:geq|ge)\b|≥/g, ' greater than or equal to ')
     .replace(/\\(?:leq|le)\b|≤/g, ' less than or equal to ')
     .replace(/\\(?:neq|ne)\b|≠/g, ' not equal to ')
@@ -172,8 +166,11 @@ function spokenMath(tex: string): string {
     .replace(/\\infty\b|∞/g, ' infinity ')
     .replace(/>=/g, ' greater than or equal to ')
     .replace(/<=/g, ' less than or equal to ')
+    .replace(/>/g, ' greater than ')
+    .replace(/</g, ' less than ')
     .replace(/=/g, ' equals ')
     .replace(/\+/g, ' plus ')
+    .replace(/-/g, ' minus ')
     .replace(/\\[a-zA-Z]+/g, match => ` ${match.slice(1)} `)
     .replace(/[{}]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -181,24 +178,33 @@ function spokenMath(tex: string): string {
 }
 
 export function cleanCaptionText(raw: string): string {
-  return raw
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) => readableMathForCaption(tex))
-    .replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, tex: string) => readableMathForCaption(tex))
-    .replace(/\\\$/g, '$')
-    .replace(/<\/?[a-z][a-z0-9-]*\b[^>]*>/gi, '')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*\n]+)\*/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return decodeHtmlEntities(
+    raw
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) => readableMathForCaption(tex))
+      .replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, tex: string) => readableMathForCaption(tex))
+      .replace(/\\\$/g, '$')
+      .replace(/<\/?[a-z][a-z0-9-]*\b[^>]*>/gi, ' ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*\n]+)\*/g, '$1'),
+  ).replace(/\s+/g, ' ').trim();
 }
 
 export function normalizeSpeechText(raw: string, glossary?: Record<string, string>, expandMath = true): string {
-  let out = applyGlossary(raw, glossary)
+  let out = raw
+    .replace(/<br\s*\/?>/gi, ' ')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/<\/?[a-z][a-z0-9-]*\b[^>]*>/gi, ' ');
   if (expandMath) {
+    // Protect glossary tokens inside math before spokenMath expands TeX operators.
+    const preGlossary = glossary
+      ? Object.fromEntries(Object.entries(glossary).filter(([k]) => /[^A-Za-z0-9_\s]/.test(k)))
+      : undefined;
+    if (preGlossary && Object.keys(preGlossary).length > 0) {
+      out = applyGlossary(out, preGlossary);
+    }
     out = out
       .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) => ` ${spokenMath(tex)} `)
       .replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, tex: string) => ` ${spokenMath(tex)} `)
@@ -208,11 +214,13 @@ export function normalizeSpeechText(raw: string, glossary?: Record<string, strin
       .replace(/²/g, ' squared ')
       .replace(/³/g, ' cubed ');
   }
-  out = out
-    .replace(/\\\$/g, '$')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*\n]+)\*/g, '$1');
+  out = decodeHtmlEntities(
+    out
+      .replace(/\\\$/g, '$')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*\n]+)\*/g, '$1'),
+  );
   out = applyGlossary(out, glossary);
   return out.replace(/\s+/g, ' ').trim();
 }
@@ -237,6 +245,8 @@ interface RawBeatFields {
   audio?: string;
   cue?: SoundCueKind;
   step?: number;
+  seg?: number;
+  fit?: boolean;
   silent?: boolean;
 }
 
@@ -246,9 +256,9 @@ function parseNumberField(name: string, raw: string, min: number): number {
   return value;
 }
 
-function parseStepField(raw: string): number {
+function parseNonNegInt(name: string, raw: string): number {
   const value = Number(raw.trim());
-  requireValue(Number.isSafeInteger(value) && value >= 0, `Invalid narration step: ${raw}`);
+  requireValue(Number.isSafeInteger(value) && value >= 0, `Invalid narration ${name}: ${raw}`);
   return value;
 }
 
@@ -273,38 +283,100 @@ function unquote(value: string): string {
   return trimmed;
 }
 
+// Case-sensitive lowercase metadata keys so capitalized prose (`Duration: ...`, `Audio: ...`) stays prose.
+const META_KEY_NAMES = 'text|caption|tts|say|speak|pause|duration|hold|audio|cue|step|fragment|seg|segment|fit|silent';
+const META_KEY_RE = new RegExp(`^(${META_KEY_NAMES})\\s*:\\s*(.*)$`);
+const INLINE_KEY_AHEAD_RE = new RegExp(`^(${META_KEY_NAMES})\\s*:`);
+
+/**
+ * Split inline ` | key: value` metadata segments ONLY outside `$...$` / `$$...$$`, quotes, and `\|` escapes,
+ * and ONLY when the pipe is followed by a recognized lowercase metadata key.
+ */
+function splitInlineMetadataSegments(line: string): string[] {
+  const segments: string[] = [];
+  let start = 0;
+  let inMath = false;
+  let mathDouble = false;
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (!inMath && (ch === '"' || ch === "'")) {
+      if (quote === ch) quote = null;
+      else if (!quote && (i === 0 || /\s/.test(line[i - 1]!))) quote = ch;
+      continue;
+    }
+    if (!quote && ch === '$') {
+      const isDouble = line[i + 1] === '$';
+      if (!inMath) {
+        inMath = true;
+        mathDouble = isDouble;
+        if (isDouble) i++;
+      } else if (mathDouble && isDouble) {
+        inMath = false;
+        mathDouble = false;
+        i++;
+      } else if (!mathDouble && !isDouble) {
+        inMath = false;
+      }
+      continue;
+    }
+    if (!inMath && !quote && ch === '|' && i > 0 && /\s/.test(line[i - 1]!)) {
+      const after = line.slice(i + 1).trimStart();
+      if (INLINE_KEY_AHEAD_RE.test(after)) {
+        segments.push(line.slice(start, i).trim());
+        start = line.indexOf(after, i + 1);
+        i = start - 1;
+      }
+    }
+  }
+  segments.push(line.slice(start).trim());
+  return segments.filter(Boolean);
+}
+
 function applyProperty(fields: RawBeatFields, key: string, rawValue: string): 'caption' | 'tts' | null {
-  const k = key.toLowerCase();
   const v = unquote(rawValue);
-  if (k === 'text' || k === 'caption') {
+  if (key === 'text' || key === 'caption') {
     if (v) fields.captionLines.push(v);
     return 'caption';
   }
-  if (k === 'tts' || k === 'say' || k === 'speak') {
+  if (key === 'tts' || key === 'say' || key === 'speak') {
     if (v) fields.ttsLines.push(v);
     return 'tts';
   }
-  if (k === 'pause') {
+  if (key === 'pause') {
     fields.pause = parseNumberField('pause', v, 0);
     return null;
   }
-  if (k === 'duration' || k === 'hold') {
+  if (key === 'duration' || key === 'hold') {
     fields.duration = parseNumberField('duration', v, 0.1);
     return null;
   }
-  if (k === 'audio') {
+  if (key === 'audio') {
     fields.audio = validateAudioField(v);
     return null;
   }
-  if (k === 'cue') {
+  if (key === 'cue') {
     fields.cue = parseCueField(v);
     return null;
   }
-  if (k === 'step' || k === 'fragment' || k === 'segment') {
-    fields.step = parseStepField(v);
+  if (key === 'step' || key === 'fragment') {
+    fields.step = parseNonNegInt('step', v);
     return null;
   }
-  if (k === 'silent') {
+  if (key === 'seg' || key === 'segment') {
+    fields.seg = parseNonNegInt('segment', v);
+    return null;
+  }
+  if (key === 'fit') {
+    fields.fit = !v || /^(?:true|yes|1)$/i.test(v);
+    return null;
+  }
+  if (key === 'silent') {
     if (!v || /^(?:true|yes|1)$/i.test(v)) {
       fields.silent = true;
     } else if (/^(?:false|no|0)$/i.test(v)) {
@@ -317,8 +389,6 @@ function applyProperty(fields: RawBeatFields, key: string, rawValue: string): 'c
   }
   return null;
 }
-
-const META_KEY_RE = /^(text|caption|tts|say|speak|pause|duration|hold|audio|cue|step|fragment|segment|silent)\s*:\s*(.*)$/i;
 
 function finalizeBeat(fields: RawBeatFields, glossary?: Record<string, string>): AuthoredBeat | null {
   const rawCaption = fields.captionLines.join(' ').trim();
@@ -344,29 +414,34 @@ function finalizeBeat(fields: RawBeatFields, glossary?: Record<string, string>):
     ...(fields.audio !== undefined ? { audio: fields.audio } : {}),
     ...(fields.cue !== undefined ? { cue: fields.cue } : {}),
     ...(fields.step !== undefined ? { step: fields.step } : {}),
+    ...(fields.seg !== undefined ? { seg: fields.seg } : {}),
+    ...(fields.fit !== undefined ? { fit: fields.fit } : {}),
   };
+}
+
+function ingestBeatLine(fields: RawBeatFields, rawLine: string, activeField: 'caption' | 'tts'): 'caption' | 'tts' {
+  let nextActive = activeField;
+  const segments = splitInlineMetadataSegments(rawLine.trim());
+  for (const seg of segments) {
+    const prop = seg.match(META_KEY_RE);
+    if (prop) {
+      const switched = applyProperty(fields, prop[1]!, prop[2]!);
+      if (switched) nextActive = switched;
+    } else if (nextActive === 'tts') {
+      fields.ttsLines.push(seg);
+    } else {
+      fields.captionLines.push(seg);
+    }
+  }
+  return nextActive;
 }
 
 function parseSingleBeatBlock(content: string, glossary?: Record<string, string>): AuthoredBeat | null {
   const fields: RawBeatFields = { captionLines: [], ttsLines: [] };
   let activeField: 'caption' | 'tts' = 'caption';
   for (const rawLine of content.split('\n')) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    // Support inline pipe metadata on single-line beats: `Caption text | tts: Spoken text | pause: 0.4`
-    const pipeSegments = trimmed.includes('|') ? trimmed.split(/\s*\|\s*/) : [trimmed];
-    for (let i = 0; i < pipeSegments.length; i++) {
-      const seg = pipeSegments[i]!;
-      const prop = seg.match(META_KEY_RE);
-      if (prop && (i > 0 || rawLine.trimStart() === seg)) {
-        const nextField = applyProperty(fields, prop[1]!, prop[2]!);
-        if (nextField) activeField = nextField;
-      } else if (activeField === 'tts') {
-        fields.ttsLines.push(seg);
-      } else {
-        fields.captionLines.push(seg);
-      }
-    }
+    if (!rawLine.trim()) continue;
+    activeField = ingestBeatLine(fields, rawLine, activeField);
   }
   return finalizeBeat(fields, glossary);
 }
@@ -405,35 +480,13 @@ function parseNarrationBlock(content: string, glossary?: Record<string, string>)
       flush();
       current = { captionLines: [], ttsLines: [] };
       activeField = 'caption';
-      const first = bullet[1]!.trim();
-      if (!first) continue;
-      const pipeSegments = first.includes('|') ? first.split(/\s*\|\s*/) : [first];
-      for (let i = 0; i < pipeSegments.length; i++) {
-        const seg = pipeSegments[i]!;
-        const prop = seg.match(META_KEY_RE);
-        if (prop) {
-          const nextField = applyProperty(current, prop[1]!, prop[2]!);
-          if (nextField) activeField = nextField;
-        } else if (activeField === 'tts') {
-          current.ttsLines.push(seg);
-        } else {
-          current.captionLines.push(seg);
-        }
-      }
+      if (bullet[1]!.trim()) activeField = ingestBeatLine(current, bullet[1]!, activeField);
       continue;
     }
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
     if (!current) current = { captionLines: [], ttsLines: [] };
-    const prop = line.match(META_KEY_RE);
-    if (prop) {
-      const nextField = applyProperty(current, prop[1]!, prop[2]!);
-      if (nextField) activeField = nextField;
-    } else if (activeField === 'tts') {
-      current.ttsLines.push(line);
-    } else {
-      current.captionLines.push(line);
-    }
+    activeField = ingestBeatLine(current, line, activeField);
   }
   flush();
   return beats;
@@ -467,32 +520,39 @@ export function parseSlideNarration(slideBody: string, glossary?: Record<string,
   return beats;
 }
 
-export function resolveTtsSignature(tts?: NarrationTtsOptions) {
+/** Runtime transport resolution for `xarp narrate` (never used in `computeClipHash`). */
+export function resolveTtsRuntime(tts?: NarrationTtsOptions) {
   const provider = tts?.provider ?? (tts?.command?.length ? 'command' : (tts?.url || process.env.XARP_TTS_URL) ? 'http' : 'say');
   const url = tts?.url ?? process.env.XARP_TTS_URL ?? '';
   const voice = tts?.voice ?? process.env.XARP_TTS_VOICE ?? '';
   const model = tts?.model ?? process.env.XARP_TTS_MODEL ?? '';
   const speed = tts?.speed ?? 1;
-  const promptSuffix = tts?.promptSuffix ?? '';
+  const promptSuffix = (provider === 'http' || provider === 'command') ? (tts?.promptSuffix ?? '') : '';
   const body = tts?.body ?? null;
   return { provider, url, voice, model, speed, promptSuffix, body };
 }
 
+/**
+ * Deterministic, environment-independent clip hash so `xarp build` / `xarp dev` in any shell or CI
+ * always resolves clips previously synthesized by `xarp narrate`.
+ */
 export function computeClipHash(ttsText: string, tts?: NarrationTtsOptions): string {
-  const sig = resolveTtsSignature(tts);
   return hash(JSON.stringify({
-    v: 1,
-    provider: sig.provider,
-    voice: sig.voice,
-    model: sig.model,
-    speed: sig.speed,
-    promptSuffix: sig.promptSuffix,
-    body: sig.body,
+    v: 2,
+    voice: tts?.voice ?? 'default',
+    model: tts?.model ?? '',
+    speed: tts?.speed ?? 1,
+    format: tts?.format ?? 'auto',
+    normalize: tts?.normalize !== false,
+    trimFillerTail: tts?.trimFillerTail === true,
+    promptSuffix: tts?.promptSuffix ?? '',
+    command: tts?.command ?? null,
+    body: tts?.body ?? null,
     text: ttsText,
   })).slice(0, 24);
 }
 
-/** Parse RIFF/WAVE header duration in seconds without external processes. */
+/** Parse RIFF/WAVE header duration in seconds without external processes (including streaming size=0 WAVs). */
 export function parseWavDuration(buf: Buffer): number | undefined {
   if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return undefined;
   let byteRate = 0;
@@ -505,9 +565,11 @@ export function parseWavDuration(buf: Buffer): number | undefined {
     if (id === 'fmt ' && size >= 16 && payload + 16 <= buf.length) {
       byteRate = buf.readUInt32LE(payload + 8);
     } else if (id === 'data') {
-      dataBytes = Math.min(size, Math.max(0, buf.length - payload));
+      const remaining = Math.max(0, buf.length - payload);
+      dataBytes = size === 0 || size === 0xffffffff ? remaining : Math.min(size, remaining);
       if (byteRate > 0) break;
     }
+    if (size === 0 && id === 'data') break;
     offset = payload + size + (size % 2);
   }
   return byteRate > 0 && dataBytes > 0 ? dataBytes / byteRate : undefined;
@@ -523,7 +585,9 @@ function findMp4Atom(buf: Buffer, start: number, end: number, target: string): {
     if (size32 === 1) {
       if (offset + 16 > end) return undefined;
       header = 16;
-      atomEnd = offset + Number(buf.readBigUInt64BE(offset + 8));
+      const bigSize = buf.readBigUInt64BE(offset + 8);
+      if (bigSize > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+      atomEnd = offset + Number(bigSize);
     } else if (size32 === 0) {
       atomEnd = end;
     } else {
@@ -537,7 +601,7 @@ function findMp4Atom(buf: Buffer, start: number, end: number, target: string): {
   return undefined;
 }
 
-/** Parse ISO BMFF (`m4a`/`mp4`) `moov -> mvhd` duration in seconds without external processes. */
+/** Parse ISO BMFF (`m4a`/`mp4`) `moov -> mvhd` duration in seconds; fragmented streams fall through to `ffprobe`. */
 export function parseMp4Duration(buf: Buffer): number | undefined {
   const moov = findMp4Atom(buf, 0, buf.length, 'moov');
   if (!moov) return undefined;
@@ -547,12 +611,12 @@ export function parseMp4Duration(buf: Buffer): number | undefined {
   if (version === 0) {
     const timescale = buf.readUInt32BE(mvhd.payload + 12);
     const duration = buf.readUInt32BE(mvhd.payload + 16);
-    return timescale > 0 ? duration / timescale : undefined;
+    return timescale > 0 && duration > 0 ? duration / timescale : undefined;
   }
   if (version === 1 && mvhd.payload + 32 <= mvhd.end) {
     const timescale = buf.readUInt32BE(mvhd.payload + 20);
     const duration = Number(buf.readBigUInt64BE(mvhd.payload + 24));
-    return timescale > 0 ? duration / timescale : undefined;
+    return timescale > 0 && duration > 0 ? duration / timescale : undefined;
   }
   return undefined;
 }
@@ -568,8 +632,8 @@ export async function probeAudioDuration(filePath: string): Promise<number> {
     const dur = parseMp4Duration(buf);
     if (dur !== undefined && dur > 0) return r3(dur);
   }
-  const wavFallback = parseWavDuration(buf) ?? parseMp4Duration(buf);
-  if (wavFallback !== undefined && wavFallback > 0) return r3(wavFallback);
+  const fastFallback = parseWavDuration(buf) ?? parseMp4Duration(buf);
+  if (fastFallback !== undefined && fastFallback > 0) return r3(fastFallback);
   const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nk=1:nw=1', filePath]);
   const parsed = Number(stdout.trim());
   requireValue(Number.isFinite(parsed) && parsed > 0, `Could not determine audio duration for ${filePath}`);
@@ -577,8 +641,7 @@ export async function probeAudioDuration(filePath: string): Promise<number> {
 }
 
 /**
- * Trim leading/trailing silence and trailing neural-TTS filler bursts (e.g. from prompt suffixes)
- * on uncompressed PCM or IEEE-float WAV buffers. Returns the original buffer if unsupported.
+ * Trim leading/trailing silence (and optional opt-in filler-tail bursts) on PCM or IEEE-float WAV buffers.
  */
 export function trimWavSilence(buf: Buffer, options: { thresholdDb?: number; trimFillerTail?: boolean } = {}): Buffer {
   if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return buf;
@@ -599,7 +662,8 @@ export function trimWavSilence(buf: Buffer, options: { thresholdDb?: number; tri
       fmtChunk = buf.subarray(offset, payload + size + (size % 2));
     } else if (id === 'data' && payload <= buf.length) {
       dataStart = payload;
-      dataLen = Math.min(size, buf.length - payload);
+      const remaining = Math.max(0, buf.length - payload);
+      dataLen = size === 0 || size === 0xffffffff ? remaining : Math.min(size, remaining);
       break;
     }
     offset = payload + size + (size % 2);
@@ -651,8 +715,7 @@ export function trimWavSilence(buf: Buffer, options: { thresholdDb?: number; tri
   }
   if (firstVoiced < 0) return buf;
 
-  // Drop isolated short filler bursts (<1.1s) after a >=280ms silence gap in the final 40% of the clip.
-  if (options.trimFillerTail !== false && numWins >= 120) {
+  if (options.trimFillerTail === true && numWins >= 120) {
     let endW = lastVoiced;
     while (endW > Math.floor(numWins * 0.6)) {
       let burstStart = endW;
@@ -671,8 +734,8 @@ export function trimWavSilence(buf: Buffer, options: { thresholdDb?: number; tri
     lastVoiced = endW;
   }
 
-  const startFrame = Math.max(0, (firstVoiced - 3) * winFrames); // keep 30 ms lead breath
-  const endFrame = Math.min(totalFrames, (lastVoiced + 8) * winFrames); // keep 80 ms natural decay
+  const startFrame = Math.max(0, (firstVoiced - 3) * winFrames);
+  const endFrame = Math.min(totalFrames, (lastVoiced + 8) * winFrames);
   if (endFrame <= startFrame) return buf;
 
   const sliceBytes = (endFrame - startFrame) * blockAlign;
@@ -691,15 +754,15 @@ export function trimWavSilence(buf: Buffer, options: { thresholdDb?: number; tri
 }
 
 function tokenizeForAsr(text: string): string[] {
-  const lower = text.toLowerCase();
+  const lower = text.normalize('NFKC').toLowerCase();
   const tokens: string[] = [];
-  for (const match of lower.matchAll(/[\u3400-\u9fff\uf900-\ufaff]|[a-z0-9]+/g)) {
+  for (const match of lower.matchAll(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}]+/gu)) {
     tokens.push(match[0]);
   }
   return tokens;
 }
 
-/** Normalized edit distance `[0..1+]` over English words and CJK characters for ASR verification. */
+/** Normalized multilingual token/character edit rate `[0..1+]` for ASR verification. */
 export function computeAsrErrorRate(expectedText: string, actualTranscript: string): number {
   const expected = tokenizeForAsr(expectedText);
   const actual = tokenizeForAsr(actualTranscript);
@@ -725,6 +788,11 @@ export interface SlideNarrationInput {
   fragmentCount: number;
 }
 
+export interface CustomAudioAssetInfo {
+  duration: number;
+  contentHash: string;
+}
+
 export interface BuildTimelineInput {
   viewId: string;
   deckTitle: string;
@@ -732,8 +800,26 @@ export interface BuildTimelineInput {
   sections?: Section[];
   options?: NarrationOptions;
   cache?: NarrationCache;
-  customAudioDurations?: Map<string, number>;
+  customAudio?: Map<string, CustomAudioAssetInfo>;
   vttUrl: string;
+}
+
+export function validateNarrationOptions(opts: NarrationOptions) {
+  if (opts.defaultSlideDuration !== undefined) {
+    requireValue(Number.isFinite(opts.defaultSlideDuration) && opts.defaultSlideDuration >= 0.1, 'narration.defaultSlideDuration must be >= 0.1');
+  }
+  if (opts.beatPause !== undefined) {
+    requireValue(Number.isFinite(opts.beatPause) && opts.beatPause >= 0, 'narration.beatPause must be >= 0');
+  }
+  if (opts.slideLeadIn !== undefined) {
+    requireValue(Number.isFinite(opts.slideLeadIn) && opts.slideLeadIn >= 0, 'narration.slideLeadIn must be >= 0');
+  }
+  if (opts.tts?.speed !== undefined) {
+    requireValue(Number.isFinite(opts.tts.speed) && opts.tts.speed > 0, 'narration.tts.speed must be > 0');
+  }
+  if (opts.tts?.verify?.maxErrorRate !== undefined) {
+    requireValue(Number.isFinite(opts.tts.verify.maxErrorRate) && opts.tts.verify.maxErrorRate >= 0 && opts.tts.verify.maxErrorRate <= 1, 'narration.tts.verify.maxErrorRate must be in [0, 1]');
+  }
 }
 
 export function buildNarrationTimeline(input: BuildTimelineInput): {
@@ -742,6 +828,7 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
   referencedCustomAudio: Map<string, string>;
 } {
   const opts = input.options ?? {};
+  validateNarrationOptions(opts);
   const defaultSlideDur = opts.defaultSlideDuration ?? 2.4;
   const defaultPause = opts.beatPause ?? 0.32;
   const slideLeadIn = opts.slideLeadIn ?? 0.14;
@@ -754,8 +841,8 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
     }
   }
 
-  const referencedClips = new Map<string, string>(); // clipHash -> cache-relative file
-  const referencedCustomAudio = new Map<string, string>(); // project-relative audio -> dist-relative url
+  const referencedClips = new Map<string, string>();
+  const referencedCustomAudio = new Map<string, string>();
   const timelineSlides: NarrationTimelineSlide[] = [];
 
   let cursor = 0;
@@ -794,8 +881,9 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
 
     for (const [beatIndex, beat] of effectiveBeats.entries()) {
       const beatStart = r3(cursor);
-      const leadIn = beatIndex === 0 && !beat.silent ? slideLeadIn : 0;
-      const pause = beat.pause ?? (beat.silent ? 0 : defaultPause);
+      const isSilentBeat = beat.silent && !beat.audio;
+      const leadIn = beatIndex === 0 && !isSilentBeat ? slideLeadIn : 0;
+      const pause = beat.pause ?? (isSilentBeat ? 0 : defaultPause);
       const step = beat.step ?? beatIndex;
 
       let clipHash: string | undefined;
@@ -804,20 +892,20 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
       let synthesized = false;
 
       if (beat.audio) {
-        const customDur = input.customAudioDurations?.get(beat.audio);
-        if (customDur !== undefined && customDur > 0) {
+        const customInfo = input.customAudio?.get(beat.audio);
+        if (customInfo && customInfo.duration > 0) {
           const ext = extname(beat.audio).toLowerCase() || '.m4a';
-          const customKey = `custom-${hash(beat.audio).slice(0, 20)}${ext}`;
+          const customKey = `custom-${customInfo.contentHash.slice(0, 20)}${ext}`;
           clipUrl = `_xarp/narration/clips/${customKey}`;
           referencedCustomAudio.set(beat.audio, clipUrl);
-          clipDuration = r3(customDur);
+          clipDuration = r3(customInfo.duration);
           synthesized = true;
         } else {
           clipDuration = beat.duration ?? estimateSpeechDuration(beat.caption || beat.tts);
         }
         spokenBeatCount++;
         if (synthesized) synthesizedCount++;
-      } else if (!beat.silent && beat.tts) {
+      } else if (!isSilentBeat && beat.tts) {
         spokenBeatCount++;
         clipHash = computeClipHash(beat.tts, opts.tts);
         const cached = input.cache?.clips[clipHash];
@@ -834,8 +922,9 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
       }
 
       const minDur = beat.duration ?? 0;
-      const totalDur = beat.silent && !beat.audio
-        ? r3(Math.max(0.2, beat.duration ?? defaultSlideDur))
+      const silentDur = beat.duration ?? (beat.pause !== undefined && beat.pause > 0 ? beat.pause : defaultSlideDur);
+      const totalDur = isSilentBeat
+        ? r3(Math.max(0.1, silentDur))
         : r3(Math.max(minDur, leadIn + clipDuration + pause));
       const beatEnd = r3(beatStart + totalDur);
       cursor = beatEnd;
@@ -845,9 +934,11 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
         globalIndex: globalBeatIndex++,
         slideIndex,
         step,
+        ...(beat.seg !== undefined ? { seg: beat.seg } : {}),
+        ...(beat.fit !== undefined ? { fit: beat.fit } : {}),
         caption: beat.caption,
         tts: beat.tts,
-        silent: beat.silent && !beat.audio,
+        silent: isSilentBeat,
         synthesized,
         start: beatStart,
         end: beatEnd,
@@ -920,23 +1011,26 @@ function formatVttTimestamp(seconds: number): string {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${secs.toFixed(3).padStart(6, '0')}`;
 }
 
+function escapeVttText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function formatWebVtt(timeline: NarrationTimeline): string {
   const captionedBeats = timeline.slides.flatMap(slide => slide.beats.filter(beat => beat.caption.length > 0));
   const blocks = captionedBeats.map((beat, idx) => {
     const nextStart = idx + 1 < captionedBeats.length ? captionedBeats[idx + 1]!.start - 0.02 : timeline.duration;
     const end = Math.max(beat.start + 0.1, Math.min(beat.end, nextStart));
-    return `${idx + 1}\n${formatVttTimestamp(beat.start)} --> ${formatVttTimestamp(end)}\n${beat.caption}\n`;
+    return `${idx + 1}\n${formatVttTimestamp(beat.start)} --> ${formatVttTimestamp(end)}\n${escapeVttText(beat.caption)}\n`;
   });
   return `WEBVTT\n\n${blocks.join('\n')}`;
 }
 
-export function extractNarrationOptions(options: BuildOptions & { narration?: NarrationOptions }): NarrationOptions {
-  if (options.narration) return options.narration;
-  const plugin = options.plugins?.find(item => item.name === 'narration');
-  if (plugin?.data && typeof plugin.data === 'object' && !Array.isArray(plugin.data)) {
-    return plugin.data as unknown as NarrationOptions;
-  }
-  return {};
+export function extractNarrationOptions(options: BuildOptions): NarrationOptions {
+  const plugin = options.plugins?.find(item => item.name === 'narration') as (Record<symbol, unknown> | undefined);
+  const fromPlugin = (plugin?.[NARRATION_BUILD_OPTIONS] as NarrationOptions | undefined) ?? {};
+  const merged: NarrationOptions = { ...fromPlugin, ...(options.narration ?? {}) };
+  validateNarrationOptions(merged);
+  return merged;
 }
 
 export async function resolveNarrationDir(cwd: string, output: string, dirOption?: string): Promise<string> {
@@ -945,11 +1039,18 @@ export async function resolveNarrationDir(cwd: string, output: string, dirOption
   let dir = resolve(cwd, rel);
   requireValue(dir !== cwd && isWithin(cwd, dir), 'Narration directory must stay inside the project');
   requireValue(!isWithin(dir, output) && !isWithin(output, dir), 'Narration directory must not overlap the output directory');
+  if (await pathExists(dir)) {
+    const canonicalDir = await realpath(dir);
+    requireValue(canonicalDir !== cwd && isWithin(cwd, canonicalDir), 'Narration directory symlink is outside the project');
+    requireValue(!isWithin(canonicalDir, output) && !isWithin(output, canonicalDir), 'Narration directory must not overlap the output directory');
+    return canonicalDir;
+  }
   let ancestor = dirname(dir);
   while (!await pathExists(ancestor)) ancestor = dirname(ancestor);
   const canonicalAncestor = await realpath(ancestor);
   requireValue(isWithin(cwd, canonicalAncestor), 'Narration directory symlink is outside the project');
   dir = resolve(canonicalAncestor, relative(ancestor, dir));
+  requireValue(dir !== cwd && isWithin(cwd, dir) && !isWithin(dir, output) && !isWithin(output, dir), 'Narration directory must stay inside the project');
   return dir;
 }
 
@@ -971,9 +1072,11 @@ export async function loadNarrationCache(cacheDir: string): Promise<NarrationCac
     if (!/^[a-f0-9]{12,64}$/.test(key) || !entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     const rec = entry as Partial<CachedClipRecord>;
     if (typeof rec.file !== 'string' || rec.file.split(/[\\/]/).some(p => p === '..' || p.startsWith('.'))) continue;
-    const full = resolve(realCache, rec.file);
-    if (!isWithin(realCache, full) || !await pathExists(full)) continue;
+    const rawFull = resolve(realCache, rec.file);
+    if (!await pathExists(rawFull)) continue;
     try {
+      const full = await realpath(rawFull);
+      if (!isWithin(realCache, full)) continue;
       const info = await stat(full);
       if (!info.isFile() || info.size === 0) continue;
       const duration = typeof rec.duration === 'number' && Number.isFinite(rec.duration) && rec.duration > 0
