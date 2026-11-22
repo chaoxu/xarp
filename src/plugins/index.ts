@@ -48,11 +48,11 @@ export function narration(options: NarrationOptions = {}): Plugin {
     captions: options.captions ?? true,
     sidebar: options.sidebar ?? true,
     cues: options.cues ?? false,
+    launcher: options.launcher ?? false,
   };
   const plugin: Plugin = {
     name: 'narration',
-    styles: [asset('narration.css')],
-    scripts: [asset('narration.js')],
+    scripts: [asset('narration-boot.js')],
     data: viewerData,
   };
   Object.defineProperty(plugin, NARRATION_BUILD_OPTIONS, {

@@ -284,6 +284,32 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       assets.fingerprint.push([vttRel, vttHash]);
       builtNarration = timeline;
       narrationJson = JSON.stringify(timeline).replace(/</g, '\\u003c');
+      const timelineJs = `window.__xarpNarrationTimeline=${narrationJson};\n`;
+      const timelineHash = hash(timelineJs);
+      const timelineRel = `_xarp/narration/timeline-${timelineHash.slice(0, 16)}.js`;
+      await writeFile(join(stage, timelineRel), timelineJs, 'utf8');
+      assets.fingerprint.push([timelineRel, timelineHash]);
+
+      // Stage Watch Mode CSS + player JS for on-demand loading without injecting them eagerly on slide loads
+      await mkdir(join(stage, '_xarp/plugins'), { recursive: true });
+      for (const lazyFile of ['narration.css', 'narration.js'] as const) {
+        const srcPath = join(browserRoot, lazyFile);
+        const destRel = `_xarp/plugins/${lazyFile}`;
+        await copyFile(srcPath, join(stage, destRel));
+        assets.fingerprint.push([destRel, hash(await readFile(srcPath))]);
+      }
+
+      const curNarrationData = typeof assets.data.narration === 'object' && assets.data.narration && !Array.isArray(assets.data.narration)
+        ? (assets.data.narration as Record<string, unknown>)
+        : {};
+      assets.data.narration = {
+        ...curNarrationData,
+        timelineUrl: timelineRel,
+        styleUrl: '_xarp/plugins/narration.css',
+        scriptUrl: '_xarp/plugins/narration.js',
+        vttUrl: vttRel,
+        duration: timeline.duration,
+      };
     }
     const buildRevision = hash(JSON.stringify({
       source: document.revision, version: packageInfo.version, theme,
@@ -302,7 +328,6 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     for (const path of assets.styles) $('head').append($('<link rel="stylesheet">').attr('href', path));
     const json = JSON.stringify({ ...metadata, plugins: assets.data }).replace(/</g, '\\u003c');
     $('body').append(`<script id="xarp-meta" type="application/json">${json}</script>`);
-    if (narrationJson) $('body').append(`<script id="xarp-narration" type="application/json">${narrationJson}</script>`);
     for (const path of assets.scripts) $('body').append($('<script defer></script>').attr('src', path));
     await writeFile(htmlPath, $.html());
     await writeFile(join(stage, '.xarp-build.json'), JSON.stringify({ generator: '@chaoxu/xarp', version: packageInfo.version, buildRevision }) + '\n');

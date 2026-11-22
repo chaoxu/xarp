@@ -49,6 +49,8 @@ export interface NarrationViewerOptions {
   sidebar?: boolean;
   /** Play subtle Web Audio transition cues by default in Watch Mode. Defaults to `false`. */
   cues?: boolean;
+  /** Show a Watch button on the default slide view. Defaults to `false` (Watch Mode loads only on `?watch=1`). */
+  launcher?: boolean;
 }
 
 export interface NarrationOptions extends NarrationViewerOptions {

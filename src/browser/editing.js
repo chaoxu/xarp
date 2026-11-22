@@ -160,14 +160,28 @@ import { contentSections } from '../slide-dom.js';
     window.dispatchEvent(new CustomEvent("xarp-color-scheme-default", {
       detail: latestRendering.documentElement.dataset.xarpColorScheme ?? "default",
     }));
-    const nextNarration = latestRendering.getElementById("xarp-narration");
-    const curNarration = document.getElementById("xarp-narration");
-    if (nextNarration && curNarration && curNarration.textContent !== nextNarration.textContent) {
-      curNarration.textContent = nextNarration.textContent;
+    const nextMetaEl = latestRendering.getElementById("xarp-meta");
+    const curMetaEl = document.getElementById("xarp-meta");
+    if (nextMetaEl && curMetaEl) {
       try {
-        window.dispatchEvent(new CustomEvent("xarp-narration-update", {
-          detail: { timeline: JSON.parse(nextNarration.textContent || "{}"), sourceRevision },
-        }));
+        const nextMeta = JSON.parse(nextMetaEl.textContent || "{}");
+        const curMeta = JSON.parse(curMetaEl.textContent || "{}");
+        const nextTimelineUrl = nextMeta?.plugins?.narration?.timelineUrl;
+        const curTimelineUrl = curMeta?.plugins?.narration?.timelineUrl;
+        curMetaEl.textContent = nextMetaEl.textContent;
+        if (nextTimelineUrl && nextTimelineUrl !== curTimelineUrl && window.__xarpNarration) {
+          const s = document.createElement("script");
+          s.src = nextTimelineUrl;
+          s.onload = () => {
+            s.remove();
+            if (window.__xarpNarrationTimeline) {
+              window.dispatchEvent(new CustomEvent("xarp-narration-update", {
+                detail: { timeline: window.__xarpNarrationTimeline, sourceRevision },
+              }));
+            }
+          };
+          document.body.append(s);
+        }
       } catch (_) {}
     }
     staleSlides.delete(savedIndex);

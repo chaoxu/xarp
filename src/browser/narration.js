@@ -4,13 +4,13 @@
 
   const metaEl = document.getElementById('xarp-meta');
   const narrationEl = document.getElementById('xarp-narration');
-  if (!metaEl || !narrationEl) return;
+  if (!metaEl) return;
 
   let meta = {};
   let timeline = null;
   try {
     meta = JSON.parse(metaEl.textContent || '{}');
-    timeline = JSON.parse(narrationEl.textContent || 'null');
+    timeline = window.__xarpNarrationTimeline ?? (narrationEl ? JSON.parse(narrationEl.textContent || 'null') : null);
   } catch {
     return;
   }
@@ -399,7 +399,11 @@
   bigPlayBtn.append(bigPlayLabel);
   stageOverlay.append(spotlightSvg, bigPlayBtn);
 
-  document.body.append(launcher, shell, stageOverlay);
+  if (pluginOpts.launcher === true) {
+    document.body.append(launcher, shell, stageOverlay);
+  } else {
+    document.body.append(shell, stageOverlay);
+  }
 
   let slideItemButtons = [];
   let transcriptButtons = [];
@@ -1236,7 +1240,7 @@
     const key = event.key;
     const lower = key.toLowerCase();
 
-    if (lower === 'w' && !document.body.classList.contains('xarp-edit-active')) {
+    if (lower === 'w' && !document.body.classList.contains('xarp-edit-active') && (watchActive || pluginOpts.launcher === true)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (watchActive) closeWatch();
@@ -1402,25 +1406,6 @@
     synthAllBtn.addEventListener('click', () => void triggerSynthesize(false));
     refreshDevStatus();
   }
-
-  // Pass pointer events through non-interactive __videoCtl stage iframes so clicking/scrolling
-  // any part of an embedded SVG stage counts as interacting with the parent slide.
-  function passThroughStageFrames(root = document) {
-    for (const frame of root.querySelectorAll('svg[data-marpit-svg] iframe')) {
-      if (frame.hasAttribute('data-interactive')) continue;
-      const syncFrame = () => {
-        try {
-          if (frame.contentWindow?.__videoCtl) {
-            frame.style.pointerEvents = 'none';
-            frame.tabIndex = -1;
-          }
-        } catch {}
-      };
-      syncFrame();
-      frame.addEventListener('load', syncFrame, { passive: true });
-    }
-  }
-  passThroughStageFrames();
 
   window.addEventListener('pagehide', () => {
     if (watchActive) updateWatchQueryParam(true, true);

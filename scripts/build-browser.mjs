@@ -17,7 +17,7 @@ await build({
 });
 await build({
   absWorkingDir: root,
-  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js', 'src/browser/marks.js', 'src/browser/narration.js'],
+  entryPoints: ['src/browser/editing.js', 'src/browser/drawing.js', 'src/browser/color-schemes.js', 'src/browser/marks.js', 'src/browser/narration-boot.js', 'src/browser/narration.js'],
   outdir: destination, bundle: true, platform: 'browser', format: 'iife',
   legalComments: 'eof', target: ['es2022'],
 });

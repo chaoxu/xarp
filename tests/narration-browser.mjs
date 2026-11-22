@@ -179,6 +179,7 @@ For $a, b \\geq 0$:
   const page = await browser.newPage();
   const pageErrors = [];
   const externalRequests = [];
+  const internalRequests = [];
   page.on('pageerror', err => pageErrors.push(String(err)));
   await page.setRequestInterception(true);
   page.on('request', req => {
@@ -187,6 +188,7 @@ For $a, b \\geq 0$:
       externalRequests.push(u);
       void req.abort();
     } else {
+      if (u.startsWith(staticBase)) internalRequests.push(u.slice(staticBase.length));
       void req.continue();
     }
   });
@@ -195,15 +197,20 @@ For $a, b \\geq 0$:
   await page.goto(staticBase, { waitUntil: 'networkidle0' });
   await page.evaluate(() => document.fonts.ready);
 
-  // 1. Launcher visible in Deck Mode; pressing W opens Watch Mode without reloading iframes
-  await page.waitForSelector('.xarp-watch-launcher');
-  await page.evaluate(() => {
-    const frame = document.querySelector('iframe');
-    frame.__keepIdentity = 'alive';
-  });
+  // 1. Default slide load stays lightweight: no Watch button, no narration.js/narration.css/timeline/audio loaded!
+  assert.equal(await page.$('.xarp-watch-launcher'), null, 'Default slide view must not render a Watch button');
+  assert.equal(await page.evaluate(() => typeof window.__xarpNarration), 'undefined');
+  for (const reqPath of internalRequests) {
+    assert(!/\/narration\.js$|\/narration\.css$|\/timeline-|\/clips\/|\.vtt$/.test(reqPath), `Unexpected eager Watch asset request on slide load: ${reqPath}`);
+  }
   await page.keyboard.press('w');
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(await page.evaluate(() => document.body.classList.contains('xarp-watch-active')), false);
+
+  // Loading Watch Mode on demand (`?watch=1` or `__xarpLoadWatch`) loads bundle without reloading iframes
+  await page.goto(`${staticBase}/?watch=1`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('body.xarp-watch-active');
-  assert.equal(await page.evaluate(() => document.querySelector('iframe').__keepIdentity), 'alive');
+  assert.equal(await page.$('.xarp-watch-launcher'), null, 'Launcher remains absent unless explicitly opted in');
   assert.match(await page.evaluate(() => location.search), /watch=1/);
 
   await page.screenshot({ path: join(outputShots, 'watch-desktop-split.png') });
@@ -331,8 +338,8 @@ For $a, b \\geq 0$:
   await devPage.waitForFunction(() => document.getElementById('te-status')?.classList.contains('is-saved'));
   await devPage.click('#te-done');
 
-  // Enter Watch Mode (`W`) -> timeline already reflects saved beat without reload!
-  await devPage.keyboard.press('w');
+  // Load Watch Mode on demand -> timeline already reflects saved beat without reload!
+  await devPage.evaluate(() => window.__xarpLoadWatch());
   await devPage.waitForSelector('body.xarp-watch-active');
   assert.equal(await devPage.evaluate(() => window.__noReloadSentinel), 'intact');
   assert.equal(
