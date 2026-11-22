@@ -69,3 +69,7 @@ section.xarp-sectioned .section-track > span {
 section.xarp-sectioned .section-current .section-track > span {
   opacity: .22;
 }
+
+body:is([data-bespoke-view="overview"], [data-bespoke-view="next"], [data-bespoke-view="presenter"]) svg[data-marpit-svg] iframe {
+  pointer-events: none !important;
+}

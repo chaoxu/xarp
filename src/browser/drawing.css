@@ -49,6 +49,7 @@
 .xarp-drawing-layer * { pointer-events: none; }
 .xarp-drawing-surface { touch-action: none; }
 body.xarp-drawing-active .xarp-drawing-surface { pointer-events: all; cursor: crosshair; }
+body:is(.xarp-drawing-active, [data-bespoke-view="overview"], [data-bespoke-view="next"], [data-bespoke-view="presenter"]) svg[data-marpit-svg] iframe { pointer-events: none !important; }
 :root:has(body.xarp-drawing-active) { overscroll-behavior: none; }
 
 .xarp-drawing-layer[hidden],

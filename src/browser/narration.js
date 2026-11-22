@@ -1403,6 +1403,25 @@
     refreshDevStatus();
   }
 
+  // Pass pointer events through non-interactive __videoCtl stage iframes so clicking/scrolling
+  // any part of an embedded SVG stage counts as interacting with the parent slide.
+  function passThroughStageFrames(root = document) {
+    for (const frame of root.querySelectorAll('svg[data-marpit-svg] iframe')) {
+      if (frame.hasAttribute('data-interactive')) continue;
+      const syncFrame = () => {
+        try {
+          if (frame.contentWindow?.__videoCtl) {
+            frame.style.pointerEvents = 'none';
+            frame.tabIndex = -1;
+          }
+        } catch {}
+      };
+      syncFrame();
+      frame.addEventListener('load', syncFrame, { passive: true });
+    }
+  }
+  passThroughStageFrames();
+
   window.addEventListener('pagehide', () => {
     if (watchActive) updateWatchQueryParam(true, true);
   });
