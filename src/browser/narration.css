@@ -138,6 +138,31 @@ body.xarp-watch-playing:not(.xarp-drawing-active) .xarp-watch-stage-overlay {
   cursor: pointer;
 }
 
+.xarp-watch-spotlight {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none !important;
+  transition: opacity 0.12s linear;
+}
+
+.xarp-watch-spotlight-dim {
+  fill: rgba(10, 15, 26, 0.28);
+}
+
+.xarp-watch-spotlight-frame {
+  fill: none;
+  stroke: var(--xarp-accent, var(--pf-accent, #1d4ed8));
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.xarp-watch-zoom-btn {
+  font-family: var(--pf-slide-font-code, "IBM Plex Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
 .xarp-watch-big-play {
   pointer-events: auto;
   display: inline-flex;

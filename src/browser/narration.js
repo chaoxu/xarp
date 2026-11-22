@@ -53,6 +53,14 @@
   let lastUiBeatGlobal = -1;
   let lastSectionIdx = -1;
 
+  // Slide camera state (authored beat zoom/focus + interactive viewer zoom)
+  let userZoom = 1;
+  let userPanX = 0;
+  let userPanY = 0;
+  let currentAppliedZoom = 1;
+  let currentAppliedFocus = [50, 50];
+  let transformedSectionEl = null;
+
   // Tiny 44-byte silent PCM WAV used to unlock HTMLAudioElement synchronously on user gesture during lead-in/silent beats.
   const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
@@ -338,7 +346,12 @@
   fullscreenBtn.type = 'button';
   fullscreenBtn.title = 'Toggle fullscreen (F)';
 
-  controlsRight.append(muteBtn, cuesBtn, speedSelect, ccBtn, vttLink, fullscreenBtn);
+  const zoomResetBtn = el('button', 'xarp-watch-btn xarp-watch-zoom-btn', '1.0×');
+  zoomResetBtn.type = 'button';
+  zoomResetBtn.hidden = true;
+  zoomResetBtn.title = 'Reset camera zoom (shortcut: 0 · zoom with + / - or Alt+scroll)';
+
+  controlsRight.append(zoomResetBtn, muteBtn, cuesBtn, speedSelect, ccBtn, vttLink, fullscreenBtn);
   controlsRow.append(controlsLeft, controlsRight);
   transport.append(timelineWrap, controlsRow);
   playerCol.append(stageArea, captionBar, transport);
@@ -364,13 +377,27 @@
   main.append(playerCol, sidebar);
   shell.append(header, main);
 
-  // Stage overlay (for initial big play button and click-to-pause while playing)
+  // Stage overlay (spotlight mask, initial big play button, and click-to-pause while playing)
+  const SVG_NS = 'http://www.w3.org/2000/svg';
   const stageOverlay = el('div', 'xarp-watch-stage-overlay');
+  const spotlightSvg = document.createElementNS(SVG_NS, 'svg');
+  spotlightSvg.setAttribute('class', 'xarp-watch-spotlight');
+  spotlightSvg.setAttribute('viewBox', '0 0 1000 1000');
+  spotlightSvg.setAttribute('preserveAspectRatio', 'none');
+  spotlightSvg.setAttribute('aria-hidden', 'true');
+  spotlightSvg.style.opacity = '0';
+  const spotlightDim = document.createElementNS(SVG_NS, 'path');
+  spotlightDim.setAttribute('class', 'xarp-watch-spotlight-dim');
+  spotlightDim.setAttribute('fill-rule', 'evenodd');
+  const spotlightFrame = document.createElementNS(SVG_NS, 'rect');
+  spotlightFrame.setAttribute('class', 'xarp-watch-spotlight-frame');
+  spotlightSvg.append(spotlightDim, spotlightFrame);
+
   const bigPlayBtn = el('button', 'xarp-watch-big-play');
   bigPlayBtn.type = 'button';
   const bigPlayLabel = el('span', '', `▶ Play (${fmtTime(timeline.duration)})`);
   bigPlayBtn.append(bigPlayLabel);
-  stageOverlay.append(bigPlayBtn);
+  stageOverlay.append(spotlightSvg, bigPlayBtn);
 
   document.body.append(launcher, shell, stageOverlay);
 
@@ -657,7 +684,7 @@
   }
 
   function navigateDeckTo(slideIndex, fragmentIndex) {
-    if (appliedSlideIdx === slideIndex && appliedFragIdx === fragmentIndex) return;
+    if (appliedSlideIdx === slideIndex && appliedFragIdx === fragmentIndex) return false;
     appliedSlideIdx = slideIndex;
     appliedFragIdx = fragmentIndex;
     const url = new URL(location.href);
@@ -666,37 +693,123 @@
     url.hash = `#${slideIndex + 1}`;
     history.replaceState(null, '', url);
     window.dispatchEvent(new PopStateEvent('popstate'));
+    return true;
   }
 
-  function applyVisualState(time, allowCue = false) {
-    const loc = locateTime(time);
-    const { slide, beat, slideIndex } = loc;
-    const targetFrag = Math.max(0, Math.min(slide.fragmentCount, beat.step));
-    const prevSlideIdx = appliedSlideIdx;
-    const prevBeatGlobal = lastUiBeatGlobal;
-
-    navigateDeckTo(slideIndex, targetFrag);
-
-    if (allowCue && playing) {
-      if (beat.cue && beat.globalIndex !== prevBeatGlobal) {
-        playCue(beat.cue);
-      } else if (prevSlideIdx >= 0 && slideIndex !== prevSlideIdx) {
-        const secIdx = slide.sectionIndex ?? -1;
-        if (secIdx >= 0 && secIdx !== lastSectionIdx) playCue('chime');
-        else playCue('brush');
-      }
+  function clearSlideCamera() {
+    if (transformedSectionEl) {
+      transformedSectionEl.style.transform = '';
+      transformedSectionEl.style.transformOrigin = '';
+      transformedSectionEl = null;
     }
-    lastSectionIdx = slide.sectionIndex ?? -1;
+    currentAppliedZoom = 1;
+    currentAppliedFocus = [50, 50];
+    zoomResetBtn.hidden = true;
+    spotlightSvg.style.opacity = '0';
+  }
 
-    // Continuous 60 fps stage seeking for any embedded chao-ui / __videoCtl stage
-    const svgs = document.querySelectorAll('svg[data-marpit-svg]');
-    const activeSvg = svgs[slideIndex];
+  function smootherstep(u) {
+    const c = Math.max(0, Math.min(1, u));
+    return c * c * c * (c * (c * 6 - 15) + 10);
+  }
+
+  function applySlideCameraAndSpotlight(activeSvg, loc) {
+    if (!activeSvg || document.body.classList.contains('xarp-drawing-active')) {
+      clearSlideCamera();
+      return;
+    }
+    const { slide, beat, beatIndex } = loc;
+    const prevBeat = beatIndex > 0 ? slide.beats[beatIndex - 1] : null;
+    const z1 = beat.zoom && beat.zoom > 1 ? beat.zoom : 1;
+    const fx1 = beat.focus ? beat.focus[0] : 50;
+    const fy1 = beat.focus ? beat.focus[1] : 50;
+    const z0 = prevBeat && prevBeat.zoom && prevBeat.zoom > 1 ? prevBeat.zoom : 1;
+    const fx0 = prevBeat
+      ? (prevBeat.focus ? prevBeat.focus[0] : (z0 > 1 ? 50 : fx1))
+      : fx1;
+    const fy0 = prevBeat
+      ? (prevBeat.focus ? prevBeat.focus[1] : (z0 > 1 ? 50 : fy1))
+      : fy1;
+
+    const transDur = Math.min(0.68, Math.max(0.22, beat.duration * 0.42));
+    const ease = smootherstep((loc.time - beat.start) / transDur);
+    const authZ = z0 + (z1 - z0) * ease;
+    const authFx = fx0 + (fx1 - fx0) * ease;
+    const authFy = fy0 + (fy1 - fy0) * ease;
+
+    const effZ = Math.min(4, authZ * userZoom);
+    const effFx = Math.max(0, Math.min(100, authFx + userPanX));
+    const effFy = Math.max(0, Math.min(100, authFy + userPanY));
+
+    const vb = activeSvg.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+    const vbW = vb && vb.length === 4 && vb[2] > 0 ? vb[2] : 1280;
+    const vbH = vb && vb.length === 4 && vb[3] > 0 ? vb[3] : 720;
+    const sectionEl = activeSvg.querySelector('foreignObject > section') || activeSvg.querySelector('section');
+
+    let tx = 0;
+    let ty = 0;
+    if (sectionEl && effZ > 1.002) {
+      if (transformedSectionEl && transformedSectionEl !== sectionEl) {
+        transformedSectionEl.style.transform = '';
+        transformedSectionEl.style.transformOrigin = '';
+      }
+      const halfSpan = 0.5 / effZ;
+      const cx = Math.max(halfSpan, Math.min(1 - halfSpan, effFx / 100));
+      const cy = Math.max(halfSpan, Math.min(1 - halfSpan, effFy / 100));
+      tx = vbW * (0.5 - cx * effZ);
+      ty = vbH * (0.5 - cy * effZ);
+      sectionEl.style.transformOrigin = '0 0';
+      sectionEl.style.transform = `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) scale(${effZ.toFixed(4)})`;
+      transformedSectionEl = sectionEl;
+      currentAppliedZoom = Math.round(effZ * 100) / 100;
+      currentAppliedFocus = [Math.round(cx * 1000) / 10, Math.round(cy * 1000) / 10];
+      zoomResetBtn.hidden = false;
+      zoomResetBtn.textContent = userZoom > 1.002 ? `${effZ.toFixed(2).replace(/\.?0+$/, '')}× ↺` : `${effZ.toFixed(2).replace(/\.?0+$/, '')}×`;
+    } else {
+      if (transformedSectionEl) {
+        transformedSectionEl.style.transform = '';
+        transformedSectionEl.style.transformOrigin = '';
+        transformedSectionEl = null;
+      }
+      currentAppliedZoom = 1;
+      currentAppliedFocus = [50, 50];
+      zoomResetBtn.hidden = true;
+    }
+
+    // Spotlight vignette cutout aligned with live camera transform
+    const spot = beat.spotlight;
+    if (spot) {
+      const fadeIn = Math.min(1, Math.max(0, (loc.time - beat.start) / 0.28));
+      const fadeOut = beat.end - loc.time < 0.22 && (!slide.beats[beatIndex + 1]?.spotlight)
+        ? Math.max(0, (beat.end - loc.time) / 0.22)
+        : 1;
+      const alpha = smootherstep(Math.min(fadeIn, fadeOut));
+      const rx = Math.max(0, Math.min(1000, ((tx + (spot[0] / 100) * vbW * effZ) / vbW) * 1000));
+      const ry = Math.max(0, Math.min(1000, ((ty + (spot[1] / 100) * vbH * effZ) / vbH) * 1000));
+      const rw = Math.max(10, Math.min(1000 - rx, spot[2] * effZ * 10));
+      const rh = Math.max(10, Math.min(1000 - ry, spot[3] * effZ * 10));
+      spotlightDim.setAttribute('d', `M0,0H1000V1000H0ZM${rx.toFixed(1)},${ry.toFixed(1)}h${rw.toFixed(1)}v${rh.toFixed(1)}h-${rw.toFixed(1)}Z`);
+      spotlightFrame.setAttribute('x', rx.toFixed(1));
+      spotlightFrame.setAttribute('y', ry.toFixed(1));
+      spotlightFrame.setAttribute('width', rw.toFixed(1));
+      spotlightFrame.setAttribute('height', rh.toFixed(1));
+      spotlightSvg.style.opacity = alpha.toFixed(3);
+    } else {
+      spotlightSvg.style.opacity = '0';
+    }
+  }
+
+  function seekStageControllers(activeSvg, loc) {
+    const { slide, beat } = loc;
     for (const ctl of findStageControllers(activeSvg)) {
-      const segs = typeof ctl.getSegments === 'function' ? ctl.getSegments() : null;
+      const segs = typeof ctl.getSegments === 'function'
+        ? ctl.getSegments()
+        : (Array.isArray(ctl.segments) ? ctl.segments : null);
       if (Array.isArray(segs) && segs.length > 0) {
         const rawSeg = beat.seg !== undefined ? beat.seg : beat.step;
         const segIdx = Math.max(0, Math.min(segs.length - 1, rawSeg));
         const seg = segs[segIdx];
+        const effFrom = segIdx === 0 && seg.from === seg.to && seg.to > 0 ? 0 : seg.from;
         const slideBeats = slide.beats;
         let groupStart = beat.start;
         let groupEnd = beat.end;
@@ -721,15 +834,55 @@
         }
         const elapsed = Math.max(0, loc.time - groupStart);
         const span = Math.max(0.05, groupEnd - groupStart);
-        const targetT = (anyFit || bEndIdx > bStartIdx)
-          ? seg.from + (seg.to - seg.from) * Math.max(0, Math.min(1, elapsed / span))
-          : Math.min(seg.to, seg.from + elapsed * (seg.speed || 1));
+        const targetT = anyFit
+          ? effFrom + (seg.to - effFrom) * Math.max(0, Math.min(1, elapsed / span))
+          : Math.min(seg.to, effFrom + elapsed * (seg.speed || 1));
         ctl.seek(targetT, segIdx);
-      } else if (typeof ctl.getDuration === 'function') {
-        const dur = Number(ctl.getDuration()) || 0;
-        ctl.seek(Math.min(dur, Math.max(0, loc.time - slide.start)));
+      } else {
+        const dur = typeof ctl.getDuration === 'function' ? Number(ctl.getDuration()) : (Number(ctl.duration) || 0);
+        if (dur > 0) ctl.seek(Math.min(dur, Math.max(0, loc.time - slide.start)));
       }
     }
+  }
+
+  function applyVisualState(time, allowCue = false) {
+    const loc = locateTime(time);
+    const { slide, beat, slideIndex } = loc;
+    const targetFrag = Math.max(0, Math.min(slide.fragmentCount, beat.step));
+    const prevSlideIdx = appliedSlideIdx;
+    const prevBeatGlobal = lastUiBeatGlobal;
+
+    const didNav = navigateDeckTo(slideIndex, targetFrag);
+
+    if (allowCue && playing) {
+      if (beat.cue && beat.globalIndex !== prevBeatGlobal) {
+        playCue(beat.cue);
+      } else if (prevSlideIdx >= 0 && slideIndex !== prevSlideIdx) {
+        const secIdx = slide.sectionIndex ?? -1;
+        if (secIdx >= 0 && secIdx !== lastSectionIdx) playCue('chime');
+        else playCue('brush');
+      }
+    }
+    lastSectionIdx = slide.sectionIndex ?? -1;
+
+    const svgs = document.querySelectorAll('svg[data-marpit-svg]');
+    const activeSvg = svgs[slideIndex];
+
+    // Subtle 180ms cross-dissolve when advancing slides during playback
+    if (allowCue && playing && prevSlideIdx >= 0 && slideIndex !== prevSlideIdx && activeSvg?.animate) {
+      try {
+        activeSvg.animate([{ opacity: 0.72 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+      } catch {}
+    }
+
+    // Continuous 60 fps stage seeking + 1:1 slide camera zoom & spotlight
+    seekStageControllers(activeSvg, loc);
+    if (didNav) {
+      queueMicrotask(() => {
+        if (watchActive) seekStageControllers(activeSvg, locateTime(currentTime));
+      });
+    }
+    applySlideCameraAndSpotlight(activeSvg, loc);
 
     // Update scrubber & time text
     if (!scrubbing) scrubber.value = loc.time.toFixed(2);
@@ -877,7 +1030,9 @@
 
   function seek(targetSec) {
     currentTime = Math.max(0, Math.min(timeline.duration, Number(targetSec) || 0));
+    if (currentTime > 0.05) hasStarted = true;
     stopVoiceAudio();
+    syncLayoutClasses();
     applyVisualState(currentTime, false);
     if (watchActive && !scrubbing) updateWatchQueryParam(true, true);
     if (playing && !scrubbing) {
@@ -932,9 +1087,26 @@
     });
   }
 
+  function setUserZoom(nextZ, panX = userPanX, panY = userPanY) {
+    userZoom = Math.max(1, Math.min(3, Number(nextZ) || 1));
+    if (userZoom <= 1.002) {
+      userZoom = 1;
+      userPanX = 0;
+      userPanY = 0;
+    } else {
+      userPanX = Math.max(-50, Math.min(50, Number(panX) || 0));
+      userPanY = Math.max(-50, Math.min(50, Number(panY) || 0));
+    }
+    if (watchActive) applyVisualState(currentTime, false);
+  }
+
   function closeWatch() {
     if (!watchActive) return;
     pause();
+    userZoom = 1;
+    userPanX = 0;
+    userPanY = 0;
+    clearSlideCamera();
     watchActive = false;
     syncLayoutClasses();
     document.body.style.removeProperty('--xarp-watch-left');
@@ -962,7 +1134,9 @@
   });
   scrubber.addEventListener('input', () => {
     scrubbing = true;
+    hasStarted = true;
     currentTime = Number(scrubber.value) || 0;
+    syncLayoutClasses();
     applyVisualState(currentTime, false);
   });
   const finishScrub = () => {
@@ -1009,6 +1183,19 @@
     requestAnimationFrame(syncStageRect);
   });
 
+  zoomResetBtn.addEventListener('click', () => setUserZoom(1, 0, 0));
+
+  playerCol.addEventListener('wheel', event => {
+    if (!watchActive || !(event.altKey || event.ctrlKey)) return;
+    event.preventDefault();
+    const rect = stageSlot.getBoundingClientRect();
+    const px = rect.width > 0 ? ((event.clientX - rect.left) / rect.width) * 100 - 50 : userPanX;
+    const py = rect.height > 0 ? ((event.clientY - rect.top) / rect.height) * 100 - 50 : userPanY;
+    const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const nextZ = Math.round(Math.max(1, Math.min(3, userZoom * factor)) * 100) / 100;
+    setUserZoom(nextZ, nextZ > 1.02 ? px : 0, nextZ > 1.02 ? py : 0);
+  }, { passive: false });
+
   exitBtn.addEventListener('click', closeWatch);
 
   fullscreenBtn.addEventListener('click', () => {
@@ -1030,8 +1217,11 @@
       closeWatch();
       return;
     }
-    if (playing && document.body.classList.contains('xarp-drawing-active')) {
-      pause();
+    if (document.body.classList.contains('xarp-drawing-active')) {
+      if (playing) pause();
+      clearSlideCamera();
+    } else {
+      applyVisualState(currentTime, false);
     }
   }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
@@ -1090,6 +1280,18 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       ccBtn.click();
+    } else if (key === '+' || key === '=') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setUserZoom(Math.round((userZoom + 0.25) * 100) / 100);
+    } else if (key === '-' || key === '_') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setUserZoom(Math.round((userZoom - 0.25) * 100) / 100);
+    } else if (key === '0') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setUserZoom(1, 0, 0);
     } else if (lower === 'f') {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1225,6 +1427,7 @@
     togglePlay,
     seek,
     stepBeat,
+    setUserZoom,
     getTimeline: () => timeline,
     getState: () => {
       const loc = locateTime(currentTime);
@@ -1238,6 +1441,9 @@
         captionsOn,
         sidebarOn,
         cuesOn,
+        zoom: currentAppliedZoom,
+        focus: currentAppliedFocus,
+        userZoom,
         slideIndex: loc.slideIndex,
         slideNumber: loc.slide.number,
         slideId: loc.slide.id,

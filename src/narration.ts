@@ -33,6 +33,9 @@ export interface AuthoredBeat {
   step?: number;
   seg?: number;
   fit?: boolean;
+  zoom?: number;
+  focus?: [number, number];
+  spotlight?: [number, number, number, number];
   silent: boolean;
 }
 
@@ -247,6 +250,9 @@ interface RawBeatFields {
   step?: number;
   seg?: number;
   fit?: boolean;
+  zoom?: number;
+  focus?: [number, number];
+  spotlight?: [number, number, number, number];
   silent?: boolean;
 }
 
@@ -283,8 +289,25 @@ function unquote(value: string): string {
   return trimmed;
 }
 
+function parsePointPair(name: string, raw: string): [number, number] {
+  const parts = raw.split(/[\s,]+/).filter(Boolean).map(s => Number(s.replace(/%$/, '')));
+  requireValue(parts.length === 2 && parts.every(n => Number.isFinite(n) && n >= 0 && n <= 100), `Invalid narration ${name} (expected "x, y" in 0..100): ${raw}`);
+  return [r3(parts[0]!), r3(parts[1]!)];
+}
+
+function parseSpotlightRect(raw: string): [number, number, number, number] {
+  const parts = raw.split(/[\s,]+/).filter(Boolean).map(s => Number(s.replace(/%$/, '')));
+  requireValue(
+    parts.length === 4
+      && parts.every(n => Number.isFinite(n) && n >= 0 && n <= 100)
+      && parts[2]! > 0 && parts[3]! > 0,
+    `Invalid narration spotlight (expected "x, y, w, h" in 0..100): ${raw}`,
+  );
+  return [r3(parts[0]!), r3(parts[1]!), r3(parts[2]!), r3(parts[3]!)];
+}
+
 // Case-sensitive lowercase metadata keys so capitalized prose (`Duration: ...`, `Audio: ...`) stays prose.
-const META_KEY_NAMES = 'text|caption|tts|say|speak|pause|duration|hold|audio|cue|step|fragment|seg|segment|fit|silent';
+const META_KEY_NAMES = 'text|caption|tts|say|speak|pause|duration|hold|audio|cue|step|fragment|seg|segment|fit|zoom|camera|focus|pan|spotlight|silent';
 const META_KEY_RE = new RegExp(`^(${META_KEY_NAMES})\\s*:\\s*(.*)$`);
 const INLINE_KEY_AHEAD_RE = new RegExp(`^(${META_KEY_NAMES})\\s*:`);
 
@@ -376,6 +399,29 @@ function applyProperty(fields: RawBeatFields, key: string, rawValue: string): 'c
     fields.fit = !v || /^(?:true|yes|1)$/i.test(v);
     return null;
   }
+  if (key === 'zoom' || key === 'camera') {
+    if (!v || /^(?:reset|none|1)$/i.test(v)) {
+      fields.zoom = 1;
+      fields.focus = [50, 50];
+      return null;
+    }
+    const atParts = v.split('@');
+    const zVal = parseNumberField('zoom', atParts[0]!, 1);
+    requireValue(zVal <= 4, `Narration zoom must be <= 4: ${v}`);
+    fields.zoom = r3(zVal);
+    if (atParts[1] !== undefined && atParts[1].trim().length > 0) {
+      fields.focus = parsePointPair('focus', atParts[1]);
+    }
+    return null;
+  }
+  if (key === 'focus' || key === 'pan') {
+    fields.focus = parsePointPair(key, v);
+    return null;
+  }
+  if (key === 'spotlight') {
+    fields.spotlight = parseSpotlightRect(v);
+    return null;
+  }
   if (key === 'silent') {
     if (!v || /^(?:true|yes|1)$/i.test(v)) {
       fields.silent = true;
@@ -416,6 +462,9 @@ function finalizeBeat(fields: RawBeatFields, glossary?: Record<string, string>):
     ...(fields.step !== undefined ? { step: fields.step } : {}),
     ...(fields.seg !== undefined ? { seg: fields.seg } : {}),
     ...(fields.fit !== undefined ? { fit: fields.fit } : {}),
+    ...(fields.zoom !== undefined ? { zoom: fields.zoom } : {}),
+    ...(fields.focus !== undefined ? { focus: fields.focus } : {}),
+    ...(fields.spotlight !== undefined ? { spotlight: fields.spotlight } : {}),
   };
 }
 
@@ -936,6 +985,9 @@ export function buildNarrationTimeline(input: BuildTimelineInput): {
         step,
         ...(beat.seg !== undefined ? { seg: beat.seg } : {}),
         ...(beat.fit !== undefined ? { fit: beat.fit } : {}),
+        ...(beat.zoom !== undefined ? { zoom: beat.zoom } : {}),
+        ...(beat.focus !== undefined ? { focus: beat.focus } : {}),
+        ...(beat.spotlight !== undefined ? { spotlight: beat.spotlight } : {}),
         caption: beat.caption,
         tts: beat.tts,
         silent: isSilentBeat,

@@ -138,10 +138,12 @@ For $a, b \\geq 0$:
 - Segment zero moves the point across the first half of the stage.
   seg: 0
   duration: 1.2
-- Segment one stretches smoothly across a two second fitted beat.
+- Segment one stretches smoothly across a two second fitted beat and zooms in.
   step: 0
   seg: 1
   fit: true
+  zoom: 1.4 @ 76, 52
+  spotlight: 48, 18, 48, 66
   duration: 2.0
 -->
 `);
@@ -235,14 +237,25 @@ For $a, b \\geq 0$:
   assert.equal(stage0.seg, 0);
   assert(stage0.t > 0.4 && stage0.t < 0.55, `Expected interpolated stage t ~ 0.45, got ${stage0.t}`);
 
-  // Beat 1 has duration: 2.0, seg: 1 ([1.0..2.0]), fit: true -> at +1.0s (halfway), stage t must be ~1.50 and seg === 1!
+  // Beat 1 has duration: 2.0, seg: 1 ([1.0..2.0]), fit: true, zoom: 1.4 @ 76, 52, spotlight -> at +1.0s (halfway), stage t ~ 1.50, seg === 1, zoom === 1.4!
   await page.evaluate(t => window.__xarpNarration.seek(t + 1.0), s3.beats[1].start);
   const stage1 = await page.evaluate(() => {
     const w = document.querySelector('svg.bespoke-marp-active iframe').contentWindow;
-    return { t: w.__lastStageT, seg: w.__lastStageSeg };
+    const st = window.__xarpNarration.getState();
+    const spotOp = parseFloat(document.querySelector('.xarp-watch-spotlight').style.opacity || '0');
+    return { t: w.__lastStageT, seg: w.__lastStageSeg, zoom: st.zoom, spotOp };
   });
   assert.equal(stage1.seg, 1);
   assert(stage1.t > 1.45 && stage1.t < 1.55, `Expected fitted stage t ~ 1.50, got ${stage1.t}`);
+  assert.equal(stage1.zoom, 1.4);
+  assert(stage1.spotOp > 0.9, `Expected spotlight active, got opacity ${stage1.spotOp}`);
+  await page.screenshot({ path: join(outputShots, 'watch-desktop-zoom-spotlight.png') });
+
+  // Interactive viewer zoom (+ and 0)
+  await page.keyboard.press('=');
+  assert(await page.evaluate(() => window.__xarpNarration.getState().userZoom) > 1.2);
+  await page.keyboard.press('0');
+  assert.equal(await page.evaluate(() => window.__xarpNarration.getState().userZoom), 1);
 
   // 4. Real audio playback advances clock monotonically without backward jumps, and live color-scheme switch themes shell & slide
   await page.evaluate(() => window.__xarpNarration.seek(0));

@@ -9,7 +9,7 @@ The [demo deck](https://talk.chaoxu.prof/xarp/) shows editing, drawing, mathemat
 Install Node.js 24 or 26, then install the release package in your project:
 
 ```sh
-npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.2.1/chaoxu-xarp-0.2.1.tgz
+npm install --save-dev https://github.com/chaoxu/xarp/releases/download/v0.2.2/chaoxu-xarp-0.2.2.tgz
 ```
 
 Write `slides.md`:
@@ -158,7 +158,7 @@ For $a, b \geq 0$:
 -->
 ```
 
-Single beats also work inline with `<!-- beat: Explain this step. -->`, silent holds with `<!-- narration: silent 2.0 -->`, and custom recorded snippets with `audio: path/to/clip.m4a` inside a beat block. For slides hosting a `chao-ui` `Stage.mount(...)` animation, set `seg: 2` to select a stage segment independently of Marp fragment `step`, and `fit: true` to stretch `[seg.from, seg.to]` over the beat's spoken duration; consecutive beats sharing the same segment interpolate smoothly across the combined span. Ordinary speaker notes without `narration:` or `beat:` stay presenter-only.
+Single beats also work inline with `<!-- beat: Explain this step. -->`, silent holds with `<!-- narration: silent 2.0 -->`, and custom recorded snippets with `audio: path/to/clip.m4a` inside a beat block. For slides hosting a `chao-ui` `Stage.mount(...)` animation, set `seg: 2` to select a stage segment independently of Marp fragment `step`, and `fit: true` to stretch `[seg.from, seg.to]` over the beat's spoken duration; consecutive beats sharing the same segment advance continuously without resetting. Beats can also drive crisp vector camera moves and focus frames directly on the live slide (`zoom: 1.45 @ 75, 42` or `zoom: 1.45` + `focus: 75, 42`, and `spotlight: 50, 14, 46, 70`), returning smoothly to `1.0×` on subsequent beats. Ordinary speaker notes without `narration:` or `beat:` stay presenter-only.
 
 Configure viewer defaults on `narration()` and synthesis options on top-level `narration` in `xarp.config.mjs` (browser `#xarp-meta` receives only `{ captions, sidebar, cues }`, never TTS endpoints, commands, or glossaries):
 
@@ -197,6 +197,7 @@ Open `?watch=1` (or press **W** in the deck) to enter Watch Mode:
 | J / L or `[` / `]` | Previous or next beat |
 | Click a transcript line or chapter | Seek to that timestamp and play |
 | Speed (`0.75×`–`2×`) | Pitch-preserved playback speed |
+| `+` / `-` / `0` or `Alt+scroll` | Zoom in, zoom out, or reset camera on the live vector slide |
 | M / V / T / F | Mute audio, toggle captions, toggle sidebar, or enter fullscreen |
 | S / C / D | Switch visual schemes live or pause to draw on the frame |
 

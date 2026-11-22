@@ -77,7 +77,7 @@ describe('narration parsing, speech normalization, and WAV trimming', () => {
 <!-- beat: Inside a code block; must be ignored! -->
 \`\`\`
 
-<!-- beat: Norm $\\|v\\| \\geq |x|$ by Chao Xu. | step: 2 | seg: 3 | fit: true -->
+<!-- beat: Norm $\\|v\\| \\geq |x|$ by Chao Xu. | step: 2 | seg: 3 | fit: true | zoom: 1.45 @ 75, 42 | spotlight: 52, 16, 44, 68 -->
 <!-- beat: pause: 1 -->
 `;
     const beats = parseSlideNarration(md, { 'Chao Xu': '许超' });
@@ -96,6 +96,9 @@ describe('narration parsing, speech normalization, and WAV trimming', () => {
     expect(beats[4]!.step).toBe(2);
     expect(beats[4]!.seg).toBe(3);
     expect(beats[4]!.fit).toBe(true);
+    expect(beats[4]!.zoom).toBe(1.45);
+    expect(beats[4]!.focus).toEqual([75, 42]);
+    expect(beats[4]!.spotlight).toEqual([52, 16, 44, 68]);
     expect(beats[4]!.tts).toContain('norm of v greater than or equal to absolute value of x by 许超.');
     expect(beats[5]!.silent).toBe(true);
     expect(beats[5]!.pause).toBe(1);

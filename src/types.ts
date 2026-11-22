@@ -116,6 +116,9 @@ export interface NarrationTimelineBeat {
   step: number;
   seg?: number;
   fit?: boolean;
+  zoom?: number;
+  focus?: [number, number];
+  spotlight?: [number, number, number, number];
   caption: string;
   tts: string;
   silent: boolean;
