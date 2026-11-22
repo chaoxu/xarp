@@ -5,7 +5,10 @@ export default {
   input: 'slides.md',
   output: 'dist',
   theme: 'showcase.css',
-  plugins: [editing(), drawing(), narration({ glossary: { KaTeX: 'Kay-tech' } }), curveDemo()],
+  plugins: [editing(), drawing(), narration(), curveDemo()],
+  narration: {
+    glossary: { KaTeX: 'Kay-tech' },
+  },
   sections: [
     { label: 'Create', count: 6 },
     { label: 'Edit', count: 5 },
